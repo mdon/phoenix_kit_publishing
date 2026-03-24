@@ -46,7 +46,7 @@ defmodule PhoenixKit.Modules.Publishing.PageBuilder.Renderer do
   defp resolve_component(:video), do: {:ok, PhoenixKit.Modules.Shared.Components.Video}
 
   defp resolve_component(:entityform),
-    do: {:ok, PhoenixKit.Modules.Shared.Components.EntityForm}
+    do: {:ok, PhoenixKitEntities.Components.EntityForm}
 
   defp resolve_component(_), do: {:error, :not_found}
 
