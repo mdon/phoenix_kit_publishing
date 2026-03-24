@@ -86,11 +86,21 @@ defmodule PhoenixKit.Modules.Publishing.Migrations.PublishingTables do
     """)
 
     # User FKs — only add if phoenix_kit_users table exists
-    maybe_add_user_fk(prefix_str, schema_name, "phoenix_kit_publishing_posts",
-      "fk_publishing_posts_created_by", "created_by_uuid")
+    maybe_add_user_fk(
+      prefix_str,
+      schema_name,
+      "phoenix_kit_publishing_posts",
+      "fk_publishing_posts_created_by",
+      "created_by_uuid"
+    )
 
-    maybe_add_user_fk(prefix_str, schema_name, "phoenix_kit_publishing_posts",
-      "fk_publishing_posts_updated_by", "updated_by_uuid")
+    maybe_add_user_fk(
+      prefix_str,
+      schema_name,
+      "phoenix_kit_publishing_posts",
+      "fk_publishing_posts_updated_by",
+      "updated_by_uuid"
+    )
 
     # Slug-mode uniqueness (partial — only when slug is present)
     execute("""
@@ -164,8 +174,13 @@ defmodule PhoenixKit.Modules.Publishing.Migrations.PublishingTables do
     )
     """)
 
-    maybe_add_user_fk(prefix_str, schema_name, "phoenix_kit_publishing_versions",
-      "fk_publishing_versions_created_by", "created_by_uuid")
+    maybe_add_user_fk(
+      prefix_str,
+      schema_name,
+      "phoenix_kit_publishing_versions",
+      "fk_publishing_versions_created_by",
+      "created_by_uuid"
+    )
 
     execute("""
     CREATE UNIQUE INDEX IF NOT EXISTS idx_publishing_versions_post_number

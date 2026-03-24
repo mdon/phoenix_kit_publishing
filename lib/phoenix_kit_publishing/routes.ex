@@ -33,7 +33,12 @@ defmodule PhoenixKitWeb.Routes.PublishingRoutes do
         end
 
       scope blog_scope_multi do
-        pipe_through [:browser, :phoenix_kit_auto_setup, :phoenix_kit_locale_validation, :phoenix_kit_optional_scope]
+        pipe_through [
+          :browser,
+          :phoenix_kit_auto_setup,
+          :phoenix_kit_locale_validation,
+          :phoenix_kit_optional_scope
+        ]
 
         get "/:group", PhoenixKit.Modules.Publishing.Web.Controller, :show,
           constraints: %{
@@ -55,7 +60,12 @@ defmodule PhoenixKitWeb.Routes.PublishingRoutes do
         end
 
       scope blog_scope_non_localized do
-        pipe_through [:browser, :phoenix_kit_auto_setup, :phoenix_kit_locale_validation, :phoenix_kit_optional_scope]
+        pipe_through [
+          :browser,
+          :phoenix_kit_auto_setup,
+          :phoenix_kit_locale_validation,
+          :phoenix_kit_optional_scope
+        ]
 
         get "/:group", PhoenixKit.Modules.Publishing.Web.Controller, :show,
           constraints: %{"group" => ~r/^(?!admin$|assets$|images$|fonts$|js$|css$|favicon)/}

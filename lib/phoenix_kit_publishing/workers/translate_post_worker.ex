@@ -68,7 +68,7 @@ defmodule PhoenixKit.Modules.Publishing.Workers.TranslatePostWorker do
 
   require Logger
 
-  alias PhoenixKit.Modules.AI
+  alias PhoenixKitAI, as: AI
   alias PhoenixKit.Modules.Publishing
   alias PhoenixKit.Modules.Publishing.Constants
   alias PhoenixKit.Modules.Publishing.LanguageHelpers
@@ -112,7 +112,7 @@ defmodule PhoenixKit.Modules.Publishing.Workers.TranslatePostWorker do
 
     # Validate AI module is enabled and prompt is provided
     cond do
-      not AI.enabled?() ->
+      not (Code.ensure_loaded?(PhoenixKitAI) and AI.enabled?()) ->
         Logger.error("[TranslatePostWorker] AI module is not enabled")
         {:error, "AI module is not enabled"}
 
@@ -834,7 +834,7 @@ defmodule PhoenixKit.Modules.Publishing.Workers.TranslatePostWorker do
         Publishing.get_post_primary_language(group_slug, post_uuid, version)
 
     cond do
-      not AI.enabled?() ->
+      not (Code.ensure_loaded?(PhoenixKitAI) and AI.enabled?()) ->
         {:error, "AI module is not enabled"}
 
       is_nil(prompt_uuid) ->
@@ -939,7 +939,7 @@ defmodule PhoenixKit.Modules.Publishing.Workers.TranslatePostWorker do
         Publishing.get_post_primary_language(group_slug, post_uuid, version)
 
     cond do
-      not AI.enabled?() ->
+      not (Code.ensure_loaded?(PhoenixKitAI) and AI.enabled?()) ->
         {:error, "AI module is not enabled"}
 
       is_nil(prompt_uuid) ->

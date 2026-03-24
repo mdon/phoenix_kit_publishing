@@ -167,7 +167,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Preview do
   @impl true
   def render(assigns) do
     ~H"""
-  <div class="min-h-screen bg-base-100">
+    <div class="min-h-screen bg-base-100">
     <%!-- Preview Banner --%>
     <div class="bg-warning text-warning-content py-2 px-4 sticky top-0 z-50 shadow-lg">
       <div class="container mx-auto flex items-center justify-between">
@@ -305,7 +305,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Preview do
         </div>
       <% end %>
     <% end %>
-  </div>
+    </div>
     """
   end
 end

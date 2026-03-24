@@ -948,7 +948,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Listing do
   @impl true
   def render(assigns) do
     ~H"""
-  <div class="container flex-col mx-auto px-4 py-6">
+    <div class="container flex-col mx-auto px-4 py-6">
     <%!-- Header Section --%>
     <% group_slug = (@current_group && @current_group["slug"]) || @group_slug || "your-group" %>
     <% url_prefix =
@@ -1395,7 +1395,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Listing do
         <% end %>
       </div>
     </div>
-  </div>
+    </div>
     """
   end
 end

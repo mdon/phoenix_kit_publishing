@@ -118,7 +118,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Edit do
 
   def render(assigns) do
     ~H"""
-  <div class="container flex flex-col mx-auto px-4 py-6">
+    <div class="container flex flex-col mx-auto px-4 py-6">
     <%!-- Header Section --%>
     <.admin_page_header
       back={Routes.path("/admin/publishing")}
@@ -200,7 +200,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Edit do
         </div>
       </div>
     </div>
-  </div>
+    </div>
     """
   end
 end

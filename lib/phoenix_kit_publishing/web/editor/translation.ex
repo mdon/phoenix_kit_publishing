@@ -8,7 +8,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor.Translation do
 
   use Gettext, backend: PhoenixKitWeb.Gettext
 
-  alias PhoenixKit.Modules.AI
+  alias PhoenixKitAI, as: AI
   alias PhoenixKit.Modules.Publishing
   alias PhoenixKit.Modules.Publishing.PresenceHelpers
   alias PhoenixKit.Modules.Publishing.PubSub, as: PublishingPubSub
@@ -22,17 +22,19 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor.Translation do
   # ============================================================================
 
   @doc """
-  Checks if AI translation is available (AI module enabled + endpoints configured).
+  Checks if AI translation is available (AI module installed + enabled + endpoints configured).
   """
   def ai_translation_available? do
-    AI.enabled?() and list_ai_endpoints() != []
+    ai_module_available?() and AI.enabled?() and list_ai_endpoints() != []
   end
+
+  defp ai_module_available?, do: Code.ensure_loaded?(PhoenixKitAI)
 
   @doc """
   Lists available AI endpoints for translation.
   """
   def list_ai_endpoints do
-    if AI.enabled?() do
+    if ai_module_available?() and AI.enabled?() do
       case AI.list_endpoints(enabled: true) do
         # Use UUID for dropdown values (stable across systems, matches settings storage)
         {endpoints, _total} -> Enum.map(endpoints, &{&1.uuid, &1.name})
@@ -48,7 +50,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor.Translation do
   Lists available AI prompts for translation.
   """
   def list_ai_prompts do
-    if AI.enabled?() do
+    if ai_module_available?() and AI.enabled?() do
       case AI.list_prompts(enabled: true) do
         {prompts, _total} -> Enum.map(prompts, &{&1.uuid, &1.name})
         prompts when is_list(prompts) -> Enum.map(prompts, &{&1.uuid, &1.name})
@@ -82,7 +84,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor.Translation do
   end
 
   defp fallback_prompt_uuid do
-    if AI.enabled?() do
+    if ai_module_available?() and AI.enabled?() do
       case AI.get_prompt_by_slug(@translation_prompt_slug) do
         nil -> nil
         prompt -> prompt.uuid
@@ -96,7 +98,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor.Translation do
   Checks if the default translation prompt already exists.
   """
   def default_translation_prompt_exists? do
-    AI.enabled?() and AI.get_prompt_by_slug(@translation_prompt_slug) != nil
+    ai_module_available?() and AI.enabled?() and AI.get_prompt_by_slug(@translation_prompt_slug) != nil
   end
 
   @doc """

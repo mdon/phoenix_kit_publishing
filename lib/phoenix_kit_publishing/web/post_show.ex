@@ -111,7 +111,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.PostShow do
   @impl true
   def render(assigns) do
     ~H"""
-  <%= if @post do %>
+    <%= if @post do %>
     <div class="max-w-4xl mx-auto p-4 md:p-6">
       <%!-- Breadcrumb --%>
       <div class="text-sm breadcrumbs mb-4">
@@ -255,7 +255,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.PostShow do
         </div>
       </div>
     </div>
-  <% end %>
+    <% end %>
     """
   end
 end

@@ -19,12 +19,12 @@ defmodule PhoenixKit.Modules.Publishing.Web.HTML do
 
   def all_groups(assigns) do
     ~H"""
-<PhoenixKitWeb.Components.LayoutWrapper.app_layout
-  flash={@flash}
-  page_title={@page_title}
-  current_path={@conn.request_path}
->
-  <div class="groups-overview-container max-w-6xl mx-auto px-6 py-8">
+    <PhoenixKitWeb.Components.LayoutWrapper.app_layout
+    flash={@flash}
+    page_title={@page_title}
+    current_path={@conn.request_path}
+    >
+    <div class="groups-overview-container max-w-6xl mx-auto px-6 py-8">
     <%!-- Page Header --%>
     <header class="mb-8">
       <h1 class="text-2xl sm:text-4xl font-bold mb-2">Publishing</h1>
@@ -82,19 +82,19 @@ defmodule PhoenixKit.Modules.Publishing.Web.HTML do
         <span>No groups configured yet.</span>
       </div>
     <% end %>
-  </div>
-</PhoenixKitWeb.Components.LayoutWrapper.app_layout>
+    </div>
+    </PhoenixKitWeb.Components.LayoutWrapper.app_layout>
     """
   end
 
   def index(assigns) do
     ~H"""
-<PhoenixKitWeb.Components.LayoutWrapper.app_layout
-  flash={@flash}
-  page_title={@page_title}
-  current_path={@conn.request_path}
->
-  <div class="group-index-container max-w-6xl mx-auto px-6 py-8">
+    <PhoenixKitWeb.Components.LayoutWrapper.app_layout
+    flash={@flash}
+    page_title={@page_title}
+    current_path={@conn.request_path}
+    >
+    <div class="group-index-container max-w-6xl mx-auto px-6 py-8">
     <%!-- Breadcrumb Navigation --%>
     <div class="breadcrumbs text-sm mb-6">
       <ul>
@@ -235,20 +235,20 @@ defmodule PhoenixKit.Modules.Publishing.Web.HTML do
         <span>{gettext("No published posts yet.")}</span>
       </div>
     <% end %>
-  </div>
-</PhoenixKitWeb.Components.LayoutWrapper.app_layout>
+    </div>
+    </PhoenixKitWeb.Components.LayoutWrapper.app_layout>
     """
   end
 
   def show(assigns) do
     ~H"""
-<PhoenixKitWeb.Components.LayoutWrapper.app_layout
-  flash={@flash}
-  page_title={@page_title}
-  current_path={@conn.request_path}
-  phoenix_kit_current_scope={assigns[:phoenix_kit_current_scope]}
->
-  <article class="post-container max-w-4xl mx-auto px-6 py-8">
+    <PhoenixKitWeb.Components.LayoutWrapper.app_layout
+    flash={@flash}
+    page_title={@page_title}
+    current_path={@conn.request_path}
+    phoenix_kit_current_scope={assigns[:phoenix_kit_current_scope]}
+    >
+    <article class="post-container max-w-4xl mx-auto px-6 py-8">
     <%!-- Breadcrumb Navigation --%>
     <div class="breadcrumbs text-sm mb-6">
       <ul>
@@ -361,8 +361,8 @@ defmodule PhoenixKit.Modules.Publishing.Web.HTML do
         )}
       </.link>
     </footer>
-  </article>
-</PhoenixKitWeb.Components.LayoutWrapper.app_layout>
+    </article>
+    </PhoenixKitWeb.Components.LayoutWrapper.app_layout>
     """
   end
 

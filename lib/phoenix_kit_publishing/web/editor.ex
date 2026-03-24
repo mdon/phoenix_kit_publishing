@@ -26,7 +26,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
   @dialyzer {:nowarn_function, handle_event: 3}
 
   alias Phoenix.LiveView.JS
-  alias PhoenixKit.Modules.AI
+  alias PhoenixKitAI, as: AI
   alias PhoenixKit.Modules.Publishing
   alias PhoenixKit.Modules.Publishing.PubSub, as: PublishingPubSub
   alias PhoenixKit.Settings
@@ -132,7 +132,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
       |> assign(:show_new_version_modal, false)
       |> assign(:new_version_source, nil)
       |> assign(:show_ai_translation, false)
-      |> assign(:ai_enabled, AI.enabled?())
+      |> assign(:ai_enabled, Code.ensure_loaded?(PhoenixKitAI) and AI.enabled?())
       |> assign(:ai_endpoints, Translation.list_ai_endpoints())
       |> assign(:ai_selected_endpoint_uuid, Translation.get_default_ai_endpoint_uuid())
       |> assign(:ai_prompts, Translation.list_ai_prompts())
@@ -1693,11 +1693,11 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
   @impl true
   def render(assigns) do
     ~H"""
-  <% nonce = assigns[:script_csp_nonce] || assigns[:csp_nonce] || "" %>
-  <% edit_disabled? = @readonly? or @translation_locked? %>
+    <% nonce = assigns[:script_csp_nonce] || assigns[:csp_nonce] || "" %>
+    <% edit_disabled? = @readonly? or @translation_locked? %>
 
-  <%!-- Unsaved changes tracking and navigation protection --%>
-  <script nonce={nonce}>
+    <%!-- Unsaved changes tracking and navigation protection --%>
+    <script nonce={nonce}>
     (function() {
       // Track unsaved changes state
       window.editorUnsavedChanges = false;
@@ -1819,18 +1819,18 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
         textarea.dispatchEvent(new KeyboardEvent("keyup", { bubbles: true }));
       };
     })();
-  </script>
-  <%!-- Hidden confirmation button for JavaScript --%>
-  <button
+    </script>
+    <%!-- Hidden confirmation button for JavaScript --%>
+    <button
     id="confirm-cancel-btn"
     type="button"
     phx-click="cancel"
     class="hidden"
     aria-hidden="true"
-  >
-  </button>
+    >
+    </button>
 
-  <div class="container mx-auto px-4 py-6 space-y-6">
+    <div class="container mx-auto px-4 py-6 space-y-6">
     <div class="flex flex-wrap items-center justify-between gap-2">
       <button type="button" class="btn btn-ghost btn-sm" phx-click="back_to_list">
         <.icon name="hero-arrow-left" class="w-4 h-4 mr-2" /> {gettext("Back to %{group}",
@@ -2771,10 +2771,10 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
         </div>
       </.form>
     </div>
-  </div>
+    </div>
 
-  <%!-- New Version Modal --%>
-  <%= if @show_new_version_modal do %>
+    <%!-- New Version Modal --%>
+    <%= if @show_new_version_modal do %>
     <div class="modal modal-open">
       <div class="modal-box max-w-md max-h-[80vh] flex flex-col">
         <h3 class="font-bold text-lg mb-4">{gettext("Create New Version")}</h3>
@@ -2858,10 +2858,10 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
       </div>
       <div class="modal-backdrop bg-base-content/50" phx-click="close_new_version_modal"></div>
     </div>
-  <% end %>
+    <% end %>
 
-  <%!-- Translation Confirmation Modal --%>
-  <.confirm_modal
+    <%!-- Translation Confirmation Modal --%>
+    <.confirm_modal
     show={@show_translation_confirm}
     on_confirm="confirm_translation"
     on_cancel="cancel_translation"
@@ -2872,17 +2872,17 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
     confirm_text={gettext("Translate")}
     cancel_text={gettext("Cancel")}
     confirm_icon="hero-language"
-  />
+    />
 
-  <%!-- Media Selector Modal --%>
-  <.live_component
+    <%!-- Media Selector Modal --%>
+    <.live_component
     module={PhoenixKitWeb.Live.Components.MediaSelectorModal}
     id="media-selector-modal"
     show={@show_media_selector}
     mode={@media_selection_mode}
     selected_uuids={@media_selected_uuids}
     phoenix_kit_current_user={assigns[:phoenix_kit_current_user]}
-  />
+    />
     """
   end
 end
