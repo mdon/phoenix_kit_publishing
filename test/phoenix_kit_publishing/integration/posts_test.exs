@@ -502,5 +502,29 @@ defmodule PhoenixKit.Integration.Publishing.PostsTest do
       assert db_post.post_time == ~T[18:30:00]
       assert db_post.post_date != original_date or db_post.post_time != original_time
     end
+
+    test "list_posts_for_listing only includes published posts with active version content" do
+      group = create_group("slug")
+
+      # Create two posts
+      {:ok, published_post} = Posts.create_post(group["slug"], %{title: "Published"})
+      {:ok, draft_post} = Posts.create_post(group["slug"], %{title: "Draft Only"})
+
+      # Publish only the first one
+      :ok = Versions.publish_version(group["slug"], published_post[:uuid], 1)
+
+      # Create a new draft version on the published post (v2 = draft, v1 = published)
+      {:ok, _v2} = Versions.create_new_version(group["slug"], published_post, %{}, %{})
+
+      listing = DBStorage.list_posts_for_listing(group["slug"])
+
+      # Only the published post should appear
+      assert length(listing) == 1
+      assert hd(listing).uuid == published_post[:uuid]
+
+      # The listing should use the published version (v1), not the draft (v2)
+      assert hd(listing).version == 1
+      assert hd(listing).metadata.title == "Published"
+    end
   end
 end

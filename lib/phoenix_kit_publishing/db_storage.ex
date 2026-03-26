@@ -701,46 +701,38 @@ defmodule PhoenixKit.Modules.Publishing.DBStorage do
 
     all_versions_by_post = batch_load_versions(post_uuids)
 
-    latest_by_post =
-      Map.new(all_versions_by_post, fn {post_uuid, versions} ->
-        {post_uuid, List.last(versions)}
+    # For the public listing, use the ACTIVE (published) version, not the latest draft.
+    # This ensures the public site shows the content that's actually live.
+    active_by_post =
+      Map.new(posts, fn post ->
+        active_uuid = Map.get(post, :active_version_uuid)
+        versions = Map.get(all_versions_by_post, post.uuid, [])
+
+        active_version =
+          if active_uuid do
+            Enum.find(versions, fn v -> v.uuid == active_uuid end)
+          end
+
+        {post.uuid, active_version}
       end)
 
-    published_by_post =
-      Map.new(all_versions_by_post, fn {post_uuid, versions} ->
-        {post_uuid, Enum.find(versions, fn v -> v.status == "published" end)}
-      end)
-
+    # Only load contents for posts that have an active version
     version_uuids_needed =
-      Enum.flat_map(posts, fn post ->
-        latest = latest_by_post[post.uuid]
-        published = published_by_post[post.uuid]
-
-        [latest, published]
-        |> Enum.reject(&is_nil/1)
-        |> Enum.uniq_by(& &1.uuid)
-        |> Enum.map(& &1.uuid)
-      end)
+      active_by_post
+      |> Map.values()
+      |> Enum.reject(&is_nil/1)
+      |> Enum.map(& &1.uuid)
 
     all_contents_by_version = batch_load_contents(version_uuids_needed)
 
-    Enum.map(posts, fn post ->
+    posts
+    |> Enum.filter(fn post -> active_by_post[post.uuid] != nil end)
+    |> Enum.map(fn post ->
       all_versions = Map.get(all_versions_by_post, post.uuid, [])
-      version = latest_by_post[post.uuid]
+      version = active_by_post[post.uuid]
+      contents = Map.get(all_contents_by_version, version.uuid, [])
 
-      if version do
-        contents = Map.get(all_contents_by_version, version.uuid, [])
-        published_version = published_by_post[post.uuid]
-
-        published_statuses =
-          build_published_statuses(published_version, version, all_contents_by_version)
-
-        Mapper.to_listing_map(post, version, contents, all_versions,
-          published_language_statuses: published_statuses
-        )
-      else
-        Mapper.to_listing_map(post, nil, [], [])
-      end
+      Mapper.to_listing_map(post, version, contents, all_versions)
     end)
   end
 

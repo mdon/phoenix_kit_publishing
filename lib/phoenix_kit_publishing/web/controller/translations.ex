@@ -75,17 +75,19 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller.Translations do
     |> Enum.uniq_by(& &1.code)
   end
 
-  # Check if a specific enabled language has published content in the group
-  # ONLY checks for EXACT matches - no base code fallback
-  # This ensures only languages with actual content show in the public switcher
-  # Uses passed posts to avoid redundant list_posts calls
+  # Check if a specific enabled language has published content in the group.
+  # Requires the language to exist, be published, and have actual content (non-empty title).
   defp has_published_content_for_language?(posts, language) do
     Enum.any?(posts, fn post ->
-      # Check if there's published content for this EXACT language only
-      # Use preloaded language_statuses map
       language in (post.available_languages || []) and
-        Map.get(post.language_statuses, language) == "published"
+        Map.get(post.language_statuses, language) == "published" and
+        has_content?(post, language)
     end)
+  end
+
+  defp has_content?(post, language) do
+    title = get_in(post, [:language_titles, language])
+    title != nil and title != "" and title != "Untitled"
   end
 
   # ============================================================================
@@ -243,6 +245,28 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller.Translations do
 
   # Translation is visible if it exists — status comes from the post level
   defp translation_published_exact?(_group_slug, post, language) do
-    language in (post.available_languages || [])
+    language in (post.available_languages || []) and
+      post_has_content_for_language?(post, language)
+  end
+
+  # Check if a post has actual content for a language (not just an empty content row)
+  defp post_has_content_for_language?(post, language) do
+    # On post pages, language_titles may not be available — check the current content
+    cond do
+      # Listing maps have language_titles
+      is_map(post[:language_titles]) ->
+        title = Map.get(post.language_titles, language)
+        title != nil and title != "" and title != "Untitled"
+
+      # Post maps: if we're checking the current language, check metadata title
+      language == post[:language] ->
+        title = get_in(post, [:metadata, :title])
+        title != nil and title != "" and title != "Untitled"
+
+      # For other languages on post maps, assume content exists if in available_languages
+      # (the content row was created intentionally)
+      true ->
+        true
+    end
   end
 end
