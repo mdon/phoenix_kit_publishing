@@ -99,7 +99,8 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor.Translation do
   Checks if the default translation prompt already exists.
   """
   def default_translation_prompt_exists? do
-    ai_module_available?() and AI.enabled?() and AI.get_prompt_by_slug(@translation_prompt_slug) != nil
+    ai_module_available?() and AI.enabled?() and
+      AI.get_prompt_by_slug(@translation_prompt_slug) != nil
   end
 
   @doc """

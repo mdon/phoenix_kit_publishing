@@ -525,5 +525,4 @@ defmodule PhoenixKit.Modules.Publishing.PubSub do
   def generate_form_key(group_slug, _, _) do
     "#{group_slug}:unknown"
   end
-
 end

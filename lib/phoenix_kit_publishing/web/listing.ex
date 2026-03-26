@@ -920,7 +920,6 @@ defmodule PhoenixKit.Modules.Publishing.Web.Listing do
     LanguageHelpers.build_post_languages(post, enabled_languages, primary_language)
   end
 
-
   @impl true
   def render(assigns) do
     ~H"""

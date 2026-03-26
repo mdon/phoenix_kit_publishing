@@ -87,7 +87,9 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor.FormsTest do
     end
 
     test "generates url_slug for translation language" do
-      socket = build_socket(%{default_language: "en", current_language: "fr", form: %{"url_slug" => ""}})
+      socket =
+        build_socket(%{default_language: "en", current_language: "fr", form: %{"url_slug" => ""}})
+
       {_socket, form, events} = Forms.maybe_update_slug_from_title(socket, "Translated Title")
 
       assert form["url_slug"] == "translated-title"

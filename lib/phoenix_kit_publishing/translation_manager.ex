@@ -234,5 +234,4 @@ defmodule PhoenixKit.Modules.Publishing.TranslationManager do
   def translate_post_to_all_languages(group_slug, post_uuid, opts \\ []) do
     TranslatePostWorker.enqueue(group_slug, post_uuid, opts)
   end
-
 end

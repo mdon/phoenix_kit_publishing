@@ -208,7 +208,9 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
         all_enabled_languages = Publishing.enabled_language_codes()
 
         old_form_key = socket.assigns[:form_key]
-        old_post_slug = socket.assigns[:post] && PublishingPubSub.broadcast_id(socket.assigns.post)
+
+        old_post_slug =
+          socket.assigns[:post] && PublishingPubSub.broadcast_id(socket.assigns.post)
 
         {socket, form_key} =
           if language && language not in post.available_languages do
@@ -261,7 +263,9 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
         requested_lang = Map.get(params, "lang")
 
         old_form_key = socket.assigns[:form_key]
-        old_post_slug = socket.assigns[:post] && PublishingPubSub.broadcast_id(socket.assigns.post)
+
+        old_post_slug =
+          socket.assigns[:post] && PublishingPubSub.broadcast_id(socket.assigns.post)
 
         {socket, form_key} =
           if requested_lang && requested_lang not in post.available_languages do

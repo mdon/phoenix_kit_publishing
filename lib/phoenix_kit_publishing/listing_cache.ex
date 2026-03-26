@@ -633,5 +633,4 @@ defmodule PhoenixKit.Modules.Publishing.ListingCache do
   def memory_cache_enabled? do
     Settings.get_setting_cached(@memory_cache_key, "true") == "true"
   end
-
 end

@@ -752,8 +752,11 @@ defmodule PhoenixKit.Modules.Publishing.Posts do
 
   defp parse_published_at_from_params(params) do
     case Map.get(params, "published_at") do
-      nil -> nil
-      "" -> nil
+      nil ->
+        nil
+
+      "" ->
+        nil
 
       dt_string when is_binary(dt_string) ->
         case DateTime.from_iso8601(dt_string) do
