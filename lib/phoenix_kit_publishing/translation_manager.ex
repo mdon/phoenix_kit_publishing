@@ -31,7 +31,7 @@ defmodule PhoenixKit.Modules.Publishing.TranslationManager do
     with {:ok, new_post} <- result do
       ListingCache.regenerate(group_slug)
 
-      broadcast_id = new_post.slug || new_post.uuid
+      broadcast_id = new_post.uuid
 
       if broadcast_id do
         PublishingPubSub.broadcast_translation_created(group_slug, broadcast_id, language_code)
@@ -112,7 +112,7 @@ defmodule PhoenixKit.Modules.Publishing.TranslationManager do
 
       case repo.delete(content) do
         {:ok, _} ->
-          broadcast_id = db_post.slug || db_post.uuid
+          broadcast_id = db_post.uuid
           ListingCache.regenerate(group_slug)
           PublishingPubSub.broadcast_translation_deleted(group_slug, broadcast_id, language_code)
           :ok
@@ -152,7 +152,7 @@ defmodule PhoenixKit.Modules.Publishing.TranslationManager do
          :ok <- validate_not_last_language(db_version) do
       case DBStorage.update_content(content, %{status: "archived"}) do
         {:ok, _} ->
-          broadcast_id = db_post.slug || db_post.uuid
+          broadcast_id = db_post.uuid
           ListingCache.regenerate(group_slug)
           PublishingPubSub.broadcast_translation_deleted(group_slug, broadcast_id, language_code)
           :ok

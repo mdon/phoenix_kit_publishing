@@ -211,8 +211,7 @@ defmodule PhoenixKit.Modules.Publishing.Posts do
         case DBStorage.update_post(db_post, %{trashed_at: nil}) do
           {:ok, _} ->
             ListingCache.regenerate(group_slug)
-            broadcast_id = db_post.slug || db_post.uuid
-            PublishingPubSub.broadcast_post_updated(group_slug, %{slug: broadcast_id})
+            PublishingPubSub.broadcast_post_updated(group_slug, %{uuid: db_post.uuid})
             {:ok, post_uuid}
 
           {:error, reason} ->
@@ -235,7 +234,7 @@ defmodule PhoenixKit.Modules.Publishing.Posts do
       db_post ->
         case DBStorage.trash_post(db_post) do
           {:ok, _} ->
-            broadcast_id = db_post.slug || db_post.uuid
+            broadcast_id = db_post.uuid
             ListingCache.regenerate(group_slug)
             PublishingPubSub.broadcast_post_deleted(group_slug, broadcast_id)
             {:ok, post_uuid}
@@ -630,6 +629,7 @@ defmodule PhoenixKit.Modules.Publishing.Posts do
       with :ok <- validate_title_for_publish(language, new_status, new_title),
            :ok <- upsert_post_content(version, language, new_title, content, params, post),
            :ok <- update_version_defaults(version, params, post),
+           {:ok, db_post} <- maybe_sync_post_datetime(db_post, params),
            :ok <- maybe_update_audit_fields(db_post, audit_meta) do
         read_updated_post(db_post, group_slug, final_slug, language, version_number)
       end
@@ -765,6 +765,30 @@ defmodule PhoenixKit.Modules.Publishing.Posts do
         dt
     end
   end
+
+  # For timestamp-mode posts, syncs post_date/post_time when published_at changes.
+  # This ensures the public URL path matches the publication date shown in the editor.
+  defp maybe_sync_post_datetime(%{mode: "timestamp"} = db_post, params) do
+    case parse_published_at_from_params(params) do
+      nil ->
+        {:ok, db_post}
+
+      %DateTime{} = dt ->
+        new_date = DateTime.to_date(dt)
+        new_time = %Time{hour: dt.hour, minute: dt.minute, second: 0, microsecond: {0, 0}}
+
+        if new_date != db_post.post_date or new_time != db_post.post_time do
+          case DBStorage.update_post(db_post, %{post_date: new_date, post_time: new_time}) do
+            {:ok, updated} -> {:ok, updated}
+            {:error, reason} -> {:error, reason}
+          end
+        else
+          {:ok, db_post}
+        end
+    end
+  end
+
+  defp maybe_sync_post_datetime(db_post, _params), do: {:ok, db_post}
 
   # Updates audit fields (updated_by_uuid, updated_by_email) on the post record
   defp maybe_update_audit_fields(db_post, audit_meta) do

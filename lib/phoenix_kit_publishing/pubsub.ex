@@ -25,12 +25,10 @@ defmodule PhoenixKit.Modules.Publishing.PubSub do
   @doc """
   Returns the broadcast identifier for a post.
 
-  Uses slug when available, falls back to uuid. This identifier is used
-  for PubSub topic construction and must be consistent between broadcasters
-  (e.g. translation worker) and subscribers (e.g. editor).
+  Always uses uuid — it's present on every post regardless of mode.
   """
   def broadcast_id(post) do
-    post[:slug] || post[:uuid]
+    post[:uuid]
   end
 
   # ============================================================================

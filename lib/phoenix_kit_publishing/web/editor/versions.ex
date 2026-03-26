@@ -51,7 +51,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor.Versions do
 
     # Save old form_key and post slug BEFORE assigning new one (for presence cleanup)
     old_form_key = socket.assigns[:form_key]
-    old_post_slug = socket.assigns[:post] && socket.assigns.post[:slug]
+    old_post_slug = socket.assigns[:post] && PublishingPubSub.broadcast_id(socket.assigns.post)
 
     socket =
       socket

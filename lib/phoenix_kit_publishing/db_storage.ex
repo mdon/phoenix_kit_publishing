@@ -118,6 +118,18 @@ defmodule PhoenixKit.Modules.Publishing.DBStorage do
   and new posts are stored with seconds zeroed. For older posts with non-zero
   seconds, falls back to hour:minute matching.
   """
+  def get_post_by_datetime(group_slug, %Date{} = date, nil) do
+    # Date-only lookup — return the first post on this date (by time asc)
+    from(p in PublishingPost,
+      join: g in assoc(p, :group),
+      where: g.slug == ^group_slug and p.post_date == ^date and is_nil(p.trashed_at),
+      order_by: [asc: p.post_time],
+      limit: 1,
+      preload: [group: g]
+    )
+    |> repo().one()
+  end
+
   def get_post_by_datetime(group_slug, %Date{} = date, %Time{} = time) do
     # Normalize to zero seconds (URLs only carry HH:MM)
     normalized_time = %Time{hour: time.hour, minute: time.minute, second: 0, microsecond: {0, 0}}

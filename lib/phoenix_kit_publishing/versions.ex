@@ -239,7 +239,7 @@ defmodule PhoenixKit.Modules.Publishing.Versions do
     case tx_result do
       {:ok, _} ->
         source_id = Keyword.get(opts, :source_id)
-        broadcast_id = db_post.slug || db_post.uuid
+        broadcast_id = db_post.uuid
         ListingCache.regenerate(group_slug)
         PublishingPubSub.broadcast_version_live_changed(group_slug, broadcast_id, version)
 
@@ -283,7 +283,7 @@ defmodule PhoenixKit.Modules.Publishing.Versions do
     case tx_result do
       {:ok, _} ->
         source_id = Keyword.get(opts, :source_id)
-        broadcast_id = db_post.slug || db_post.uuid
+        broadcast_id = db_post.uuid
         ListingCache.regenerate(group_slug)
         PublishingPubSub.broadcast_version_live_changed(group_slug, broadcast_id, nil)
 
@@ -341,7 +341,7 @@ defmodule PhoenixKit.Modules.Publishing.Versions do
     with db_post when not is_nil(db_post) <- DBStorage.get_post_by_uuid(post_uuid, [:group]),
          db_version when not is_nil(db_version) <- DBStorage.get_version(db_post.uuid, version),
          :ok <- validate_version_deletable(db_post, db_version) do
-      broadcast_id = db_post.slug || db_post.uuid
+      broadcast_id = db_post.uuid
 
       case DBStorage.update_version(db_version, %{status: "archived"}) do
         {:ok, _} ->
@@ -430,7 +430,7 @@ defmodule PhoenixKit.Modules.Publishing.Versions do
     with {:ok, db_version} <- result do
       case Shared.read_back_post(group_slug, post_uuid, db_post, nil, db_version.version_number) do
         {:ok, post} ->
-          broadcast_id = db_post.slug || db_post.uuid
+          broadcast_id = db_post.uuid
           ListingCache.regenerate(group_slug)
           broadcast_version_created(group_slug, broadcast_id, post)
           {:ok, post}

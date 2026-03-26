@@ -111,6 +111,27 @@ defmodule PhoenixKit.Integration.Publishing.PostsTest do
       assert post[:metadata][:title] == "Read Me"
     end
 
+    test "reads timestamp-mode post by date and time" do
+      group = create_group("timestamp")
+      {:ok, created} = Posts.create_post(group["slug"], %{title: "By DateTime"})
+
+      date = created[:date]
+      time = created[:time]
+      identifier = "#{date}/#{Time.to_string(time) |> String.slice(0, 5)}"
+
+      {:ok, post} = Posts.read_post(group["slug"], identifier, nil, nil)
+      assert post[:uuid] == created[:uuid]
+    end
+
+    test "reads timestamp-mode post by date only (single post on date)" do
+      group = create_group("timestamp")
+      {:ok, created} = Posts.create_post(group["slug"], %{title: "Date Only"})
+
+      date_str = Date.to_iso8601(created[:date])
+      {:ok, post} = Posts.read_post(group["slug"], date_str, nil, nil)
+      assert post[:uuid] == created[:uuid]
+    end
+
     test "reads post by slug in slug mode" do
       group = create_group("slug")
       {:ok, created} = Posts.create_post(group["slug"], %{slug: "readable-post"})
@@ -456,6 +477,30 @@ defmodule PhoenixKit.Integration.Publishing.PostsTest do
 
       version = DBStorage.get_version(post[:uuid], 1)
       assert version.published_at != nil
+    end
+
+    test "changing published_at syncs post_date and post_time for timestamp-mode posts" do
+      group = create_group("timestamp")
+      {:ok, post} = Posts.create_post(group["slug"], %{title: "Date Sync Test"})
+
+      original_post = DBStorage.get_post_by_uuid(post[:uuid])
+      original_date = original_post.post_date
+      original_time = original_post.post_time
+
+      # Update with a different published_at
+      new_dt = "2025-12-25T18:30:00Z"
+
+      {:ok, _updated} =
+        Posts.update_post(group["slug"], post, %{
+          "published_at" => new_dt,
+          "content" => "test"
+        })
+
+      # The post's date/time should now match the new published_at
+      db_post = DBStorage.get_post_by_uuid(post[:uuid])
+      assert db_post.post_date == ~D[2025-12-25]
+      assert db_post.post_time == ~T[18:30:00]
+      assert db_post.post_date != original_date or db_post.post_time != original_time
     end
   end
 end

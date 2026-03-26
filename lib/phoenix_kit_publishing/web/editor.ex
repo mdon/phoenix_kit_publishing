@@ -208,7 +208,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
         all_enabled_languages = Publishing.enabled_language_codes()
 
         old_form_key = socket.assigns[:form_key]
-        old_post_slug = socket.assigns[:post] && socket.assigns.post[:slug]
+        old_post_slug = socket.assigns[:post] && PublishingPubSub.broadcast_id(socket.assigns.post)
 
         {socket, form_key} =
           if language && language not in post.available_languages do
@@ -261,7 +261,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
         requested_lang = Map.get(params, "lang")
 
         old_form_key = socket.assigns[:form_key]
-        old_post_slug = socket.assigns[:post] && socket.assigns.post[:slug]
+        old_post_slug = socket.assigns[:post] && PublishingPubSub.broadcast_id(socket.assigns.post)
 
         {socket, form_key} =
           if requested_lang && requested_lang not in post.available_languages do
@@ -317,7 +317,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
     form_key = PublishingPubSub.generate_form_key(group_slug, virtual_post, :new)
 
     old_form_key = socket.assigns[:form_key]
-    old_post_slug = socket.assigns[:post] && socket.assigns.post[:slug]
+    old_post_slug = socket.assigns[:post] && PublishingPubSub.broadcast_id(socket.assigns.post)
 
     socket =
       socket
@@ -1447,13 +1447,10 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
     Translation.source_language_for_translation(socket)
   end
 
-  # Matches a broadcast identifier (slug or UUID) against the current post.
-  # Broadcasts may send slug for slug-mode posts or UUID for timestamp-mode posts.
+  # Matches a broadcast identifier (UUID) against the current post.
   defp post_matches?(socket, broadcast_id) do
     post = socket.assigns[:post]
-
-    post != nil &&
-      (post[:slug] == broadcast_id || post[:uuid] == broadcast_id)
+    post != nil && post[:uuid] == broadcast_id
   end
 
   defp reload_post_on_lock_acquired(socket) do
@@ -1574,7 +1571,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
     available_versions = socket.assigns.available_versions || []
     new_form_key = PublishingPubSub.generate_form_key(group_slug, virtual_post, :edit)
     old_form_key = socket.assigns[:form_key]
-    old_post_slug = socket.assigns[:post] && socket.assigns.post[:slug]
+    old_post_slug = socket.assigns[:post] && PublishingPubSub.broadcast_id(socket.assigns.post)
 
     form = Forms.post_form_with_primary_status(group_slug, virtual_post, current_version)
 

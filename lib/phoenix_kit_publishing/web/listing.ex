@@ -455,7 +455,10 @@ defmodule PhoenixKit.Modules.Publishing.Web.Listing do
 
   # Schedule a debounced update for a post
   defp schedule_debounced_update(socket, updated_post) do
-    post_slug = updated_post[:slug] || updated_post["slug"]
+    # Use slug or uuid as the post identifier (timestamp-mode posts have nil slugs)
+    post_slug =
+      updated_post[:slug] || updated_post["slug"] ||
+        updated_post[:uuid] || updated_post["uuid"]
 
     if post_slug do
       pending = socket.assigns[:pending_post_updates] || %{}
@@ -500,7 +503,10 @@ defmodule PhoenixKit.Modules.Publishing.Web.Listing do
   # We refresh the full post from the database to ensure all fields are current
   # (available_versions, language_slugs, version_statuses, etc.)
   defp update_post_in_list(socket, updated_post) do
-    post_slug = updated_post[:slug] || updated_post["slug"]
+    post_slug =
+      updated_post[:slug] || updated_post["slug"] ||
+        updated_post[:uuid] || updated_post["uuid"]
+
     can_update? = post_slug && socket.assigns[:posts] && socket.assigns[:group_slug]
 
     if can_update? do
@@ -529,10 +535,14 @@ defmodule PhoenixKit.Modules.Publishing.Web.Listing do
     end
   end
 
-  defp replace_post_in_list(socket, post_slug, fresh_post) do
+  defp replace_post_in_list(socket, post_identifier, fresh_post) do
     updated_posts =
       Enum.map(socket.assigns.posts, fn post ->
-        if post[:slug] == post_slug, do: fresh_post, else: post
+        if post[:slug] == post_identifier or post[:uuid] == post_identifier do
+          fresh_post
+        else
+          post
+        end
       end)
 
     assign(socket, :posts, updated_posts)

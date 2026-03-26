@@ -161,7 +161,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor.Collaborative do
   """
   def unsubscribe_from_old_post_topics(socket) do
     group_slug = socket.assigns[:group_slug]
-    post_slug = socket.assigns[:post] && socket.assigns.post[:slug]
+    post_slug = socket.assigns[:post] && PublishingPubSub.broadcast_id(socket.assigns.post)
 
     if group_slug && post_slug do
       PublishingPubSub.unsubscribe_from_post_translations(group_slug, post_slug)
@@ -318,7 +318,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor.Collaborative do
     group_slug = socket.assigns[:group_slug]
     post = socket.assigns[:post]
 
-    broadcast_id = post && (post[:slug] || post[:uuid])
+    broadcast_id = post && post[:uuid]
 
     if group_slug && broadcast_id do
       user_info = build_user_info(socket, user)
