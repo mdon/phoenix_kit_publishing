@@ -83,4 +83,5 @@ V88 migration in phoenix_kit core handles:
 
 - Migration: `lib/phoenix_kit_publishing/migrations/publishing_tables.ex` (reference/standalone)
 - Review: [CLAUDE_REVIEW.md](./CLAUDE_REVIEW.md)
+- Follow-up fixes: 0.1.1 (commit `07fcd85`) — see "Post-Review Fixes" section in CLAUDE_REVIEW.md
 - Previous PR: [#1](/dev_docs/pull_requests/2026/1-extract-publishing/)

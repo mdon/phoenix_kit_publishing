@@ -142,4 +142,41 @@ This is a well-executed architectural simplification that removes ~800 net lines
 
 The main risks are around the migration path (destructive column drops with no rollback) and some implementation shortcuts (duplicate helper functions, multiple DB calls per save, silent no-ops). The `Code.ensure_loaded?` pattern should be addressed before it spreads further.
 
-**Recommendation:** The design is solid. Address the `Code.ensure_loaded?` guards and the duplicate `site_default_language` functions as follow-up. Monitor for N+1 query issues on post detail pages where `resolve_version` now does a separate lookup.
+**Recommendation:** The design is solid. Monitor for N+1 query issues on post detail pages where `resolve_version` now does a separate lookup.
+
+---
+
+## Post-Review Fixes (0.1.1 — commit `07fcd85`)
+
+The following issues were addressed in a follow-up commit:
+
+### From This Review
+- **#1 `Code.ensure_loaded?` guards** — Removed from `db_storage.ex` and `mapper.ex`, replaced with direct `LanguageHelpers.get_primary_language()` calls via alias
+- **#3 `set_translation_status` silent no-op** — Added `Logger.warning` deprecation notice
+- **#4 Duplicate `site_default_language/0`** — Removed from both files, use `LanguageHelpers` directly
+
+### Compiler Warnings (leftover from PR #2)
+- Unused `all_posts` variable in `listing.ex` (2 locations)
+- Unused `Helpers` alias in `collaborative.ex`
+- Unused `@content_statuses` attribute and `LanguageHelpers` alias in `translation_manager.ex`
+
+### Credo Issues
+- **Alias ordering** — `PhoenixKitAI` and `PhoenixKitEntities` moved after `PhoenixKit.*` aliases in `editor.ex`, `translation.ex`, `translate_post_worker.ex`, `renderer.ex`
+- **`unless...else`** — Replaced with `if...else` in `render_versioned_post`
+- **Nested modules** — Aliased `PublishingTables` in `test_helper.exs`
+- **Nesting depth reduced** in 8 functions:
+  - `versions.ex` — `do_publish_version` extracted to `archive_other_published_versions!`, `publish_and_activate!`, `broadcast_publish`
+  - `translate_post_worker.ex` — `translate_single_language` rewritten with `with`; `skip_already_translated` extracted `find_already_translated`; `translate_content` and `translate_now` share extracted `validate_ai_available`, `fetch_ai_endpoint`, `read_source_post`
+  - `post_rendering.ex` — `render_versioned_post` extracted `build_versioned_post_response`
+  - `html.ex` — `build_post_url` extracted `timestamp_url_segments` with pattern-matched clauses
+  - `editor.ex` — `toggle_version_access` handler extracted `do_toggle_version_access`, `version_access_flash`
+
+### Still Open
+- **#2** `active_version_uuid` FK without preload strategy (potential N+1)
+- **#5** Trashed query rebuilds entire query
+- **#6** Multiple `update_post` DB calls per save
+- **#7** `preserve_content_data` drops non-whitelisted data keys
+- **#8** Ordering change for slug-mode groups
+- **#9** Hardcoded `"Untitled"` string
+- **#10** Unused `_group_slug` params in translate worker
+- **#11** Partial index name doesn't indicate it's partial
