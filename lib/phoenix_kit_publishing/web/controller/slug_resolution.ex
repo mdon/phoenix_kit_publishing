@@ -112,15 +112,16 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller.SlugResolution do
   defp resolve_language_for_db(language) do
     enabled = Language.get_enabled_languages()
 
-    if language in enabled do
-      language
-    else
-      if Language.base_code?(language) do
+    cond do
+      language in enabled ->
+        language
+
+      Language.base_code?(language) ->
         Language.find_dialect_for_base(language, enabled) ||
           DialectMapper.base_to_dialect(language)
-      else
+
+      true ->
         language
-      end
     end
   end
 end

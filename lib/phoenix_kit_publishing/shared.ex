@@ -158,14 +158,7 @@ defmodule PhoenixKit.Modules.Publishing.Shared do
              {:ok, time} <- parse_time(time_str) do
           {version, rest_after_version} = extract_version_from_parts(rest)
 
-          lang =
-            rest_after_version
-            |> List.first()
-            |> case do
-              nil -> nil
-              <<>> -> nil
-              lang_code -> lang_code
-            end
+          lang = extract_lang_from_parts(rest_after_version)
 
           {:ok, date, time, version, lang}
         else
@@ -176,6 +169,11 @@ defmodule PhoenixKit.Modules.Publishing.Shared do
         nil
     end
   end
+
+  defp extract_lang_from_parts([]), do: nil
+  defp extract_lang_from_parts([<<>> | _]), do: nil
+  defp extract_lang_from_parts([lang_code | _]), do: lang_code
+  defp extract_lang_from_parts(_), do: nil
 
   @doc false
   def parse_time(time_str) when is_binary(time_str) do

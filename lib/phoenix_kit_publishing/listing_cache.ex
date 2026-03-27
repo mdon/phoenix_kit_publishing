@@ -67,23 +67,29 @@ defmodule PhoenixKit.Modules.Publishing.ListingCache do
   @spec read(String.t()) :: {:ok, [map()]} | {:error, :cache_miss}
   def read(group_slug) do
     if memory_cache_enabled?() do
-      term_key = persistent_term_key(group_slug)
-
-      case safe_persistent_term_get(term_key) do
-        {:ok, _} = hit ->
-          hit
-
-        :not_found ->
-          # Cache miss — regenerate from database
-          regenerate(group_slug)
-
-          case safe_persistent_term_get(term_key) do
-            {:ok, _} = hit -> hit
-            :not_found -> {:error, :cache_miss}
-          end
-      end
+      read_from_cache(group_slug)
     else
       {:error, :cache_miss}
+    end
+  end
+
+  defp read_from_cache(group_slug) do
+    term_key = persistent_term_key(group_slug)
+
+    case safe_persistent_term_get(term_key) do
+      {:ok, _} = hit ->
+        hit
+
+      :not_found ->
+        regenerate(group_slug)
+        read_after_regenerate(term_key)
+    end
+  end
+
+  defp read_after_regenerate(term_key) do
+    case safe_persistent_term_get(term_key) do
+      {:ok, _} = hit -> hit
+      :not_found -> {:error, :cache_miss}
     end
   end
 
@@ -394,15 +400,15 @@ defmodule PhoenixKit.Modules.Publishing.ListingCache do
   """
   @spec find_post(String.t(), String.t()) :: {:ok, map()} | {:error, :not_found | :cache_miss}
   def find_post(group_slug, post_slug) do
-    case read(group_slug) do
-      {:ok, posts} ->
-        case Enum.find(posts, fn p -> p.slug == post_slug end) do
-          nil -> {:error, :not_found}
-          post -> {:ok, post}
-        end
+    with {:ok, posts} <- read(group_slug) do
+      find_in_posts_by_slug(posts, post_slug)
+    end
+  end
 
-      {:error, _} = error ->
-        error
+  defp find_in_posts_by_slug(posts, post_slug) do
+    case Enum.find(posts, fn p -> p.slug == post_slug end) do
+      nil -> {:error, :not_found}
+      post -> {:ok, post}
     end
   end
 
@@ -415,23 +421,20 @@ defmodule PhoenixKit.Modules.Publishing.ListingCache do
   @spec find_post_by_path(String.t(), String.t(), String.t()) ::
           {:ok, map()} | {:error, :not_found | :cache_miss}
   def find_post_by_path(group_slug, date, time) do
-    case read(group_slug) do
-      {:ok, posts} ->
-        # Match posts using discrete date and time fields (more robust than path string matching)
-        # Parse the input date string to compare with the cached Date struct
-        target_date = parse_date_for_lookup(date)
-        # Normalize time format (handles both "HH:MM" and "HH:MM:SS")
-        target_time = normalize_time_for_lookup(time)
+    with {:ok, posts} <- read(group_slug) do
+      find_post_by_date_time(posts, date, time)
+    end
+  end
 
-        case Enum.find(posts, fn p ->
-               dates_match?(p.date, target_date) && times_match?(p.time, target_time)
-             end) do
-          nil -> {:error, :not_found}
-          post -> {:ok, post}
-        end
+  defp find_post_by_date_time(posts, date, time) do
+    target_date = parse_date_for_lookup(date)
+    target_time = normalize_time_for_lookup(time)
 
-      {:error, _} = error ->
-        error
+    case Enum.find(posts, fn p ->
+           dates_match?(p.date, target_date) && times_match?(p.time, target_time)
+         end) do
+      nil -> {:error, :not_found}
+      post -> {:ok, post}
     end
   end
 
@@ -557,18 +560,22 @@ defmodule PhoenixKit.Modules.Publishing.ListingCache do
     mode = Map.get(post, :mode)
 
     if mode in @timestamp_modes do
-      date = post[:date]
-      time = post[:time]
-
-      if date && time do
-        date_str = if is_struct(date, Date), do: Date.to_iso8601(date), else: to_string(date)
-        time_str = format_time_for_cache(time)
-        find_post_by_path(group_slug, date_str, time_str)
-      else
-        {:error, :not_found}
-      end
+      find_post_by_timestamp_mode(group_slug, post)
     else
       find_post(group_slug, post.slug)
+    end
+  end
+
+  defp find_post_by_timestamp_mode(group_slug, post) do
+    date = post[:date]
+    time = post[:time]
+
+    if date && time do
+      date_str = if is_struct(date, Date), do: Date.to_iso8601(date), else: to_string(date)
+      time_str = format_time_for_cache(time)
+      find_post_by_path(group_slug, date_str, time_str)
+    else
+      {:error, :not_found}
     end
   end
 

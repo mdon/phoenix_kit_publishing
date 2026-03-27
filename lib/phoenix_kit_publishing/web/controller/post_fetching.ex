@@ -58,54 +58,54 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller.PostFetching do
         posts
 
       {:error, :cache_miss} ->
-        Logger.warning(
-          "[PublishingController] Cache MISS for #{group_slug} - regenerating cache synchronously"
+        handle_cache_miss(group_slug, start_time)
+    end
+  end
+
+  defp handle_cache_miss(group_slug, start_time) do
+    Logger.warning(
+      "[PublishingController] Cache MISS for #{group_slug} - regenerating cache synchronously"
+    )
+
+    case ListingCache.regenerate_if_not_in_progress(group_slug) do
+      :ok ->
+        elapsed_ms = Float.round((System.monotonic_time(:microsecond) - start_time) / 1000, 1)
+
+        Logger.info(
+          "[PublishingController] Cache regenerated for #{group_slug} (#{elapsed_ms}ms)"
         )
 
-        # Cache miss - regenerate cache synchronously to prevent race condition
-        # where subsequent requests (e.g., clicking a post) also hit cache miss.
-        # Uses lock to prevent thundering herd if multiple requests hit simultaneously.
-        case ListingCache.regenerate_if_not_in_progress(group_slug) do
-          :ok ->
-            elapsed_us = System.monotonic_time(:microsecond) - start_time
-            elapsed_ms = Float.round(elapsed_us / 1000, 1)
+        read_after_regeneration(group_slug)
 
-            Logger.info(
-              "[PublishingController] Cache regenerated for #{group_slug} (#{elapsed_ms}ms)"
-            )
+      :already_in_progress ->
+        elapsed_ms = Float.round((System.monotonic_time(:microsecond) - start_time) / 1000, 1)
 
-            # Read from freshly populated cache
-            case ListingCache.read(group_slug) do
-              {:ok, posts} ->
-                posts
+        Logger.info(
+          "[PublishingController] Cache regeneration in progress for #{group_slug}, using direct DB read (#{elapsed_ms}ms)"
+        )
 
-              {:error, reason} ->
-                Logger.warning(
-                  "[PublishingController] Cache read failed after regeneration for #{group_slug}: #{inspect(reason)}"
-                )
+        Publishing.list_posts(group_slug, nil)
 
-                Publishing.list_posts(group_slug, nil)
-            end
+      {:error, reason} ->
+        Logger.error(
+          "[PublishingController] Cache regeneration failed for #{group_slug}: #{inspect(reason)}"
+        )
 
-          :already_in_progress ->
-            elapsed_us = System.monotonic_time(:microsecond) - start_time
-            elapsed_ms = Float.round(elapsed_us / 1000, 1)
+        Publishing.list_posts(group_slug, nil)
+    end
+  end
 
-            Logger.info(
-              "[PublishingController] Cache regeneration in progress for #{group_slug}, using direct DB read (#{elapsed_ms}ms)"
-            )
+  defp read_after_regeneration(group_slug) do
+    case ListingCache.read(group_slug) do
+      {:ok, posts} ->
+        posts
 
-            # Another request is regenerating, fall back to direct DB read
-            Publishing.list_posts(group_slug, nil)
+      {:error, reason} ->
+        Logger.warning(
+          "[PublishingController] Cache read failed after regeneration for #{group_slug}: #{inspect(reason)}"
+        )
 
-          {:error, reason} ->
-            Logger.error(
-              "[PublishingController] Cache regeneration failed for #{group_slug}: #{inspect(reason)}"
-            )
-
-            # Regeneration failed, fall back to direct DB read
-            Publishing.list_posts(group_slug, nil)
-        end
+        Publishing.list_posts(group_slug, nil)
     end
   end
 end

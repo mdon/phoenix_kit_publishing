@@ -119,15 +119,7 @@ defmodule PhoenixKit.Modules.Publishing.PresenceHelpers do
 
     raw_presences
     |> Enum.flat_map(fn {socket_id, %{metas: metas}} ->
-      # Filter out metas with dead PIDs
-      valid_metas =
-        Enum.filter(metas, fn meta ->
-          case Map.get(meta, :pid) do
-            pid when is_pid(pid) -> Process.alive?(pid)
-            # Keep metas without PID
-            _ -> true
-          end
-        end)
+      valid_metas = Enum.filter(metas, &meta_alive?/1)
 
       # Take the first valid meta (most recent)
       case valid_metas do
@@ -137,6 +129,9 @@ defmodule PhoenixKit.Modules.Publishing.PresenceHelpers do
     end)
     |> Enum.sort_by(fn {_socket_id, meta} -> meta.joined_at end)
   end
+
+  defp meta_alive?(%{pid: pid}) when is_pid(pid), do: Process.alive?(pid)
+  defp meta_alive?(_), do: true
 
   @doc """
   Gets the lock owner's metadata, or nil if no one is editing.

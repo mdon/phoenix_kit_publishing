@@ -359,21 +359,9 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor.Translation do
       form_key =
         PublishingPubSub.generate_form_key(group_slug, %{uuid: post.uuid, language: lang_code})
 
-      case PresenceHelpers.get_lock_owner(form_key) do
-        nil ->
-          []
-
-        owner_meta ->
-          # Don't warn about ourselves
-          current_user = socket.assigns[:phoenix_kit_current_scope]
-          current_uuid = if current_user, do: current_user.user.uuid, else: nil
-
-          if owner_meta.user_uuid != current_uuid do
-            [{lang_code, owner_meta.user_email}]
-          else
-            []
-          end
-      end
+      form_key
+      |> PresenceHelpers.get_lock_owner()
+      |> other_editor_for_language(socket, lang_code)
     end)
   end
 
@@ -401,30 +389,45 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor.Translation do
           language: source_language
         })
 
-      case PresenceHelpers.get_lock_owner(form_key) do
-        nil ->
-          warnings
+      form_key
+      |> PresenceHelpers.get_lock_owner()
+      |> source_editor_warning(socket, source_language, warnings)
+    end
+  end
 
-        owner_meta ->
-          current_user = socket.assigns[:phoenix_kit_current_scope]
-          current_uuid = if current_user, do: current_user.user.uuid, else: nil
+  defp other_editor_for_language(nil, _socket, _lang_code), do: []
 
-          if owner_meta.user_uuid != current_uuid do
-            lang_name = get_language_display_name(source_language)
+  defp other_editor_for_language(owner_meta, socket, lang_code) do
+    current_uuid = current_user_uuid(socket)
+    if owner_meta.user_uuid != current_uuid, do: [{lang_code, owner_meta.user_email}], else: []
+  end
 
-            [
-              {:warning,
-               gettext(
-                 "%{language} (source) is currently being edited by %{user}. They will be locked out during translation.",
-                 language: lang_name,
-                 user: owner_meta.user_email
-               )}
-              | warnings
-            ]
-          else
-            warnings
-          end
-      end
+  defp source_editor_warning(nil, _socket, _source_language, warnings), do: warnings
+
+  defp source_editor_warning(owner_meta, socket, source_language, warnings) do
+    current_uuid = current_user_uuid(socket)
+
+    if owner_meta.user_uuid != current_uuid do
+      lang_name = get_language_display_name(source_language)
+
+      [
+        {:warning,
+         gettext(
+           "%{language} (source) is currently being edited by %{user}. They will be locked out during translation.",
+           language: lang_name,
+           user: owner_meta.user_email
+         )}
+        | warnings
+      ]
+    else
+      warnings
+    end
+  end
+
+  defp current_user_uuid(socket) do
+    case socket.assigns[:phoenix_kit_current_scope] do
+      nil -> nil
+      scope -> scope.user.uuid
     end
   end
 

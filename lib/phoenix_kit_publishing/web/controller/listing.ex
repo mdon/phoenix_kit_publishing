@@ -341,19 +341,17 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller.Listing do
   def fetch_group(group_slug) do
     group_slug = group_slug |> to_string() |> String.trim()
 
-    case Enum.find(Publishing.list_groups(), fn group ->
-           case group["slug"] do
-             slug when is_binary(slug) ->
-               String.downcase(slug) == String.downcase(group_slug)
-
-             _ ->
-               false
-           end
-         end) do
+    case Enum.find(Publishing.list_groups(), &group_slug_matches?(&1, group_slug)) do
       nil -> {:error, :group_not_found}
       group -> {:ok, group}
     end
   end
+
+  defp group_slug_matches?(%{"slug" => slug}, target) when is_binary(slug) do
+    String.downcase(slug) == String.downcase(target)
+  end
+
+  defp group_slug_matches?(_, _), do: false
 
   @doc """
   Gets the default group listing path for a language.

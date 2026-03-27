@@ -1307,29 +1307,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
 
   def handle_info({:translation_created, group_slug, post_identifier, language}, socket) do
     if socket.assigns[:group_slug] == group_slug && post_matches?(socket, post_identifier) do
-      case re_read_post(socket, socket.assigns[:current_language]) do
-        {:ok, updated_post} ->
-          socket =
-            socket
-            |> assign(:available_languages, updated_post.available_languages)
-            |> assign(
-              :post,
-              socket.assigns.post
-              |> Map.put(:available_languages, updated_post.available_languages)
-              |> Map.put(:language_statuses, updated_post.language_statuses)
-            )
-
-          {:noreply, socket}
-
-        {:error, _} ->
-          available = socket.assigns[:available_languages] || []
-
-          if language in available do
-            {:noreply, socket}
-          else
-            {:noreply, assign(socket, :available_languages, available ++ [language])}
-          end
-      end
+      {:noreply, handle_translation_created_update(socket, language)}
     else
       {:noreply, socket}
     end
@@ -1457,6 +1435,27 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
   end
 
   # Matches a broadcast identifier (UUID) against the current post.
+  defp handle_translation_created_update(socket, language) do
+    case re_read_post(socket, socket.assigns[:current_language]) do
+      {:ok, updated_post} ->
+        socket
+        |> assign(:available_languages, updated_post.available_languages)
+        |> assign(
+          :post,
+          socket.assigns.post
+          |> Map.put(:available_languages, updated_post.available_languages)
+          |> Map.put(:language_statuses, updated_post.language_statuses)
+        )
+
+      {:error, _} ->
+        available = socket.assigns[:available_languages] || []
+
+        if language in available,
+          do: socket,
+          else: assign(socket, :available_languages, available ++ [language])
+    end
+  end
+
   defp post_matches?(socket, broadcast_id) do
     post = socket.assigns[:post]
     post != nil && post[:uuid] == broadcast_id

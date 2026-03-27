@@ -65,19 +65,8 @@ defmodule PhoenixKit.Modules.Publishing.TranslationManager do
         {:error, :not_found}
 
       %PhoenixKit.Modules.Publishing.PublishingContent{} = _existing ->
-        # Content already exists for this language - read back the post
         db_post = DBStorage.get_post_by_uuid(post_uuid, [:group])
-
-        resolved_version =
-          if version_number do
-            version_number
-          else
-            case db_post && DBStorage.get_latest_version(db_post.uuid) do
-              nil -> nil
-              v -> v.version_number
-            end
-          end
-
+        resolved_version = resolve_version_number(db_post, version_number)
         Shared.read_back_post(group_slug, post_uuid, db_post, language_code, resolved_version)
 
       {:error, reason} ->
@@ -92,6 +81,18 @@ defmodule PhoenixKit.Modules.Publishing.TranslationManager do
       {:error, :not_found}
   end
 
+  defp resolve_version_number(_db_post, version_number) when not is_nil(version_number),
+    do: version_number
+
+  defp resolve_version_number(nil, _), do: nil
+
+  defp resolve_version_number(db_post, _) do
+    case DBStorage.get_latest_version(db_post.uuid) do
+      nil -> nil
+      v -> v.version_number
+    end
+  end
+
   @doc """
   Hard-deletes a language's content row from a post.
 
@@ -104,19 +105,12 @@ defmodule PhoenixKit.Modules.Publishing.TranslationManager do
          db_version when not is_nil(db_version) <- Shared.resolve_db_version(db_post, nil),
          content when not is_nil(content) <-
            DBStorage.get_content(db_version.uuid, language_code),
-         :ok <- validate_not_last_content(db_version, language_code) do
-      repo = PhoenixKit.RepoHelper.repo()
-
-      case repo.delete(content) do
-        {:ok, _} ->
-          broadcast_id = db_post.uuid
-          ListingCache.regenerate(group_slug)
-          PublishingPubSub.broadcast_translation_deleted(group_slug, broadcast_id, language_code)
-          :ok
-
-        {:error, reason} ->
-          {:error, reason}
-      end
+         :ok <- validate_not_last_content(db_version, language_code),
+         repo = PhoenixKit.RepoHelper.repo(),
+         {:ok, _} <- repo.delete(content) do
+      ListingCache.regenerate(group_slug)
+      PublishingPubSub.broadcast_translation_deleted(group_slug, db_post.uuid, language_code)
+      :ok
     else
       nil -> {:error, :not_found}
       {:error, _} = err -> err
@@ -146,17 +140,11 @@ defmodule PhoenixKit.Modules.Publishing.TranslationManager do
          db_version when not is_nil(db_version) <- Shared.resolve_db_version(db_post, version),
          content when not is_nil(content) <-
            DBStorage.get_content(db_version.uuid, language_code),
-         :ok <- validate_not_last_language(db_version) do
-      case DBStorage.update_content(content, %{status: "archived"}) do
-        {:ok, _} ->
-          broadcast_id = db_post.uuid
-          ListingCache.regenerate(group_slug)
-          PublishingPubSub.broadcast_translation_deleted(group_slug, broadcast_id, language_code)
-          :ok
-
-        {:error, reason} ->
-          {:error, reason}
-      end
+         :ok <- validate_not_last_language(db_version),
+         {:ok, _} <- DBStorage.update_content(content, %{status: "archived"}) do
+      ListingCache.regenerate(group_slug)
+      PublishingPubSub.broadcast_translation_deleted(group_slug, db_post.uuid, language_code)
+      :ok
     else
       nil -> {:error, :not_found}
       {:error, _} = err -> err

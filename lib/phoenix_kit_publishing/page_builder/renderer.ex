@@ -84,17 +84,19 @@ defmodule PhoenixKit.Modules.Publishing.PageBuilder.Renderer do
           ast.content
 
         ast[:children] ->
-          Enum.map_join(ast.children, fn child ->
-            case render(child, assigns) do
-              {:ok, html} -> Phoenix.HTML.safe_to_string(html)
-              _ -> ""
-            end
-          end)
+          Enum.map_join(ast.children, &render_child_to_string(&1, assigns))
 
         true ->
           ""
       end
 
     {:ok, Phoenix.HTML.raw("<div class=\"unknown-component\">#{content}</div>")}
+  end
+
+  defp render_child_to_string(child, assigns) do
+    case render(child, assigns) do
+      {:ok, html} -> Phoenix.HTML.safe_to_string(html)
+      _ -> ""
+    end
   end
 end

@@ -105,48 +105,17 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor.Persistence do
           {:ok, params}
 
         {:error, :conflicts_with_post_slug} ->
-          # Auto-clear the url_slug from ALL translations of this post
-          cleared_params = Map.put(params, "url_slug", "")
-          cleared_languages = Publishing.clear_url_slug_from_post(group_slug, post_slug, url_slug)
-
-          notice =
-            if length(cleared_languages) > 1 do
-              gettext(
-                "Custom URL slug '%{slug}' was cleared from %{count} translations because it conflicts with another post's post slug",
-                slug: url_slug,
-                count: length(cleared_languages)
-              )
-            else
-              gettext(
-                "Custom URL slug '%{slug}' for %{language} was cleared because it conflicts with another post's post slug",
-                slug: url_slug,
-                language: language
-              )
-            end
-
-          {:ok, cleared_params, notice}
+          auto_clear_and_notify(params, group_slug, post_slug, url_slug, language, :conflicts)
 
         {:error, :slug_already_exists} ->
-          # Auto-clear the url_slug from ALL translations of this post
-          cleared_params = Map.put(params, "url_slug", "")
-          cleared_languages = Publishing.clear_url_slug_from_post(group_slug, post_slug, url_slug)
-
-          notice =
-            if length(cleared_languages) > 1 do
-              gettext(
-                "Custom URL slug '%{slug}' was cleared from %{count} translations because it's already in use by another post",
-                slug: url_slug,
-                count: length(cleared_languages)
-              )
-            else
-              gettext(
-                "Custom URL slug '%{slug}' for %{language} was cleared because it's already in use by another post",
-                slug: url_slug,
-                language: language
-              )
-            end
-
-          {:ok, cleared_params, notice}
+          auto_clear_and_notify(
+            params,
+            group_slug,
+            post_slug,
+            url_slug,
+            language,
+            :already_exists
+          )
 
         {:error, reason} ->
           {:error, reason}
@@ -154,6 +123,45 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor.Persistence do
     else
       {:ok, params}
     end
+  end
+
+  defp auto_clear_and_notify(params, group_slug, post_slug, url_slug, language, reason) do
+    cleared_params = Map.put(params, "url_slug", "")
+    cleared_languages = Publishing.clear_url_slug_from_post(group_slug, post_slug, url_slug)
+    notice = slug_cleared_notice(reason, url_slug, language, length(cleared_languages))
+    {:ok, cleared_params, notice}
+  end
+
+  defp slug_cleared_notice(:conflicts, slug, _language, count) when count > 1 do
+    gettext(
+      "Custom URL slug '%{slug}' was cleared from %{count} translations because it conflicts with another post's post slug",
+      slug: slug,
+      count: count
+    )
+  end
+
+  defp slug_cleared_notice(:conflicts, slug, language, _count) do
+    gettext(
+      "Custom URL slug '%{slug}' for %{language} was cleared because it conflicts with another post's post slug",
+      slug: slug,
+      language: language
+    )
+  end
+
+  defp slug_cleared_notice(:already_exists, slug, _language, count) when count > 1 do
+    gettext(
+      "Custom URL slug '%{slug}' was cleared from %{count} translations because it's already in use by another post",
+      slug: slug,
+      count: count
+    )
+  end
+
+  defp slug_cleared_notice(:already_exists, slug, language, _count) do
+    gettext(
+      "Custom URL slug '%{slug}' for %{language} was cleared because it's already in use by another post",
+      slug: slug,
+      language: language
+    )
   end
 
   defp url_slug_error_message(:invalid_format),

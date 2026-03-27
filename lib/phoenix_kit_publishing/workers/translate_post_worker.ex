@@ -110,18 +110,8 @@ defmodule PhoenixKit.Modules.Publishing.Workers.TranslatePostWorker do
         if(attempt > 1, do: ", attempt: #{attempt}", else: "") <> ")"
     )
 
-    # Validate AI module is enabled and prompt is provided
-    cond do
-      not (Code.ensure_loaded?(PhoenixKitAI) and AI.enabled?()) ->
-        Logger.error("[TranslatePostWorker] AI module is not enabled")
-        {:error, "AI module is not enabled"}
-
-      is_nil(prompt_uuid) ->
-        Logger.error("[TranslatePostWorker] No prompt_uuid provided")
-        {:error, "No prompt selected"}
-
-      true ->
-        # Validate endpoint exists and is enabled
+    case validate_ai_requirements(prompt_uuid) do
+      :ok ->
         do_translate(
           group_slug,
           post_uuid,
@@ -132,6 +122,24 @@ defmodule PhoenixKit.Modules.Publishing.Workers.TranslatePostWorker do
           user_uuid,
           prompt_uuid
         )
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp validate_ai_requirements(prompt_uuid) do
+    cond do
+      not (Code.ensure_loaded?(PhoenixKitAI) and AI.enabled?()) ->
+        Logger.error("[TranslatePostWorker] AI module is not enabled")
+        {:error, "AI module is not enabled"}
+
+      is_nil(prompt_uuid) ->
+        Logger.error("[TranslatePostWorker] No prompt_uuid provided")
+        {:error, "No prompt selected"}
+
+      true ->
+        :ok
     end
   end
 

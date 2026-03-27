@@ -73,44 +73,8 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor.Collaborative do
 
     if Phoenix.LiveView.connected?(socket) && new_form_key && current_user do
       try do
-        # Clean up old presence tracking
-        if old_form_key && old_form_key != new_form_key do
-          PresenceHelpers.untrack_editing_session(old_form_key, socket)
-          PresenceHelpers.unsubscribe_from_editing(old_form_key)
-          PublishingPubSub.unsubscribe_from_editor_form(old_form_key)
-
-          # Unsubscribe from old post's translation and version topics
-          group_slug = socket.assigns[:group_slug]
-
-          if group_slug && old_post_slug do
-            PublishingPubSub.unsubscribe_from_post_translations(group_slug, old_post_slug)
-            PublishingPubSub.unsubscribe_from_post_versions(group_slug, old_post_slug)
-          end
-
-          # Broadcast editor left for the old post to update group dashboard
-          broadcast_editor_left_for_post(socket, old_post_slug)
-        end
-
-        # Track this user in Presence
-        case PresenceHelpers.track_editing_session(new_form_key, socket, current_user) do
-          {:ok, _ref} -> :ok
-          {:error, {:already_tracked, _pid, _topic, _key}} -> :ok
-        end
-
-        # Subscribe to presence changes and form events
-        PresenceHelpers.subscribe_to_editing(new_form_key)
-        PublishingPubSub.subscribe_to_editor_form(new_form_key)
-
-        # Subscribe to post-level topics for real-time translation/version updates
-        subscribe_to_post_translations(socket)
-        subscribe_to_post_versions(socket)
-
-        # Determine our role (owner or spectator) and broadcast if owner
-        socket
-        |> assign_editing_role(new_form_key)
-        |> maybe_broadcast_editor_joined()
-        |> maybe_load_spectator_state(new_form_key)
-        |> maybe_start_lock_expiration_timer()
+        cleanup_old_presence(old_form_key, new_form_key, socket, old_post_slug)
+        setup_new_presence(socket, new_form_key, current_user)
       rescue
         ArgumentError ->
           assign_default_editing_state(socket)
@@ -141,6 +105,24 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor.Collaborative do
       # Broadcast editor left to group listing for the OLD post
       broadcast_editor_left_for_post(socket, old_post_slug)
     end
+  end
+
+  defp setup_new_presence(socket, form_key, current_user) do
+    case PresenceHelpers.track_editing_session(form_key, socket, current_user) do
+      {:ok, _ref} -> :ok
+      {:error, {:already_tracked, _pid, _topic, _key}} -> :ok
+    end
+
+    PresenceHelpers.subscribe_to_editing(form_key)
+    PublishingPubSub.subscribe_to_editor_form(form_key)
+    subscribe_to_post_translations(socket)
+    subscribe_to_post_versions(socket)
+
+    socket
+    |> assign_editing_role(form_key)
+    |> maybe_broadcast_editor_joined()
+    |> maybe_load_spectator_state(form_key)
+    |> maybe_start_lock_expiration_timer()
   end
 
   @doc """
@@ -560,17 +542,18 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor.Collaborative do
       socket
       |> assign_editing_role(form_key)
       |> Phoenix.Component.assign(:lock_released_by_timeout, false)
-      |> then(fn s ->
-        if s.assigns[:lock_owner?] do
-          s
-          |> maybe_broadcast_editor_joined()
-          |> maybe_start_lock_expiration_timer()
-          |> Phoenix.LiveView.clear_flash()
-        else
-          # Someone else took the lock while we were idle
-          s
-        end
-      end)
+      |> maybe_reclaim_success()
+    else
+      socket
+    end
+  end
+
+  defp maybe_reclaim_success(socket) do
+    if socket.assigns[:lock_owner?] do
+      socket
+      |> maybe_broadcast_editor_joined()
+      |> maybe_start_lock_expiration_timer()
+      |> Phoenix.LiveView.clear_flash()
     else
       socket
     end

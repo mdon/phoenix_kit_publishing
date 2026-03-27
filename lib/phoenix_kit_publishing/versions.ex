@@ -264,13 +264,7 @@ defmodule PhoenixKit.Modules.Publishing.Versions do
           {:error, reason} -> repo.rollback(reason)
         end
 
-        # Set the previously-active version back to draft
-        if active_version do
-          case DBStorage.update_version(active_version, %{status: "draft"}) do
-            {:ok, _} -> :ok
-            {:error, reason} -> repo.rollback(reason)
-          end
-        end
+        revert_active_version_to_draft(repo, active_version)
       end)
 
     case tx_result do
@@ -420,17 +414,21 @@ defmodule PhoenixKit.Modules.Publishing.Versions do
         end
       end
 
-    with {:ok, db_version} <- result do
-      case Shared.read_back_post(group_slug, post_uuid, db_post, nil, db_version.version_number) do
-        {:ok, post} ->
-          broadcast_id = db_post.uuid
-          ListingCache.regenerate(group_slug)
-          broadcast_version_created(group_slug, broadcast_id, post)
-          {:ok, post}
+    with {:ok, db_version} <- result,
+         {:ok, post} <-
+           Shared.read_back_post(group_slug, post_uuid, db_post, nil, db_version.version_number) do
+      ListingCache.regenerate(group_slug)
+      broadcast_version_created(group_slug, db_post.uuid, post)
+      {:ok, post}
+    end
+  end
 
-        {:error, _} = err ->
-          err
-      end
+  defp revert_active_version_to_draft(_repo, nil), do: :ok
+
+  defp revert_active_version_to_draft(repo, active_version) do
+    case DBStorage.update_version(active_version, %{status: "draft"}) do
+      {:ok, _} -> :ok
+      {:error, reason} -> repo.rollback(reason)
     end
   end
 

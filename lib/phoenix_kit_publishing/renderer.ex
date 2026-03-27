@@ -153,6 +153,7 @@ defmodule PhoenixKit.Modules.Publishing.Renderer do
         end
       end)
 
+    # credo:disable-for-lines:2 Credo.Check.Warning.MissingMetadataKeyInLoggerConfig
     Logger.debug("Content render time: #{time}μs", content_size: byte_size(content))
     result
   end
@@ -494,6 +495,7 @@ defmodule PhoenixKit.Modules.Publishing.Renderer do
 
     # Since PhoenixKit.Cache doesn't support pattern matching,
     # we'll just log this for now and rely on content hash changes
+    # credo:disable-for-lines:6 Credo.Check.Warning.MissingMetadataKeyInLoggerConfig
     Logger.info("Cache invalidation requested",
       group: group_slug,
       identifier: identifier,

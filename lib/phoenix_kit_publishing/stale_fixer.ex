@@ -133,18 +133,16 @@ defmodule PhoenixKit.Modules.Publishing.StaleFixer do
   end
 
   defp empty_post?(ctx) do
-    if ctx.versions == [] do
-      true
-    else
-      Enum.all?(ctx.versions, fn version ->
-        contents = Map.get(ctx.contents_by_version, version.uuid, [])
+    ctx.versions == [] or Enum.all?(ctx.versions, &version_empty?(ctx, &1))
+  end
 
-        contents == [] or
-          Enum.all?(contents, fn c ->
-            (c.content || "") == "" and (c.title || "") in ["", Constants.default_title()]
-          end)
-      end)
-    end
+  defp version_empty?(ctx, version) do
+    contents = Map.get(ctx.contents_by_version, version.uuid, [])
+    contents == [] or Enum.all?(contents, &content_empty?/1)
+  end
+
+  defp content_empty?(c) do
+    (c.content || "") == "" and (c.title || "") in ["", Constants.default_title()]
   end
 
   defp past_grace_period?(post) do
@@ -163,46 +161,29 @@ defmodule PhoenixKit.Modules.Publishing.StaleFixer do
   end
 
   defp maybe_fix_post_mode(attrs, post) do
-    # First ensure the mode is a valid value
-    fixed_mode = if post.mode in @valid_group_modes, do: post.mode, else: @default_group_mode
-
-    # Then sync with the group's mode if they differ (e.g., group switched from
-    # timestamp to slug but existing posts were never updated)
-    group = if post.group, do: post.group, else: DBStorage.get_group(post.group_uuid)
-
-    fixed_mode =
-      if group && group.mode in @valid_group_modes do
-        group.mode
-      else
-        fixed_mode
-      end
-
+    fixed_mode = resolve_post_mode(post)
     if fixed_mode != post.mode, do: Map.put(attrs, :mode, fixed_mode), else: attrs
+  end
+
+  defp resolve_post_mode(post) do
+    group = if post.group, do: post.group, else: DBStorage.get_group(post.group_uuid)
+    fallback_mode = if post.mode in @valid_group_modes, do: post.mode, else: @default_group_mode
+
+    if group && group.mode in @valid_group_modes do
+      group.mode
+    else
+      fallback_mode
+    end
   end
 
   defp maybe_fix_post_slug(attrs, post, ctx) do
     effective_mode = attrs[:mode] || post.mode
 
-    if effective_mode == "slug" and (is_nil(post.slug) or post.slug == "") do
-      # Post switched to slug mode but has no slug — generate from title or date
-      base_slug = generate_slug_for_post(post, ctx)
+    needs_slug =
+      effective_mode == "slug" and (is_nil(post.slug) or post.slug == "")
 
-      if base_slug != "" do
-        # Ensure uniqueness by checking if slug exists in the group
-        slug = ensure_unique_slug(post.group_uuid, base_slug, post.uuid)
-
-        Logger.info(
-          "[Publishing] Generating slug for post #{post.uuid}: #{inspect(slug)} (mode changed to slug)"
-        )
-
-        Map.put(attrs, :slug, slug)
-      else
-        Logger.warning(
-          "[Publishing] Failed to generate slug for post #{post.uuid} — post will be unreachable in slug mode"
-        )
-
-        attrs
-      end
+    if needs_slug do
+      generate_and_assign_slug(attrs, post, ctx)
     else
       attrs
     end
@@ -226,36 +207,29 @@ defmodule PhoenixKit.Modules.Publishing.StaleFixer do
     end
   end
 
+  defp generate_and_assign_slug(attrs, post, ctx) do
+    base_slug = generate_slug_for_post(post, ctx)
+
+    if base_slug != "" do
+      slug = ensure_unique_slug(post.group_uuid, base_slug, post.uuid)
+
+      Logger.info(
+        "[Publishing] Generating slug for post #{post.uuid}: #{inspect(slug)} (mode changed to slug)"
+      )
+
+      Map.put(attrs, :slug, slug)
+    else
+      Logger.warning(
+        "[Publishing] Failed to generate slug for post #{post.uuid} — post will be unreachable in slug mode"
+      )
+
+      attrs
+    end
+  end
+
   defp generate_slug_for_post(post, ctx) do
-    # Try to get title from the latest version's primary content
-    primary_lang = LanguageHelpers.get_primary_language()
-
-    title =
-      case ctx.versions do
-        [] ->
-          nil
-
-        versions ->
-          latest = List.last(versions)
-          contents = Map.get(ctx.contents_by_version, latest.uuid, [])
-
-          case Enum.find(contents, &(&1.language == primary_lang)) do
-            nil -> nil
-            content -> content.title
-          end
-      end
-
-    base =
-      cond do
-        is_binary(title) and title not in ["", Constants.default_title()] ->
-          title
-
-        post.post_date ->
-          Date.to_iso8601(post.post_date)
-
-        true ->
-          "post-#{String.slice(post.uuid || "", 0, 8)}"
-      end
+    title = extract_primary_title(ctx)
+    base = pick_slug_base(title, post)
 
     base
     |> String.downcase()
@@ -263,43 +237,72 @@ defmodule PhoenixKit.Modules.Publishing.StaleFixer do
     |> String.trim("-")
   end
 
+  defp extract_primary_title(ctx) do
+    primary_lang = LanguageHelpers.get_primary_language()
+
+    with [_ | _] <- ctx.versions,
+         latest <- List.last(ctx.versions),
+         contents <- Map.get(ctx.contents_by_version, latest.uuid, []),
+         %{title: title} <- Enum.find(contents, &(&1.language == primary_lang)) do
+      title
+    else
+      _ -> nil
+    end
+  end
+
+  defp pick_slug_base(title, post)
+       when is_binary(title) and title != "" do
+    if title == Constants.default_title(), do: slug_fallback(post), else: title
+  end
+
+  defp pick_slug_base(_title, post), do: slug_fallback(post)
+
+  defp slug_fallback(%{post_date: post_date}) when not is_nil(post_date) do
+    Date.to_iso8601(post_date)
+  end
+
+  defp slug_fallback(post) do
+    "post-#{String.slice(post.uuid || "", 0, 8)}"
+  end
+
   defp maybe_fix_post_timestamp(attrs, post) do
     if (attrs[:mode] || post.mode) == "timestamp" do
-      now = DateTime.utc_now()
-
-      attrs
-      |> then(fn a ->
-        if is_nil(post.post_date), do: Map.put(a, :post_date, DateTime.to_date(now)), else: a
-      end)
-      |> then(fn a ->
-        if is_nil(post.post_time),
-          do: Map.put(a, :post_time, Time.new!(now.hour, now.minute, 0)),
-          else: a
-      end)
+      fill_missing_timestamp(attrs, post)
     else
       attrs
     end
   end
 
+  defp fill_missing_timestamp(attrs, post) do
+    now = DateTime.utc_now()
+    attrs = maybe_set_date(attrs, post.post_date, now)
+    maybe_set_time(attrs, post.post_time, now)
+  end
+
+  defp maybe_set_date(attrs, nil, now), do: Map.put(attrs, :post_date, DateTime.to_date(now))
+  defp maybe_set_date(attrs, _date, _now), do: attrs
+
+  defp maybe_set_time(attrs, nil, now),
+    do: Map.put(attrs, :post_time, Time.new!(now.hour, now.minute, 0))
+
+  defp maybe_set_time(attrs, _time, _now), do: attrs
+
   # If active_version_uuid points to a non-existent or non-published version, clear it
+  defp maybe_fix_active_version(attrs, %{active_version_uuid: nil}, _ctx), do: attrs
+
   defp maybe_fix_active_version(attrs, post, ctx) do
-    case post.active_version_uuid do
-      nil ->
-        attrs
+    active_uuid = post.active_version_uuid
+    version = Enum.find(ctx.versions, &(&1.uuid == active_uuid))
 
-      active_uuid ->
-        version = Enum.find(ctx.versions, &(&1.uuid == active_uuid))
+    if is_nil(version) or version.status != "published" do
+      Logger.info(
+        "[Publishing] Clearing stale active_version_uuid for post #{post.uuid}: " <>
+          "version #{inspect(active_uuid)} is #{if version, do: version.status, else: "missing"}"
+      )
 
-        if is_nil(version) or version.status != "published" do
-          Logger.info(
-            "[Publishing] Clearing stale active_version_uuid for post #{post.uuid}: " <>
-              "version #{inspect(active_uuid)} is #{if version, do: version.status, else: "missing"}"
-          )
-
-          Map.put(attrs, :active_version_uuid, nil)
-        else
-          attrs
-        end
+      Map.put(attrs, :active_version_uuid, nil)
+    else
+      attrs
     end
   end
 
@@ -427,37 +430,44 @@ defmodule PhoenixKit.Modules.Publishing.StaleFixer do
     post = DBStorage.get_post_by_uuid(post.uuid) || post
     versions = DBStorage.list_versions(post.uuid)
 
-    # If active_version_uuid points to a missing or non-published version, clear it
-    if post.active_version_uuid do
-      active_version = Enum.find(versions, &(&1.uuid == post.active_version_uuid))
+    reconcile_active_version(post, versions)
+    reconcile_trashed_post(post, versions)
+    demote_non_published_version_content(versions)
+  end
 
-      if is_nil(active_version) or active_version.status != "published" do
-        Logger.info(
-          "[Publishing] Reconcile: post #{post.uuid} active_version_uuid points to " <>
-            "#{if active_version, do: "#{active_version.status} version", else: "non-existent version"}, clearing"
-        )
+  defp reconcile_active_version(%{active_version_uuid: nil}, _versions), do: :ok
 
-        DBStorage.update_post(post, %{active_version_uuid: nil})
+  defp reconcile_active_version(post, versions) do
+    active_version = Enum.find(versions, &(&1.uuid == post.active_version_uuid))
+
+    if is_nil(active_version) or active_version.status != "published" do
+      Logger.info(
+        "[Publishing] Reconcile: post #{post.uuid} active_version_uuid points to " <>
+          "#{if active_version, do: "#{active_version.status} version", else: "non-existent version"}, clearing"
+      )
+
+      DBStorage.update_post(post, %{active_version_uuid: nil})
+    end
+  end
+
+  defp reconcile_trashed_post(%{trashed_at: nil}, _versions), do: :ok
+
+  defp reconcile_trashed_post(post, versions) do
+    published_versions = Enum.filter(versions, &(&1.status == "published"))
+
+    if published_versions != [] do
+      Logger.info(
+        "[Publishing] Reconcile: post #{post.uuid} is trashed but has #{length(published_versions)} published versions, archiving"
+      )
+
+      for v <- published_versions do
+        DBStorage.update_version(v, %{status: "archived"})
+        demote_published_content(v.uuid)
       end
     end
+  end
 
-    # If post is trashed, archive any published versions
-    if post.trashed_at do
-      published_versions = Enum.filter(versions, &(&1.status == "published"))
-
-      if published_versions != [] do
-        Logger.info(
-          "[Publishing] Reconcile: post #{post.uuid} is trashed but has #{length(published_versions)} published versions, archiving"
-        )
-
-        for v <- published_versions do
-          DBStorage.update_version(v, %{status: "archived"})
-          demote_published_content(v.uuid)
-        end
-      end
-    end
-
-    # For ALL non-published versions, no content should be "published"
+  defp demote_non_published_version_content(versions) do
     non_published_versions = Enum.reject(versions, &(&1.status == "published"))
 
     for v <- non_published_versions do

@@ -142,24 +142,25 @@ defmodule PhoenixKit.Modules.Publishing.LanguageHelpers do
         is_base_code = language_code == base_code and not String.contains?(language_code, "-")
         default_dialect = DialectMapper.base_to_dialect(base_code)
 
-        case Languages.get_available_language_by_code(default_dialect) do
-          nil ->
-            all_languages = Languages.get_available_languages()
-
-            Enum.find(all_languages, fn lang ->
-              DialectMapper.extract_base(lang.code) == base_code
-            end)
-
-          default_match ->
-            if is_base_code do
-              %{default_match | name: extract_base_language_name(default_match.name)}
-            else
-              default_match
-            end
-        end
+        resolve_predefined_by_base(base_code, default_dialect, is_base_code)
 
       exact_match ->
         exact_match
+    end
+  end
+
+  defp resolve_predefined_by_base(base_code, default_dialect, is_base_code) do
+    case Languages.get_available_language_by_code(default_dialect) do
+      nil ->
+        all_languages = Languages.get_available_languages()
+
+        Enum.find(all_languages, fn lang -> DialectMapper.extract_base(lang.code) == base_code end)
+
+      default_match when is_base_code ->
+        %{default_match | name: extract_base_language_name(default_match.name)}
+
+      default_match ->
+        default_match
     end
   end
 
@@ -178,34 +179,23 @@ defmodule PhoenixKit.Modules.Publishing.LanguageHelpers do
     exact_match =
       Enum.find(configured_languages, fn lang -> lang.code == language_code end)
 
-    result =
-      if exact_match do
-        exact_match
-      else
-        base_code = DialectMapper.extract_base(language_code)
-        default_dialect = DialectMapper.base_to_dialect(base_code)
-
-        default_match =
-          Enum.find(configured_languages, fn lang -> lang.code == default_dialect end)
-
-        if default_match do
-          default_match
-        else
-          Enum.find(configured_languages, fn lang ->
-            DialectMapper.extract_base(lang.code) == base_code
-          end)
-        end
-      end
+    result = exact_match || find_configured_by_base(configured_languages, language_code)
 
     if result do
-      %{
-        code: result.code,
-        name: result.name || result.code,
-        flag: result.flag || ""
-      }
+      %{code: result.code, name: result.name || result.code, flag: result.flag || ""}
     else
       nil
     end
+  end
+
+  defp find_configured_by_base(configured_languages, language_code) do
+    base_code = DialectMapper.extract_base(language_code)
+    default_dialect = DialectMapper.base_to_dialect(base_code)
+
+    Enum.find(configured_languages, fn lang -> lang.code == default_dialect end) ||
+      Enum.find(configured_languages, fn lang ->
+        DialectMapper.extract_base(lang.code) == base_code
+      end)
   end
 
   # ===========================================================================

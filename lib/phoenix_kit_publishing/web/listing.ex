@@ -433,22 +433,21 @@ defmodule PhoenixKit.Modules.Publishing.Web.Listing do
       group_slug ->
         all_posts = Publishing.list_posts(group_slug)
         trashed_count = length(Publishing.list_raw_posts(group_slug, "trashed"))
-        mode = socket.assigns.post_view_mode
 
         filtered_posts =
-          case mode do
-            "trashed" ->
-              Publishing.list_posts_by_status(group_slug, "trashed")
-
-            status ->
-              Enum.filter(all_posts, fn p -> p[:metadata] && p.metadata.status == status end)
-          end
+          filter_posts_by_mode(all_posts, group_slug, socket.assigns.post_view_mode)
 
         socket
         |> assign(:posts, filtered_posts)
         |> assign(:post_status_counts, build_status_counts(all_posts, trashed_count))
     end
   end
+
+  defp filter_posts_by_mode(_all_posts, group_slug, "trashed"),
+    do: Publishing.list_posts_by_status(group_slug, "trashed")
+
+  defp filter_posts_by_mode(all_posts, _group_slug, status),
+    do: Enum.filter(all_posts, fn p -> p[:metadata] && p.metadata.status == status end)
 
   # Debounce interval for post updates (500ms)
   @update_debounce_ms 500
@@ -778,23 +777,25 @@ defmodule PhoenixKit.Modules.Publishing.Web.Listing do
         {version, "published", :live}
 
       nil ->
-        # 2. Check for newest draft version
-        draft_versions =
-          version_statuses
-          |> Enum.filter(fn {_version, status} -> status == "draft" end)
-          |> Enum.map(fn {version, _} -> version end)
-          |> Enum.sort(:desc)
+        find_draft_or_latest_version(version_statuses, available_versions, post)
+    end
+  end
 
-        case draft_versions do
-          [newest_draft | _] ->
-            {newest_draft, "draft", :draft}
+  defp find_draft_or_latest_version(version_statuses, available_versions, post) do
+    draft_versions =
+      version_statuses
+      |> Enum.filter(fn {_version, status} -> status == "draft" end)
+      |> Enum.map(fn {version, _} -> version end)
+      |> Enum.sort(:desc)
 
-          [] ->
-            # 3. Fall back to latest version
-            latest = Enum.max(available_versions, fn -> post[:version] || 1 end)
-            status = Map.get(version_statuses, latest, "draft")
-            {latest, status, :latest}
-        end
+    case draft_versions do
+      [newest_draft | _] ->
+        {newest_draft, "draft", :draft}
+
+      [] ->
+        latest = Enum.max(available_versions, fn -> post[:version] || 1 end)
+        status = Map.get(version_statuses, latest, "draft")
+        {latest, status, :latest}
     end
   end
 
@@ -864,25 +865,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Listing do
   defp do_update_post_status(socket, post_uuid, new_status) do
     group_slug = socket.assigns.group_slug
 
-    result =
-      case new_status do
-        "published" ->
-          # Publish the latest version
-          case Publishing.read_post_by_uuid(post_uuid) do
-            {:ok, post} ->
-              version = post[:version] || 1
-              Publishing.publish_version(group_slug, post_uuid, version)
-
-            error ->
-              error
-          end
-
-        status when status in ["draft", "archived"] ->
-          Publishing.unpublish_post(group_slug, post_uuid)
-
-        _ ->
-          {:error, :invalid_status}
-      end
+    result = apply_status_change(group_slug, post_uuid, new_status)
 
     case result do
       :ok ->
@@ -901,6 +884,18 @@ defmodule PhoenixKit.Modules.Publishing.Web.Listing do
         {:noreply, put_flash(socket, :error, gettext("Failed to update status"))}
     end
   end
+
+  defp apply_status_change(group_slug, post_uuid, "published") do
+    case Publishing.read_post_by_uuid(post_uuid) do
+      {:ok, post} -> Publishing.publish_version(group_slug, post_uuid, post[:version] || 1)
+      error -> error
+    end
+  end
+
+  defp apply_status_change(group_slug, post_uuid, status) when status in ["draft", "archived"],
+    do: Publishing.unpublish_post(group_slug, post_uuid)
+
+  defp apply_status_change(_, _, _), do: {:error, :invalid_status}
 
   @doc """
   Builds language data for the publishing_language_switcher component.

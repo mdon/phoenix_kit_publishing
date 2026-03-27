@@ -127,15 +127,7 @@ defmodule PhoenixKit.Modules.Publishing.SlugHelpers do
 
         slug when is_binary(slug) ->
           sanitized = Slug.slugify(slug)
-
-          if sanitized == "" do
-            {:ok, Slug.slugify(title)}
-          else
-            case validate_slug(sanitized) do
-              {:ok, valid_slug} -> {:ok, valid_slug}
-              {:error, reason} -> {:error, reason}
-            end
-          end
+          if sanitized == "", do: {:ok, Slug.slugify(title)}, else: validate_slug(sanitized)
       end
 
     case base_slug_result do
@@ -201,14 +193,12 @@ defmodule PhoenixKit.Modules.Publishing.SlugHelpers do
   end
 
   defp find_conflicting_url_slugs(posts, post_slug) do
-    Enum.flat_map(posts, fn post ->
-      if post.slug == post_slug do
-        []
-      else
-        (post.language_slugs || %{})
-        |> Enum.filter(fn {_lang, url_slug} -> url_slug == post_slug end)
-        |> Enum.map(fn {lang, _} -> {post.slug, lang} end)
-      end
+    posts
+    |> Enum.reject(fn post -> post.slug == post_slug end)
+    |> Enum.flat_map(fn post ->
+      (post.language_slugs || %{})
+      |> Enum.filter(fn {_lang, url_slug} -> url_slug == post_slug end)
+      |> Enum.map(fn {lang, _} -> {post.slug, lang} end)
     end)
   end
 

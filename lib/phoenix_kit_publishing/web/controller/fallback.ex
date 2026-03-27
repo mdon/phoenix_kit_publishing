@@ -218,26 +218,38 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller.Fallback do
       # Use DB to get available languages for this timestamp post
       available = get_available_languages_for_timestamp(group_slug, date, time)
 
-      # Time exists with language content - try other languages
-      if available != [] do
-        languages_to_try =
-          ([default_lang | available] -- [requested_language])
-          |> Enum.uniq()
-
-        case find_first_published_timestamp_version(group_slug, date, time, languages_to_try) do
-          {:ok, url} ->
-            {:ok, url}
-
-          :not_found ->
-            # No published version at this time - try other times on this date
-            fallback_to_other_time_on_date(group_slug, date, time, default_lang)
-        end
-      else
-        # Time doesn't exist - try other times on this date
-        fallback_to_other_time_on_date(group_slug, date, time, default_lang)
-      end
+      try_other_languages_or_times(
+        group_slug,
+        date,
+        time,
+        available,
+        requested_language,
+        default_lang
+      )
     else
       fallback_to_default_group(requested_language)
+    end
+  end
+
+  defp try_other_languages_or_times(group_slug, date, time, [], _requested_lang, default_lang) do
+    fallback_to_other_time_on_date(group_slug, date, time, default_lang)
+  end
+
+  defp try_other_languages_or_times(
+         group_slug,
+         date,
+         time,
+         available,
+         requested_language,
+         default_lang
+       ) do
+    languages_to_try =
+      ([default_lang | available] -- [requested_language])
+      |> Enum.uniq()
+
+    case find_first_published_timestamp_version(group_slug, date, time, languages_to_try) do
+      {:ok, url} -> {:ok, url}
+      :not_found -> fallback_to_other_time_on_date(group_slug, date, time, default_lang)
     end
   end
 
@@ -272,20 +284,21 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller.Fallback do
   # Find the first published post at any of the given times
   defp find_first_published_time(group_slug, date, times, preferred_lang) do
     Enum.find_value(times, fn time ->
-      available = get_available_languages_for_timestamp(group_slug, date, time)
-
-      if available != [] do
-        # Try preferred language first, then others
-        languages = [preferred_lang | available] |> Enum.uniq()
-
-        case find_first_published_timestamp_version(group_slug, date, time, languages) do
-          {:ok, url} -> {:ok, url}
-          :not_found -> nil
-        end
-      else
-        nil
-      end
+      try_languages_for_time(group_slug, date, time, preferred_lang)
     end) || :not_found
+  end
+
+  defp try_languages_for_time(group_slug, date, time, preferred_lang) do
+    available = get_available_languages_for_timestamp(group_slug, date, time)
+
+    if available != [] do
+      languages = [preferred_lang | available] |> Enum.uniq()
+
+      case find_first_published_timestamp_version(group_slug, date, time, languages) do
+        {:ok, url} -> {:ok, url}
+        :not_found -> nil
+      end
+    end
   end
 
   @doc """
@@ -360,20 +373,13 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller.Fallback do
   defp parse_time(%Time{} = t), do: t
 
   defp parse_time(t) when is_binary(t) do
-    case String.split(t, ":") do
-      [h, m | _] ->
-        with {hour, ""} <- Integer.parse(h),
-             {minute, ""} <- Integer.parse(m) do
-          case Time.new(hour, minute, 0) do
-            {:ok, time} -> time
-            _ -> nil
-          end
-        else
-          _ -> nil
-        end
-
-      _ ->
-        nil
+    with [h, m | _] <- String.split(t, ":"),
+         {hour, ""} <- Integer.parse(h),
+         {minute, ""} <- Integer.parse(m),
+         {:ok, time} <- Time.new(hour, minute, 0) do
+      time
+    else
+      _ -> nil
     end
   end
 

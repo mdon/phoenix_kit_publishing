@@ -68,36 +68,34 @@ defmodule PhoenixKit.Modules.Publishing.Metadata do
     {lines, _depth} =
       content
       |> String.split("\n")
-      |> Enum.reduce({[], 0}, fn raw_line, {acc, depth} ->
-        line = String.trim(raw_line)
-
-        cond do
-          line == "" and depth == 0 ->
-            {acc, depth}
-
-          component_self_closing?(line) ->
-            {acc, depth}
-
-          component_open?(line) ->
-            {acc, depth + 1}
-
-          depth > 0 and multiline_self_close?(raw_line) ->
-            {acc, max(depth - 1, 0)}
-
-          component_close?(line) and depth > 0 ->
-            {acc, max(depth - 1, 0)}
-
-          depth > 0 ->
-            {acc, depth}
-
-          true ->
-            {[line | acc], depth}
-        end
-      end)
+      |> Enum.reduce({[], 0}, fn raw_line, acc -> classify_line(raw_line, acc) end)
 
     lines
     |> Enum.reverse()
     |> Enum.reject(&(&1 == ""))
+  end
+
+  defp classify_line(raw_line, {acc, 0 = depth}) do
+    line = String.trim(raw_line)
+
+    cond do
+      line == "" -> {acc, depth}
+      component_self_closing?(line) -> {acc, depth}
+      component_open?(line) -> {acc, 1}
+      true -> {[line | acc], depth}
+    end
+  end
+
+  defp classify_line(raw_line, {acc, depth}) do
+    line = String.trim(raw_line)
+
+    cond do
+      component_self_closing?(line) -> {acc, depth}
+      component_open?(line) -> {acc, depth + 1}
+      multiline_self_close?(raw_line) -> {acc, max(depth - 1, 0)}
+      component_close?(line) -> {acc, max(depth - 1, 0)}
+      true -> {acc, depth}
+    end
   end
 
   defp component_open?(line) do

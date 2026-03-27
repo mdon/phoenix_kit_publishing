@@ -354,84 +354,90 @@ defmodule PhoenixKit.Modules.Publishing.Posts do
         created_by_uuid: created_by_uuid
       }
 
-      # Add initial date/time for timestamp mode (truncate seconds since URLs use HH:MM only)
-      # The actual available timestamp is resolved inside the transaction to avoid races.
-      post_attrs =
-        if mode == "timestamp" do
-          date = DateTime.to_date(now)
-          time = %Time{hour: now.hour, minute: now.minute, second: 0, microsecond: {0, 0}}
-
-          Map.merge(post_attrs, %{
-            post_date: date,
-            post_time: time
-          })
-        else
-          post_attrs
-        end
+      post_attrs = maybe_add_initial_timestamp(post_attrs, mode, now)
 
       repo = PhoenixKit.RepoHelper.repo()
 
       tx_result =
         repo.transaction(fn ->
-          # Find available timestamp INSIDE the transaction to prevent race conditions
-          final_attrs =
-            if mode == "timestamp" do
-              {date, time} =
-                find_available_timestamp(group_slug, post_attrs.post_date, post_attrs.post_time)
-
-              %{post_attrs | post_date: date, post_time: time}
-            else
-              post_attrs
-            end
-
-          with {:ok, db_post} <- DBStorage.create_post(final_attrs),
-               {:ok, db_version} <-
-                 DBStorage.create_version(%{
-                   post_uuid: db_post.uuid,
-                   version_number: 1,
-                   status: "draft",
-                   created_by_uuid: created_by_uuid
-                 }),
-               {:ok, _content} <-
-                 DBStorage.create_content(%{
-                   version_uuid: db_version.uuid,
-                   language: primary_language,
-                   title: Shared.fetch_option(opts, :title) || "",
-                   content: Shared.fetch_option(opts, :content) || "",
-                   url_slug: post_slug
-                 }) do
-            db_post
-          else
-            {:error, reason} -> repo.rollback(reason)
-          end
+          create_post_in_transaction(
+            repo,
+            post_attrs,
+            mode,
+            group_slug,
+            opts,
+            primary_language,
+            created_by_uuid,
+            post_slug
+          )
         end)
 
-      with {:ok, db_post} <- tx_result do
-        # Read back via mapper to get a proper post map with UUID
-        read_result =
-          if mode == "timestamp" do
-            DBStorage.read_post_by_datetime(
-              group_slug,
-              db_post.post_date,
-              db_post.post_time,
-              primary_language,
-              1
-            )
-          else
-            DBStorage.read_post(group_slug, db_post.slug, primary_language, 1)
-          end
-
-        case read_result do
-          {:ok, post} ->
-            ListingCache.regenerate(group_slug)
-            PublishingPubSub.broadcast_post_created(group_slug, post)
-            {:ok, post}
-
-          {:error, _} = err ->
-            err
-        end
+      with {:ok, db_post} <- tx_result,
+           {:ok, post} <- read_back_created_post(group_slug, db_post, mode, primary_language) do
+        ListingCache.regenerate(group_slug)
+        PublishingPubSub.broadcast_post_created(group_slug, post)
+        {:ok, post}
       end
     end
+  end
+
+  defp create_post_in_transaction(
+         repo,
+         post_attrs,
+         mode,
+         group_slug,
+         opts,
+         primary_language,
+         created_by_uuid,
+         post_slug
+       ) do
+    final_attrs = resolve_timestamp_in_transaction(post_attrs, mode, group_slug)
+
+    with {:ok, db_post} <- DBStorage.create_post(final_attrs),
+         {:ok, db_version} <-
+           DBStorage.create_version(%{
+             post_uuid: db_post.uuid,
+             version_number: 1,
+             status: "draft",
+             created_by_uuid: created_by_uuid
+           }),
+         {:ok, _content} <-
+           DBStorage.create_content(%{
+             version_uuid: db_version.uuid,
+             language: primary_language,
+             title: Shared.fetch_option(opts, :title) || "",
+             content: Shared.fetch_option(opts, :content) || "",
+             url_slug: post_slug
+           }) do
+      db_post
+    else
+      {:error, reason} -> repo.rollback(reason)
+    end
+  end
+
+  defp maybe_add_initial_timestamp(post_attrs, "timestamp", now) do
+    date = DateTime.to_date(now)
+    time = %Time{hour: now.hour, minute: now.minute, second: 0, microsecond: {0, 0}}
+    Map.merge(post_attrs, %{post_date: date, post_time: time})
+  end
+
+  defp maybe_add_initial_timestamp(post_attrs, _mode, _now), do: post_attrs
+
+  defp resolve_timestamp_in_transaction(post_attrs, "timestamp", group_slug) do
+    {date, time} =
+      find_available_timestamp(group_slug, post_attrs.post_date, post_attrs.post_time)
+
+    %{post_attrs | post_date: date, post_time: time}
+  end
+
+  defp resolve_timestamp_in_transaction(post_attrs, _mode, _group_slug), do: post_attrs
+
+  defp read_back_created_post(group_slug, db_post, "timestamp", language) do
+    DBStorage.read_post_by_datetime(group_slug, db_post.post_date, db_post.post_time, language, 1)
+  end
+
+  defp read_back_created_post(group_slug, db_post, _mode, language) do
+    DBStorage.read_post(group_slug, db_post.slug, language, 1)
   end
 
   defp read_post_from_db(group_slug, identifier, language, version) do
@@ -551,12 +557,14 @@ defmodule PhoenixKit.Modules.Publishing.Posts do
   defp update_post_in_db(group_slug, post, params, audit_meta) do
     db_post = find_db_post_for_update(group_slug, post)
 
-    if db_post do
-      if post[:mode] in @timestamp_modes || db_post.mode == "timestamp" do
-        # Timestamp-mode posts don't have slugs — skip slug validation
+    cond do
+      is_nil(db_post) ->
+        {:error, :not_found}
+
+      post[:mode] in @timestamp_modes || db_post.mode == "timestamp" ->
         do_update_post_in_db(db_post, post, params, group_slug, nil, audit_meta)
-      else
-        # Handle slug changes
+
+      true ->
         desired_slug = Map.get(params, "slug", post.slug)
 
         case maybe_update_db_slug(db_post, desired_slug, group_slug) do
@@ -566,9 +574,6 @@ defmodule PhoenixKit.Modules.Publishing.Posts do
           {:error, _reason} = error ->
             error
         end
-      end
-    else
-      {:error, :not_found}
     end
   rescue
     e ->
@@ -789,10 +794,7 @@ defmodule PhoenixKit.Modules.Publishing.Posts do
         new_time = %Time{hour: dt.hour, minute: dt.minute, second: 0, microsecond: {0, 0}}
 
         if new_date != db_post.post_date or new_time != db_post.post_time do
-          case DBStorage.update_post(db_post, %{post_date: new_date, post_time: new_time}) do
-            {:ok, updated} -> {:ok, updated}
-            {:error, reason} -> {:error, reason}
-          end
+          DBStorage.update_post(db_post, %{post_date: new_date, post_time: new_time})
         else
           {:ok, db_post}
         end

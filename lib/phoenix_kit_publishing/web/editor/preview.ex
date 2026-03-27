@@ -59,32 +59,29 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor.Preview do
   end
 
   defp preview_slug(form, post) do
-    form_slug =
-      form
-      |> Map.get("slug")
-      |> case do
-        nil -> nil
-        slug -> String.trim(to_string(slug))
-      end
+    extract_form_slug(form) ||
+      extract_post_slug(post) ||
+      metadata_value(post, :slug) ||
+      metadata_value(post, "slug") ||
+      ""
+  end
 
+  defp extract_form_slug(form) do
+    case Map.get(form, "slug") do
+      nil ->
+        nil
+
+      slug ->
+        trimmed = String.trim(to_string(slug))
+        if trimmed != "", do: trimmed
+    end
+  end
+
+  defp extract_post_slug(post) do
     cond do
-      form_slug && form_slug != "" ->
-        form_slug
-
-      Map.get(post, :slug) && post.slug != "" ->
-        post.slug
-
-      Map.get(post, "slug") && post["slug"] != "" ->
-        post["slug"]
-
-      metadata_value(post, :slug) ->
-        metadata_value(post, :slug)
-
-      metadata_value(post, "slug") ->
-        metadata_value(post, "slug")
-
-      true ->
-        ""
+      Map.get(post, :slug) && post.slug != "" -> post.slug
+      Map.get(post, "slug") && post["slug"] != "" -> post["slug"]
+      true -> nil
     end
   end
 
@@ -270,39 +267,39 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor.Preview do
     identifier = post[:uuid] || post[:slug]
 
     if identifier do
-      case Publishing.read_post(group_slug, identifier) do
-        {:ok, db_post} ->
-          # Merge DB metadata as base, with preview metadata on top.
-          # This preserves non-form fields (description, created_at, version_created_at,
-          # previous_url_slugs, etc.) that aren't carried in the preview token,
-          # preventing silent data loss if the user saves after returning from preview.
-          preview_meta_values =
-            post.metadata |> Enum.reject(fn {_k, v} -> is_nil(v) end) |> Map.new()
-
-          merged_metadata = Map.merge(db_post.metadata, preview_meta_values)
-
-          enriched =
-            post
-            |> Map.put(:metadata, merged_metadata)
-            |> Map.put(:language_statuses, Map.get(db_post, :language_statuses, %{}))
-            |> Map.put(:available_versions, Map.get(db_post, :available_versions, []))
-            |> Map.put(:version_statuses, Map.get(db_post, :version_statuses, %{}))
-            |> Map.put(:version_dates, Map.get(db_post, :version_dates, %{}))
-            |> Map.put(:version, Map.get(db_post, :version))
-
-          {enriched, db_post}
-
-        {:error, reason} ->
-          Logger.debug("Preview enrich_from_db failed for #{identifier}: #{inspect(reason)}")
-          fallback_status = Map.get(post.metadata, :status, "draft")
-          enriched = Map.put(post, :language_statuses, %{post.language => fallback_status})
-          {enriched, nil}
-      end
+      do_enrich_from_db(post, group_slug, identifier)
     else
-      fallback_status = Map.get(post.metadata, :status, "draft")
-      enriched = Map.put(post, :language_statuses, %{post.language => fallback_status})
-      {enriched, nil}
+      enrich_fallback(post)
     end
+  end
+
+  defp do_enrich_from_db(post, group_slug, identifier) do
+    case Publishing.read_post(group_slug, identifier) do
+      {:ok, db_post} ->
+        preview_meta_values =
+          post.metadata |> Enum.reject(fn {_k, v} -> is_nil(v) end) |> Map.new()
+
+        enriched =
+          post
+          |> Map.put(:metadata, Map.merge(db_post.metadata, preview_meta_values))
+          |> Map.put(:language_statuses, Map.get(db_post, :language_statuses, %{}))
+          |> Map.put(:available_versions, Map.get(db_post, :available_versions, []))
+          |> Map.put(:version_statuses, Map.get(db_post, :version_statuses, %{}))
+          |> Map.put(:version_dates, Map.get(db_post, :version_dates, %{}))
+          |> Map.put(:version, Map.get(db_post, :version))
+
+        {enriched, db_post}
+
+      {:error, reason} ->
+        Logger.debug("Preview enrich_from_db failed for #{identifier}: #{inspect(reason)}")
+        enrich_fallback(post)
+    end
+  end
+
+  defp enrich_fallback(post) do
+    fallback_status = Map.get(post.metadata, :status, "draft")
+    enriched = Map.put(post, :language_statuses, %{post.language => fallback_status})
+    {enriched, nil}
   end
 
   defp normalize_preview_metadata(metadata, mode) do

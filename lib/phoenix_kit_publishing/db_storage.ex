@@ -503,33 +503,35 @@ defmodule PhoenixKit.Modules.Publishing.DBStorage do
 
   @doc "Finds content by URL slug across all versions in a group. Excludes trashed posts."
   def find_by_url_slug(group_slug, language, url_slug) do
-    # Try matching by content url_slug first
-    result =
-      from(c in PublishingContent,
-        join: v in assoc(c, :version),
-        join: p in assoc(v, :post),
-        join: g in assoc(p, :group),
-        where:
-          g.slug == ^group_slug and c.language == ^language and c.url_slug == ^url_slug and
-            is_nil(p.trashed_at),
-        preload: [version: {v, post: {p, group: g}}]
-      )
-      |> repo().one()
+    find_by_custom_url_slug(group_slug, language, url_slug) ||
+      find_by_post_slug_fallback(group_slug, language, url_slug)
+  end
 
-    # Fallback: if no custom url_slug match, try matching by post.slug
-    # (content rows with NULL/empty url_slug use the post slug as their public URL)
-    result ||
-      from(c in PublishingContent,
-        join: v in assoc(c, :version),
-        join: p in assoc(v, :post),
-        join: g in assoc(p, :group),
-        where:
-          g.slug == ^group_slug and c.language == ^language and p.slug == ^url_slug and
-            is_nil(p.trashed_at) and
-            (is_nil(c.url_slug) or c.url_slug == ""),
-        preload: [version: {v, post: {p, group: g}}]
-      )
-      |> repo().one()
+  defp find_by_custom_url_slug(group_slug, language, url_slug) do
+    from(c in PublishingContent,
+      join: v in assoc(c, :version),
+      join: p in assoc(v, :post),
+      join: g in assoc(p, :group),
+      where:
+        g.slug == ^group_slug and c.language == ^language and c.url_slug == ^url_slug and
+          is_nil(p.trashed_at),
+      preload: [version: {v, post: {p, group: g}}]
+    )
+    |> repo().one()
+  end
+
+  defp find_by_post_slug_fallback(group_slug, language, url_slug) do
+    from(c in PublishingContent,
+      join: v in assoc(c, :version),
+      join: p in assoc(v, :post),
+      join: g in assoc(p, :group),
+      where:
+        g.slug == ^group_slug and c.language == ^language and p.slug == ^url_slug and
+          is_nil(p.trashed_at) and
+          (is_nil(c.url_slug) or c.url_slug == ""),
+      preload: [version: {v, post: {p, group: g}}]
+    )
+    |> repo().one()
   end
 
   @doc "Finds content by a previous URL slug (stored in data.previous_url_slugs JSONB array). Excludes trashed posts."
@@ -665,27 +667,13 @@ defmodule PhoenixKit.Modules.Publishing.DBStorage do
       all_versions = Map.get(all_versions_by_post, post.uuid, [])
       version = latest_by_post[post.uuid]
 
-      if version do
-        contents = Map.get(all_contents_by_version, version.uuid, [])
-        published_version = published_by_post[post.uuid]
-
-        published_statuses =
-          build_published_statuses(published_version, version, all_contents_by_version)
-
-        primary_content = resolve_content(contents, nil)
-
-        if primary_content do
-          Mapper.to_post_map(post, version, primary_content, contents, all_versions,
-            published_language_statuses: published_statuses
-          )
-        else
-          Mapper.to_listing_map(post, version, contents, all_versions,
-            published_language_statuses: published_statuses
-          )
-        end
-      else
-        Mapper.to_listing_map(post, nil, [], [])
-      end
+      build_post_or_listing_map(
+        post,
+        all_versions,
+        version,
+        all_contents_by_version,
+        published_by_post
+      )
     end)
   end
 
@@ -708,12 +696,7 @@ defmodule PhoenixKit.Modules.Publishing.DBStorage do
       Map.new(posts, fn post ->
         active_uuid = Map.get(post, :active_version_uuid)
         versions = Map.get(all_versions_by_post, post.uuid, [])
-
-        active_version =
-          if active_uuid do
-            Enum.find(versions, fn v -> v.uuid == active_uuid end)
-          end
-
+        active_version = find_active_version(versions, active_uuid)
         {post.uuid, active_version}
       end)
 
@@ -740,6 +723,33 @@ defmodule PhoenixKit.Modules.Publishing.DBStorage do
   # ===========================================================================
   # Private Helpers
   # ===========================================================================
+
+  defp build_post_or_listing_map(post, all_versions, nil, _all_contents, _published_by_post) do
+    Mapper.to_listing_map(post, nil, [], all_versions)
+  end
+
+  defp build_post_or_listing_map(post, all_versions, version, all_contents, published_by_post) do
+    contents = Map.get(all_contents, version.uuid, [])
+    published_version = published_by_post[post.uuid]
+    published_statuses = build_published_statuses(published_version, version, all_contents)
+    primary_content = resolve_content(contents, nil)
+
+    if primary_content do
+      Mapper.to_post_map(post, version, primary_content, contents, all_versions,
+        published_language_statuses: published_statuses
+      )
+    else
+      Mapper.to_listing_map(post, version, contents, all_versions,
+        published_language_statuses: published_statuses
+      )
+    end
+  end
+
+  defp find_active_version(_versions, nil), do: nil
+
+  defp find_active_version(versions, active_uuid) do
+    Enum.find(versions, fn v -> v.uuid == active_uuid end)
+  end
 
   defp resolve_version(post, nil) do
     # Prefer the active (published) version; fall back to latest for unpublished posts

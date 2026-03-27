@@ -57,42 +57,8 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller.PostRendering do
   def render_resolved_post(conn, group_slug, identifier, language) do
     case PostFetching.fetch_post(group_slug, identifier, language) do
       {:ok, post} ->
-        # Check if post is published and not future-dated
         if post.metadata.status == "published" and not future_post?(post) do
-          # Check if we need to redirect to canonical URL
-          # The canonical URL uses the display_code (base or full dialect depending on enabled languages)
-          canonical_language = Language.get_canonical_url_language_for_post(post.language)
-
-          if canonical_language != language do
-            # Redirect to canonical URL
-            canonical_url = PublishingHTML.build_post_url(group_slug, post, canonical_language)
-            {:redirect, canonical_url}
-          else
-            # Render markdown (cached for published posts)
-            html_content = render_post_content(post)
-
-            # Build translation links
-            translations =
-              Translations.build_translation_links(group_slug, post, canonical_language)
-
-            # Build breadcrumbs
-            breadcrumbs = build_breadcrumbs(group_slug, post, canonical_language)
-
-            # Build version dropdown data if allowed
-            version_dropdown = build_version_dropdown(group_slug, post, canonical_language)
-
-            {:ok,
-             %{
-               page_title: post.metadata.title || Constants.default_title(),
-               group_slug: group_slug,
-               post: post,
-               html_content: html_content,
-               current_language: canonical_language,
-               translations: translations,
-               breadcrumbs: breadcrumbs,
-               version_dropdown: version_dropdown
-             }}
-          end
+          render_published_post(group_slug, post, language)
         else
           log_404(conn, group_slug, identifier, language, :unpublished)
           {:error, :unpublished}
@@ -101,6 +67,32 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller.PostRendering do
       {:error, reason} ->
         log_404(conn, group_slug, identifier, language, reason)
         {:error, reason}
+    end
+  end
+
+  defp render_published_post(group_slug, post, language) do
+    canonical_language = Language.get_canonical_url_language_for_post(post.language)
+
+    if canonical_language != language do
+      canonical_url = PublishingHTML.build_post_url(group_slug, post, canonical_language)
+      {:redirect, canonical_url}
+    else
+      html_content = render_post_content(post)
+      translations = Translations.build_translation_links(group_slug, post, canonical_language)
+      breadcrumbs = build_breadcrumbs(group_slug, post, canonical_language)
+      version_dropdown = build_version_dropdown(group_slug, post, canonical_language)
+
+      {:ok,
+       %{
+         page_title: post.metadata.title || Constants.default_title(),
+         group_slug: group_slug,
+         post: post,
+         html_content: html_content,
+         current_language: canonical_language,
+         translations: translations,
+         breadcrumbs: breadcrumbs,
+         version_dropdown: version_dropdown
+       }}
     end
   end
 
@@ -166,27 +158,25 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller.PostRendering do
   def handle_date_only_url(conn, group_slug, date, language) do
     case Listing.fetch_group(group_slug) do
       {:ok, _group} ->
-        times = Publishing.list_times_on_date(group_slug, date)
-
-        case times do
-          [] ->
-            # No timestamp posts on this date — try as a slug in case
-            # a slug-mode post happens to look like a date (e.g., "2026-03-13")
-            render_post(conn, group_slug, {:slug, date}, language)
-
-          [single_time] ->
-            # Only one post - render it directly
-            render_post(conn, group_slug, {:timestamp, date, single_time}, language)
-
-          [first_time | _rest] ->
-            # Multiple posts - redirect to first one with time in URL
-            canonical_language = Language.get_canonical_url_language(language)
-            redirect_url = build_timestamp_url(group_slug, date, first_time, canonical_language)
-            {:redirect, redirect_url}
-        end
+        handle_date_posts(conn, group_slug, date, language)
 
       {:error, reason} ->
         {:error, reason}
+    end
+  end
+
+  defp handle_date_posts(conn, group_slug, date, language) do
+    case Publishing.list_times_on_date(group_slug, date) do
+      [] ->
+        render_post(conn, group_slug, {:slug, date}, language)
+
+      [single_time] ->
+        render_post(conn, group_slug, {:timestamp, date, single_time}, language)
+
+      [first_time | _rest] ->
+        canonical_language = Language.get_canonical_url_language(language)
+        redirect_url = build_timestamp_url(group_slug, date, first_time, canonical_language)
+        {:redirect, redirect_url}
     end
   end
 
@@ -231,30 +221,42 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller.PostRendering do
         |> Enum.map(fn {v, _status} -> v end)
         |> Enum.sort(:desc)
 
-      # Only show dropdown if there are multiple published versions
-      if length(published_versions) > 1 do
-        versions_with_urls =
-          Enum.map(published_versions, fn version ->
-            url = build_version_url(group_slug, post, language, version)
-
-            %{
-              version: version,
-              url: url,
-              is_current: version == current_version,
-              is_live: version == live_version
-            }
-          end)
-
-        %{
-          versions: versions_with_urls,
-          current_version: current_version
-        }
-      else
-        nil
-      end
+      build_version_dropdown_data(
+        published_versions,
+        group_slug,
+        post,
+        language,
+        current_version,
+        live_version
+      )
     else
       nil
     end
+  end
+
+  defp build_version_dropdown_data(published_versions, _group_slug, _post, _lang, _current, _live)
+       when length(published_versions) <= 1,
+       do: nil
+
+  defp build_version_dropdown_data(
+         published_versions,
+         group_slug,
+         post,
+         language,
+         current_version,
+         live_version
+       ) do
+    versions_with_urls =
+      Enum.map(published_versions, fn version ->
+        %{
+          version: version,
+          url: build_version_url(group_slug, post, language, version),
+          is_current: version == current_version,
+          is_live: version == live_version
+        }
+      end)
+
+    %{versions: versions_with_urls, current_version: current_version}
   end
 
   @doc """
@@ -371,6 +373,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller.PostRendering do
   # Logging
   # ============================================================================
 
+  # credo:disable-for-lines:10 Credo.Check.Warning.MissingMetadataKeyInLoggerConfig
   defp log_404(conn, group_slug, identifier, language, reason) do
     Logger.info("Publishing 404",
       group_slug: group_slug,

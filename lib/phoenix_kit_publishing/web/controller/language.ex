@@ -42,25 +42,21 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller.Language do
 
       # Not a language - shift parameters (group slug in language position)
       true ->
-        default_language = get_default_language()
-
-        adjusted_params =
-          case params do
-            # Pattern: %{"language" => group_slug, "group" => first_path_segment, "path" => rest}
-            %{"group" => first_segment, "path" => rest} when is_list(rest) ->
-              %{"group" => language_param, "path" => [first_segment | rest]}
-
-            # Pattern: %{"language" => group_slug, "group" => first_path_segment}
-            %{"group" => first_segment} ->
-              %{"group" => language_param, "path" => [first_segment]}
-
-            # Pattern: %{"language" => group_slug} (just listing)
-            _ ->
-              %{"group" => language_param}
-          end
-
-        {default_language, adjusted_params}
+        {get_default_language(), shift_language_to_group(language_param, params)}
     end
+  end
+
+  defp shift_language_to_group(language_param, %{"group" => first_segment, "path" => rest})
+       when is_list(rest) do
+    %{"group" => language_param, "path" => [first_segment | rest]}
+  end
+
+  defp shift_language_to_group(language_param, %{"group" => first_segment}) do
+    %{"group" => language_param, "path" => [first_segment]}
+  end
+
+  defp shift_language_to_group(language_param, _params) do
+    %{"group" => language_param}
   end
 
   @doc """
@@ -301,17 +297,13 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller.Language do
   end
 
   defp group_exists?(group_slug) do
-    case Enum.find(Publishing.list_groups(), fn group ->
-           case group["slug"] do
-             slug when is_binary(slug) ->
-               String.downcase(slug) == String.downcase(to_string(group_slug))
-
-             _ ->
-               false
-           end
-         end) do
-      nil -> false
-      _ -> true
-    end
+    target = to_string(group_slug)
+    Enum.any?(Publishing.list_groups(), &group_slug_matches?(&1, target))
   end
+
+  defp group_slug_matches?(%{"slug" => slug}, target) when is_binary(slug) do
+    String.downcase(slug) == String.downcase(target)
+  end
+
+  defp group_slug_matches?(_, _), do: false
 end

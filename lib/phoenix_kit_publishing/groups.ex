@@ -141,15 +141,7 @@ defmodule PhoenixKit.Modules.Publishing.Groups do
             }
           }
 
-          case DBStorage.create_group(db_attrs) do
-            {:ok, db_group} ->
-              group = db_group_to_map(db_group)
-              PublishingPubSub.broadcast_group_created(group)
-              {:ok, group}
-
-            {:error, _changeset} ->
-              {:error, :already_exists}
-          end
+          create_and_broadcast_group(db_attrs)
         end
     end
   end
@@ -181,15 +173,7 @@ defmodule PhoenixKit.Modules.Publishing.Groups do
         if post_count > 0 and not force do
           {:error, {:has_posts, post_count}}
         else
-          case DBStorage.delete_group(db_group) do
-            {:ok, _} ->
-              ListingCache.invalidate(slug)
-              PublishingPubSub.broadcast_group_deleted(slug)
-              {:ok, slug}
-
-            error ->
-              error
-          end
+          delete_and_broadcast_group(db_group, slug)
         end
     end
   end
@@ -205,16 +189,12 @@ defmodule PhoenixKit.Modules.Publishing.Groups do
 
       db_group ->
         with {:ok, name} <- extract_and_validate_name(db_group, params),
-             {:ok, sanitized_slug} <- extract_and_validate_slug(db_group, params, name) do
-          case DBStorage.update_group(db_group, %{name: name, slug: sanitized_slug}) do
-            {:ok, updated} ->
-              group = db_group_to_map(updated)
-              PublishingPubSub.broadcast_group_updated(group)
-              {:ok, group}
-
-            {:error, _} = error ->
-              error
-          end
+             {:ok, sanitized_slug} <- extract_and_validate_slug(db_group, params, name),
+             {:ok, updated} <-
+               DBStorage.update_group(db_group, %{name: name, slug: sanitized_slug}) do
+          group = db_group_to_map(updated)
+          PublishingPubSub.broadcast_group_updated(group)
+          {:ok, group}
         end
     end
   end
@@ -262,20 +242,7 @@ defmodule PhoenixKit.Modules.Publishing.Groups do
         if active_conflict do
           {:error, :slug_taken}
         else
-          case DBStorage.restore_group(db_group) do
-            {:ok, _} ->
-              ListingCache.regenerate(slug)
-
-              PublishingPubSub.broadcast_group_created(%{
-                "slug" => slug,
-                "name" => db_group.name
-              })
-
-              {:ok, slug}
-
-            {:error, reason} ->
-              {:error, reason}
-          end
+          restore_and_broadcast_group(db_group, slug)
         end
     end
   end
@@ -332,6 +299,42 @@ defmodule PhoenixKit.Modules.Publishing.Groups do
   # ============================================================================
   # Private Helpers
   # ============================================================================
+
+  defp create_and_broadcast_group(db_attrs) do
+    case DBStorage.create_group(db_attrs) do
+      {:ok, db_group} ->
+        group = db_group_to_map(db_group)
+        PublishingPubSub.broadcast_group_created(group)
+        {:ok, group}
+
+      {:error, _changeset} ->
+        {:error, :already_exists}
+    end
+  end
+
+  defp delete_and_broadcast_group(db_group, slug) do
+    case DBStorage.delete_group(db_group) do
+      {:ok, _} ->
+        ListingCache.invalidate(slug)
+        PublishingPubSub.broadcast_group_deleted(slug)
+        {:ok, slug}
+
+      error ->
+        error
+    end
+  end
+
+  defp restore_and_broadcast_group(db_group, slug) do
+    case DBStorage.restore_group(db_group) do
+      {:ok, _} ->
+        ListingCache.regenerate(slug)
+        PublishingPubSub.broadcast_group_created(%{"slug" => slug, "name" => db_group.name})
+        {:ok, slug}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
 
   defp extract_and_validate_name(db_group, params) do
     name =
