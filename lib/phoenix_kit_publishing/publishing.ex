@@ -326,7 +326,7 @@ defmodule PhoenixKit.Modules.Publishing do
   def route_module, do: PhoenixKitWeb.Routes.PublishingRoutes
 
   @impl PhoenixKit.Module
-  def css_sources, do: [:phoenix_kit_publishing]
+  def css_sources, do: ["phoenix_kit_publishing"]
 
   # ============================================================================
   # Shared Helpers (used across submodules)
@@ -392,17 +392,6 @@ defmodule PhoenixKit.Modules.Publishing do
 
   defp settings_call(fun, args) do
     module = settings_module()
-
-    case fun do
-      :get_json_setting_cached ->
-        if function_exported?(module, :get_json_setting_cached, length(args)) do
-          apply(module, :get_json_setting_cached, args)
-        else
-          apply(module, :get_json_setting, args)
-        end
-
-      _ ->
-        apply(module, fun, args)
-    end
+    apply(module, fun, args)
   end
 end

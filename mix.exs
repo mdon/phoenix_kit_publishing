@@ -50,6 +50,7 @@ defmodule PhoenixKitPublishing.MixProject do
     [
       # PhoenixKit provides the Module behaviour, Settings API, and core infrastructure.
       {:phoenix_kit, "~> 1.7"},
+      {:phoenix_kit_ai, "~> 0.1"},
 
       # LiveView for admin pages
       {:phoenix_live_view, "~> 1.0"},

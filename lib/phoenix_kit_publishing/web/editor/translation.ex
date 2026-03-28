@@ -38,8 +38,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor.Translation do
     if ai_module_available?() and AI.enabled?() do
       case AI.list_endpoints(enabled: true) do
         # Use UUID for dropdown values (stable across systems, matches settings storage)
-        {endpoints, _total} -> Enum.map(endpoints, &{&1.uuid, &1.name})
-        endpoints when is_list(endpoints) -> Enum.map(endpoints, &{&1.uuid, &1.name})
+        {endpoints, _total} when is_list(endpoints) -> Enum.map(endpoints, &{&1.uuid, &1.name})
         _ -> []
       end
     else

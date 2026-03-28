@@ -34,7 +34,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller do
   alias PhoenixKit.Modules.Publishing.Web.HTML, as: PublishingHTML
   alias PhoenixKit.Settings
   alias PhoenixKit.Utils.Routes
-  alias PhoenixKitWeb.AdminEditHelper
+  @admin_edit_helper_mod PhoenixKitWeb.AdminEditHelper
 
   # ============================================================================
   # Main Entry Points
@@ -187,7 +187,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller do
           locale: assigns.current_language,
           type: "website"
         })
-        |> AdminEditHelper.assign_admin_edit(
+        |> maybe_assign_admin_edit(
           Routes.path("/admin/publishing/#{group_slug}"),
           "Edit Blog"
         )
@@ -221,7 +221,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller do
         |> assign(:breadcrumbs, assigns.breadcrumbs)
         |> assign(:version_dropdown, assigns.version_dropdown)
         |> assign(:og, build_og_data(conn, assigns.post, canonical_url, assigns.current_language))
-        |> AdminEditHelper.assign_admin_edit(
+        |> maybe_assign_admin_edit(
           Routes.path("/admin/publishing/#{group_slug}/#{assigns.post.uuid}/edit"),
           "Edit Post"
         )
@@ -283,7 +283,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller do
         |> assign(:breadcrumbs, assigns.breadcrumbs)
         |> assign(:version_dropdown, assigns.version_dropdown)
         |> assign(:og, build_og_data(conn, assigns.post, canonical_url, assigns.current_language))
-        |> AdminEditHelper.assign_admin_edit(
+        |> maybe_assign_admin_edit(
           Routes.path("/admin/publishing/#{group_slug}/#{assigns.post.uuid}/edit"),
           "Edit Post"
         )
@@ -361,4 +361,14 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller do
   end
 
   defp absolute_url(_base, _url), do: nil
+
+  defp maybe_assign_admin_edit(conn, path, label) do
+    mod = @admin_edit_helper_mod
+
+    if Code.ensure_loaded?(mod) and function_exported?(mod, :assign_admin_edit, 3) do
+      mod.assign_admin_edit(conn, path, label)
+    else
+      conn
+    end
+  end
 end

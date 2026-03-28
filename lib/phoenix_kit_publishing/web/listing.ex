@@ -874,12 +874,6 @@ defmodule PhoenixKit.Modules.Publishing.Web.Listing do
          |> put_flash(:info, gettext("Status updated to %{status}", status: new_status))
          |> reload_current_view()}
 
-      {:ok, _} ->
-        {:noreply,
-         socket
-         |> put_flash(:info, gettext("Status updated to %{status}", status: new_status))
-         |> reload_current_view()}
-
       {:error, _reason} ->
         {:noreply, put_flash(socket, :error, gettext("Failed to update status"))}
     end

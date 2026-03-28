@@ -13,7 +13,9 @@ defmodule PhoenixKit.Modules.Publishing.Renderer do
   alias PhoenixKit.Modules.Shared.Components.Image
   alias PhoenixKit.Modules.Shared.Components.Video
   alias PhoenixKit.Settings
-  alias PhoenixKitEntities.Components.EntityForm
+  # Optional dependency — available when phoenix_kit_entities is installed
+  @entity_form_mod PhoenixKitEntities.Components.EntityForm
+  @compile {:no_warn_undefined, @entity_form_mod}
 
   @cache_name :publishing_posts
   @cache_version "v2"
@@ -438,7 +440,9 @@ defmodule PhoenixKit.Modules.Publishing.Renderer do
       children: []
     }
 
-    EntityForm.render(assigns)
+    mod = @entity_form_mod
+
+    mod.render(assigns)
     |> Safe.to_iodata()
     |> IO.iodata_to_binary()
   rescue

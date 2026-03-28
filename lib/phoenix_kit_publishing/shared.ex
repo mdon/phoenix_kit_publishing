@@ -31,9 +31,7 @@ defmodule PhoenixKit.Modules.Publishing.Shared do
   end
 
   def fetch_option(opts, key) when is_list(opts) do
-    Keyword.get(opts, key) ||
-      (is_atom(key) && Keyword.get(opts, key)) ||
-      nil
+    Keyword.get(opts, key)
   end
 
   def fetch_option(_, _), do: nil

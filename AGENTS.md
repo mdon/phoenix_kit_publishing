@@ -147,11 +147,11 @@ gh release create 0.1.0 \
 
 ### Commit Message Rules
 
-Start with action verbs: `Add`, `Update`, `Fix`, `Remove`, `Merge`. **NEVER mention Claude or AI assistance** in commit messages.
+Start with action verbs: `Add`, `Update`, `Fix`, `Remove`, `Merge`.
 
 ### PR Reviews
 
-PR review files go in `dev_docs/pull_requests/{year}/{pr_number}-{slug}/` directory. Use `{AGENT}_REVIEW.md` naming (e.g., `CLAUDE_REVIEW.md`, `GPT_REVIEW.md`). See `dev_docs/pull_requests/README.md`.
+PR review files go in `dev_docs/pull_requests/{year}/{pr_number}-{slug}/` directory. Use `{AGENT}_REVIEW.md` naming (e.g., `CLAUDE_REVIEW.md`, `GEMINI_REVIEW.md`). See `dev_docs/pull_requests/README.md`.
 
 ## External Dependencies
 
