@@ -7,7 +7,7 @@ A standalone PhoenixKit plugin module that provides a database-backed content ma
 Add to your parent app's `mix.exs`:
 
 ```elixir
-{:phoenix_kit_publishing, "~> 0.1.0"}
+{:phoenix_kit_publishing, "~> 0.1"}
 ```
 
 Or for local development:
