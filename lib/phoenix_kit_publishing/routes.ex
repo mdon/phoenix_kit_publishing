@@ -1,4 +1,4 @@
-defmodule PhoenixKitWeb.Routes.PublishingRoutes do
+defmodule PhoenixKitPublishing.Routes do
   @moduledoc """
   Publishing module routes.
 
