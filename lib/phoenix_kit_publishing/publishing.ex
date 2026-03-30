@@ -323,7 +323,7 @@ defmodule PhoenixKit.Modules.Publishing do
   def children, do: [PhoenixKit.Modules.Publishing.Presence]
 
   @impl PhoenixKit.Module
-  def route_module, do: PhoenixKitWeb.Routes.PublishingRoutes
+  def route_module, do: PhoenixKitPublishing.Routes
 
   @impl PhoenixKit.Module
   def css_sources, do: ["phoenix_kit_publishing"]
