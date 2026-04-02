@@ -326,7 +326,7 @@ defmodule PhoenixKit.Modules.Publishing do
   def route_module, do: PhoenixKitPublishing.Routes
 
   @impl PhoenixKit.Module
-  def css_sources, do: ["phoenix_kit_publishing"]
+  def css_sources, do: [:phoenix_kit_publishing]
 
   # ============================================================================
   # Shared Helpers (used across submodules)
