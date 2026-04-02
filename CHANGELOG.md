@@ -1,3 +1,16 @@
+## 0.1.2 - 2026-04-02
+
+### Changed
+- Migrate select elements to daisyUI 5 label wrapper pattern
+- Remove deprecated `select-bordered` class for daisyUI 5 compatibility
+- Rename routes module to `PhoenixKitPublishing.Routes`
+
+### Fixed
+- Add `language_titles` to `to_post_map` so `list_posts` includes translated titles
+
+### Maintenance
+- Upgrade dependencies
+
 ## 0.1.1 - 2026-03-26
 
 ### Fixed
