@@ -1994,7 +1994,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
             <div class="space-y-1">
               <form phx-change="select_ai_endpoint">
                 <select
-                  class="select select-bordered select-sm w-full"
+                  class="select select-sm w-full"
                   name="endpoint_uuid"
                 >
                   <option value="">{gettext("Select an endpoint...")}</option>
@@ -2017,7 +2017,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
             <div class="space-y-1">
               <form phx-change="select_ai_prompt">
                 <select
-                  class="select select-bordered select-sm w-full"
+                  class="select select-sm w-full"
                   name="prompt_uuid"
                 >
                   <option value="">{gettext("Select a prompt...")}</option>
@@ -2497,7 +2497,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
                     </span>
                   </label>
                   <select
-                    class={"select select-bordered w-full #{if edit_disabled?, do: "select-disabled bg-base-200"}"}
+                    class={"select w-full #{if edit_disabled?, do: "select-disabled bg-base-200"}"}
                     name="status"
                     disabled={edit_disabled?}
                   >
