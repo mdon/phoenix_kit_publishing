@@ -1,4 +1,10 @@
-## 0.1.2 - 2026-04-02
+# Changelog
+
+## 0.1.3 - 2026-04-11
+
+### Fixed
+- Add routing anti-pattern warning to AGENTS.md
+2026-04-02
 
 ### Changed
 - Migrate select elements to daisyUI 5 label wrapper pattern
