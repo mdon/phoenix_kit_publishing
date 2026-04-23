@@ -107,8 +107,10 @@ defmodule PhoenixKit.Modules.Publishing.FacadeTest do
       assert function_exported?(Publishing, :get_language_info, 1)
       assert function_exported?(Publishing, :enabled_language_codes, 0)
       assert function_exported?(Publishing, :get_primary_language, 0)
+      assert function_exported?(Publishing, :get_primary_language_base, 0)
       assert function_exported?(Publishing, :language_enabled?, 2)
       assert function_exported?(Publishing, :get_display_code, 2)
+      assert function_exported?(Publishing, :url_language_code, 1)
       assert function_exported?(Publishing, :order_languages_for_display, 2)
       assert function_exported?(Publishing, :order_languages_for_display, 3)
     end

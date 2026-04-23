@@ -30,8 +30,10 @@ defmodule PhoenixKit.Modules.Publishing do
   defdelegate get_language_info(language_code), to: LanguageHelpers
   defdelegate enabled_language_codes(), to: LanguageHelpers
   defdelegate get_primary_language(), to: LanguageHelpers
+  defdelegate get_primary_language_base(), to: LanguageHelpers
   defdelegate language_enabled?(language_code, enabled_languages), to: LanguageHelpers
   defdelegate get_display_code(language_code, enabled_languages), to: LanguageHelpers
+  defdelegate url_language_code(language_code), to: LanguageHelpers
 
   defdelegate order_languages_for_display(available_languages, enabled_languages),
     to: LanguageHelpers

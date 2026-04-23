@@ -33,6 +33,28 @@ defmodule PhoenixKit.Modules.Publishing.LanguageHelpers do
   end
 
   @doc """
+  Returns the primary language code as it should appear in public URLs.
+
+  Content rows keep using the full configured language code (for example
+  `"en-GB"`), but public routes use the base code (`"en"`).
+  """
+  @spec get_primary_language_base() :: String.t()
+  def get_primary_language_base do
+    get_primary_language()
+    |> url_language_code()
+  end
+
+  @doc """
+  Normalizes a content language code for use in public URLs.
+  """
+  @spec url_language_code(String.t() | nil) :: String.t() | nil
+  def url_language_code(nil), do: nil
+
+  def url_language_code(language_code) when is_binary(language_code) do
+    DialectMapper.extract_base(language_code)
+  end
+
+  @doc """
   Gets language details (name, flag) for a given language code.
 
   Searches in order:

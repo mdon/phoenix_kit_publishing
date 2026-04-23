@@ -31,6 +31,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.New do
       |> assign(:form, new_group_form(initial_params))
       |> assign(:preset_types, @preset_types)
       |> assign(:enabled_languages, Publishing.enabled_language_codes())
+      |> assign(:default_url_language, Publishing.get_primary_language_base())
       |> assign(:endpoint_url, nil)
 
     {:ok, socket}
@@ -446,20 +447,19 @@ defmodule PhoenixKit.Modules.Publishing.Web.New do
                   "/" -> ""
                   prefix -> prefix
                 end %>
-              <%!-- Use first enabled language (default) for preview URLs --%>
-              <% default_language = List.first(@enabled_languages) %>
+              <%!-- Use primary language base for preview URLs --%>
               <% timestamp_url_pattern =
                 if length(@enabled_languages) == 1 do
                   @endpoint_url <> "#{url_prefix}/#{slug_sample}/<YYYY-MM-DD>/<HH:mm>"
                 else
                   @endpoint_url <>
-                    "#{url_prefix}/#{default_language}/#{slug_sample}/<YYYY-MM-DD>/<HH:mm>"
+                    "#{url_prefix}/#{@default_url_language}/#{slug_sample}/<YYYY-MM-DD>/<HH:mm>"
                 end %>
               <% slug_url_pattern =
                 if length(@enabled_languages) == 1 do
                   @endpoint_url <> "#{url_prefix}/#{slug_sample}/:post_slug"
                 else
-                  @endpoint_url <> "#{url_prefix}/#{default_language}/#{slug_sample}/:post_slug"
+                  @endpoint_url <> "#{url_prefix}/#{@default_url_language}/#{slug_sample}/:post_slug"
                 end %>
             </div>
 

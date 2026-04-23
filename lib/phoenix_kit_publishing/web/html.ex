@@ -372,6 +372,8 @@ defmodule PhoenixKit.Modules.Publishing.Web.HTML do
   When languages module is off or only one language, uses clean URLs.
   """
   def group_listing_path(language, group_slug, params \\ []) do
+    language = LanguageHelpers.url_language_code(language)
+
     segments =
       if single_language_mode?(), do: [group_slug], else: [language, group_slug]
 
@@ -396,7 +398,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.HTML do
   - If multiple posts exist on the date, includes time (e.g., /group/2025-12-09/16:26)
   """
   def build_post_url(group_slug, post, language, date_counts \\ nil) do
-    language = language || "en"
+    language = LanguageHelpers.url_language_code(language) || "en"
 
     case post.mode do
       mode when mode in @slug_modes ->
@@ -479,6 +481,8 @@ defmodule PhoenixKit.Modules.Publishing.Web.HTML do
   Used when redirecting from date-only URLs to full timestamp URLs.
   """
   def build_public_path_with_time(language, group_slug, date, time) do
+    language = LanguageHelpers.url_language_code(language)
+
     segments =
       if single_language_mode?(),
         do: [group_slug, date, time],

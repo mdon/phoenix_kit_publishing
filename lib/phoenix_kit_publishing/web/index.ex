@@ -66,6 +66,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Index do
       |> assign(:dashboard_summary, summary)
       |> assign(:empty_state?, groups == [])
       |> assign(:enabled_languages, Publishing.enabled_language_codes())
+      |> assign(:default_url_language, Publishing.get_primary_language_base())
       |> assign(:endpoint_url, "")
       |> assign(:date_time_settings, date_time_settings)
       |> assign(
@@ -566,12 +567,11 @@ defmodule PhoenixKit.Modules.Publishing.Web.Index do
                             "/" -> ""
                             prefix -> prefix
                           end %>
-                        <% default_language = List.first(@enabled_languages) %>
                         <% public_url =
                           if length(@enabled_languages) == 1 do
                             @endpoint_url <> url_prefix <> "/" <> group_slug
                           else
-                            @endpoint_url <> url_prefix <> "/#{default_language}/" <> group_slug
+                            @endpoint_url <> url_prefix <> "/#{@default_url_language}/" <> group_slug
                           end %>
                         <a
                           href={public_url}
