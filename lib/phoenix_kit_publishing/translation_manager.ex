@@ -7,11 +7,15 @@ defmodule PhoenixKit.Modules.Publishing.TranslationManager do
 
   require Logger
 
+  alias PhoenixKit.Modules.Languages.DialectMapper
+  alias PhoenixKit.Modules.Publishing.ActivityLog
   alias PhoenixKit.Modules.Publishing.Constants
   alias PhoenixKit.Modules.Publishing.DBStorage
   alias PhoenixKit.Modules.Publishing.ListingCache
+  alias PhoenixKit.Modules.Publishing.PublishingContent
   alias PhoenixKit.Modules.Publishing.PubSub, as: PublishingPubSub
   alias PhoenixKit.Modules.Publishing.Shared
+  alias PhoenixKit.Modules.Publishing.StaleFixer
   alias PhoenixKit.Modules.Publishing.Workers.TranslatePostWorker
 
   @doc """
@@ -39,25 +43,20 @@ defmodule PhoenixKit.Modules.Publishing.TranslationManager do
   end
 
   # Adds a language to a post.
-  # Creates a new content row in the database and returns the post map.
+  # Creates a new content row when needed, but also treats an existing row as
+  # success so legacy base-code content can be promoted in place (for example
+  # "en" -> "en-US") without surfacing a false duplicate-language error.
   @doc false
   def add_language_to_db(group_slug, post_uuid, language_code, version_number) do
-    with db_post when not is_nil(db_post) <- DBStorage.get_post_by_uuid(post_uuid, [:group]),
+    with raw_db_post when not is_nil(raw_db_post) <-
+           DBStorage.get_post_by_uuid(post_uuid, [:group]),
+         db_post = StaleFixer.fix_stale_post(raw_db_post),
          version when not is_nil(version) <-
            if(version_number,
              do: DBStorage.get_version(db_post.uuid, version_number),
              else: DBStorage.get_latest_version(db_post.uuid)
            ),
-         # Check if content already exists for this language
-         nil <- DBStorage.get_content(version.uuid, language_code),
-         {:ok, _content} <-
-           DBStorage.create_content(%{
-             version_uuid: version.uuid,
-             language: language_code,
-             title: Constants.default_title(),
-             content: "",
-             status: "draft"
-           }) do
+         {:ok, _content} <- ensure_language_content(version.uuid, language_code) do
       # Read the post back from DB to return a proper post map
       Shared.read_back_post(group_slug, post_uuid, db_post, language_code, version.version_number)
     else
@@ -91,6 +90,61 @@ defmodule PhoenixKit.Modules.Publishing.TranslationManager do
       nil -> nil
       v -> v.version_number
     end
+  end
+
+  defp ensure_language_content(version_uuid, language_code) do
+    case DBStorage.get_content(version_uuid, language_code) do
+      nil -> maybe_promote_legacy_base_content(version_uuid, language_code)
+      %PublishingContent{} = existing -> {:ok, existing}
+    end
+  end
+
+  defp maybe_promote_legacy_base_content(version_uuid, language_code) do
+    base_language = DialectMapper.extract_base(language_code)
+
+    cond do
+      base_language == language_code ->
+        create_language_content(version_uuid, language_code)
+
+      legacy_content = DBStorage.get_content(version_uuid, base_language) ->
+        Logger.info(
+          "[Publishing] Promoting legacy base language #{base_language} to #{language_code} " <>
+            "for version #{version_uuid}"
+        )
+
+        case DBStorage.update_content(legacy_content, %{language: language_code}) do
+          {:ok, updated} = ok ->
+            ActivityLog.log(%{
+              action: "publishing.content.promoted",
+              mode: "auto",
+              resource_type: "publishing_content",
+              resource_uuid: updated.uuid,
+              metadata: %{
+                "from_language" => base_language,
+                "to_language" => language_code,
+                "version_uuid" => version_uuid
+              }
+            })
+
+            ok
+
+          error ->
+            error
+        end
+
+      true ->
+        create_language_content(version_uuid, language_code)
+    end
+  end
+
+  defp create_language_content(version_uuid, language_code) do
+    DBStorage.create_content(%{
+      version_uuid: version_uuid,
+      language: language_code,
+      title: Constants.default_title(),
+      content: "",
+      status: "draft"
+    })
   end
 
   @doc """

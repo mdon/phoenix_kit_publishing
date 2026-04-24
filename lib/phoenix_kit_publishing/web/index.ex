@@ -16,6 +16,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Index do
   alias PhoenixKit.Modules.Publishing.LanguageHelpers
   alias PhoenixKit.Modules.Publishing.ListingCache
   alias PhoenixKit.Modules.Publishing.PubSub, as: PublishingPubSub
+  alias PhoenixKit.Modules.Publishing.Web.HTML, as: PublishingHTML
   alias PhoenixKit.Settings
   alias PhoenixKit.Utils.Date, as: UtilsDate
   alias PhoenixKit.Utils.Routes
@@ -66,6 +67,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Index do
       |> assign(:dashboard_summary, summary)
       |> assign(:empty_state?, groups == [])
       |> assign(:enabled_languages, Publishing.enabled_language_codes())
+      |> assign(:default_url_language, Publishing.get_primary_language_base())
       |> assign(:endpoint_url, "")
       |> assign(:date_time_settings, date_time_settings)
       |> assign(
@@ -559,20 +561,9 @@ defmodule PhoenixKit.Modules.Publishing.Web.Index do
                         <span class="hidden sm:inline">{gettext("Settings")}</span>
                       </.link>
                       <%= if insight.published_count > 0 do %>
-                        <% group_slug = insight.slug %>
-                        <% url_prefix =
-                          PhoenixKit.Config.get_url_prefix()
-                          |> case do
-                            "/" -> ""
-                            prefix -> prefix
-                          end %>
-                        <% default_language = List.first(@enabled_languages) %>
                         <% public_url =
-                          if length(@enabled_languages) == 1 do
-                            @endpoint_url <> url_prefix <> "/" <> group_slug
-                          else
-                            @endpoint_url <> url_prefix <> "/#{default_language}/" <> group_slug
-                          end %>
+                          @endpoint_url <>
+                            PublishingHTML.group_listing_path(@default_url_language, insight.slug) %>
                         <a
                           href={public_url}
                           target="_blank"

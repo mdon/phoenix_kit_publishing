@@ -5,7 +5,6 @@ defmodule PhoenixKit.Modules.Publishing.Web.HTML do
   use PhoenixKitWeb, :html
 
   alias PhoenixKit.Config
-  alias PhoenixKit.Modules.Languages
   alias PhoenixKit.Modules.Publishing
   alias PhoenixKit.Modules.Publishing.Constants
   alias PhoenixKit.Modules.Publishing.LanguageHelpers
@@ -23,6 +22,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.HTML do
     flash={@flash}
     page_title={@page_title}
     current_path={@conn.request_path}
+    phoenix_kit_current_scope={assigns[:phoenix_kit_current_scope]}
     >
     <div class="groups-overview-container max-w-6xl mx-auto px-6 py-8">
     <%!-- Page Header --%>
@@ -93,6 +93,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.HTML do
     flash={@flash}
     page_title={@page_title}
     current_path={@conn.request_path}
+    phoenix_kit_current_scope={assigns[:phoenix_kit_current_scope]}
     >
     <div class="group-index-container max-w-6xl mx-auto px-6 py-8">
     <%!-- Breadcrumb Navigation --%>
@@ -131,7 +132,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.HTML do
         <div class="mt-4">
           <.language_switcher
             languages={build_public_translations(@translations, @current_language)}
-            current_language={@current_language}
+            current_language={public_current_language(@translations, @current_language)}
             show_status={false}
             size={:sm}
           />
@@ -287,7 +288,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.HTML do
         <%= if length(@translations) > 1 do %>
           <.language_switcher
             languages={build_public_translations(@translations, @current_language)}
-            current_language={@current_language}
+            current_language={public_current_language(@translations, @current_language)}
             show_status={false}
             size={:sm}
           />
@@ -368,12 +369,17 @@ defmodule PhoenixKit.Modules.Publishing.Web.HTML do
 
   @doc """
   Builds the public URL for a group listing page.
-  When multiple languages are enabled, always includes locale prefix.
-  When languages module is off or only one language, uses clean URLs.
+  Omits the locale prefix when the site is effectively single-language.
+  Can also omit the default-language prefix when that setting is enabled.
   """
   def group_listing_path(language, group_slug, params \\ []) do
+    language =
+      LanguageHelpers.url_language_code(language) || LanguageHelpers.get_primary_language_base()
+
     segments =
-      if single_language_mode?(), do: [group_slug], else: [language, group_slug]
+      if LanguageHelpers.use_language_prefix?(language),
+        do: [language, group_slug],
+        else: [group_slug]
 
     base_path = build_public_path(segments)
 
@@ -385,8 +391,8 @@ defmodule PhoenixKit.Modules.Publishing.Web.HTML do
 
   @doc """
   Builds a post URL based on mode.
-  When multiple languages are enabled, always includes locale prefix.
-  When languages module is off or only one language, uses clean URLs.
+  Omits the locale prefix when the site is effectively single-language.
+  Can also omit the default-language prefix when that setting is enabled.
 
   For slug mode posts, uses the language-specific URL slug (from post.url_slug
   or post.language_slugs[language]) for SEO-friendly localized URLs.
@@ -396,7 +402,8 @@ defmodule PhoenixKit.Modules.Publishing.Web.HTML do
   - If multiple posts exist on the date, includes time (e.g., /group/2025-12-09/16:26)
   """
   def build_post_url(group_slug, post, language, date_counts \\ nil) do
-    language = language || "en"
+    language =
+      LanguageHelpers.url_language_code(language) || LanguageHelpers.get_primary_language_base()
 
     case post.mode do
       mode when mode in @slug_modes ->
@@ -404,9 +411,9 @@ defmodule PhoenixKit.Modules.Publishing.Web.HTML do
         url_slug = get_url_slug_for_language(post, language)
 
         segments =
-          if single_language_mode?(),
-            do: [group_slug, url_slug],
-            else: [language, group_slug, url_slug]
+          if LanguageHelpers.use_language_prefix?(language),
+            do: [language, group_slug, url_slug],
+            else: [group_slug, url_slug]
 
         build_public_path(segments)
 
@@ -423,9 +430,9 @@ defmodule PhoenixKit.Modules.Publishing.Web.HTML do
         url_slug = get_url_slug_for_language(post, language)
 
         segments =
-          if single_language_mode?(),
-            do: [group_slug, url_slug],
-            else: [language, group_slug, url_slug]
+          if LanguageHelpers.use_language_prefix?(language),
+            do: [language, group_slug, url_slug],
+            else: [group_slug, url_slug]
 
         build_public_path(segments)
     end
@@ -434,15 +441,15 @@ defmodule PhoenixKit.Modules.Publishing.Web.HTML do
   defp timestamp_url_segments(language, group_slug, date, true = _include_time, post) do
     time = get_timestamp_time(post)
 
-    if single_language_mode?(),
-      do: [group_slug, date, time],
-      else: [language, group_slug, date, time]
+    if LanguageHelpers.use_language_prefix?(language),
+      do: [language, group_slug, date, time],
+      else: [group_slug, date, time]
   end
 
   defp timestamp_url_segments(language, group_slug, date, false = _include_time, _post) do
-    if single_language_mode?(),
-      do: [group_slug, date],
-      else: [language, group_slug, date]
+    if LanguageHelpers.use_language_prefix?(language),
+      do: [language, group_slug, date],
+      else: [group_slug, date]
   end
 
   # Gets the URL slug for a specific language
@@ -479,10 +486,13 @@ defmodule PhoenixKit.Modules.Publishing.Web.HTML do
   Used when redirecting from date-only URLs to full timestamp URLs.
   """
   def build_public_path_with_time(language, group_slug, date, time) do
+    language =
+      LanguageHelpers.url_language_code(language) || LanguageHelpers.get_primary_language_base()
+
     segments =
-      if single_language_mode?(),
-        do: [group_slug, date, time],
-        else: [language, group_slug, date, time]
+      if LanguageHelpers.use_language_prefix?(language),
+        do: [language, group_slug, date, time],
+        else: [group_slug, date, time]
 
     build_public_path(segments)
   end
@@ -750,12 +760,6 @@ defmodule PhoenixKit.Modules.Publishing.Web.HTML do
     end
   end
 
-  # Check if we're in single language mode (no locale prefix needed)
-  # Returns true when languages module is off OR only one language is enabled
-  defp single_language_mode? do
-    not Languages.enabled?() or length(Languages.get_enabled_languages()) <= 1
-  end
-
   @doc """
   Pre-computes date counts for timestamp-mode posts to avoid per-post DB queries.
 
@@ -804,14 +808,26 @@ defmodule PhoenixKit.Modules.Publishing.Web.HTML do
   def build_public_translations(translations, _current_language) do
     Enum.map(translations, fn translation ->
       %{
-        code: translation[:code] || translation.code,
-        display_code: translation[:display_code] || translation[:code] || translation.code,
-        name: translation[:name] || translation.name,
-        flag: translation[:flag] || "",
-        url: translation[:url] || translation.url,
+        code: translation.code,
+        display_code: translation.display_code || translation.code,
+        name: translation.name,
+        flag: translation.flag || "",
+        url: translation.url,
+        current: translation.current || false,
         status: "published",
         exists: true
       }
+    end)
+  end
+
+  @doc """
+  Resolves the exact language-switcher code to highlight on public pages.
+  """
+  def public_current_language(translations, fallback) do
+    Enum.find_value(translations, fallback, fn translation ->
+      if translation.current do
+        translation.code
+      end
     end)
   end
 

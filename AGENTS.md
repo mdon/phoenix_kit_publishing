@@ -108,6 +108,64 @@ Group (1) ──→ (many) Post (1) ──→ (many) Version (1) ──→ (many
 - **Dual URL modes**: `"timestamp"` or `"slug"` — locked at group creation, never changed
 - **Content format**: Markdown with inline PHK XML components (Image, Hero, CTA, Video, Headline, Subheadline, EntityForm)
 - **Admin routing** — plugin LiveView routes are auto-discovered by PhoenixKit and compiled into `live_session :phoenix_kit_admin`. Never hand-register them in a parent app's `router.ex`; use `live_view:` on a tab or a route module. See `phoenix_kit/guides/custom-admin-pages.md` for the authoritative reference
+- **Public templates must forward `phoenix_kit_current_scope`** — every `<PhoenixKitWeb.Components.LayoutWrapper.app_layout>` call in `Web.HTML` needs `phoenix_kit_current_scope={assigns[:phoenix_kit_current_scope]}` so the parent app's header sees the authenticated user. Omitting it renders the page as logged-out even when the controller knows otherwise (see Issue #8)
+- **Public URL building** — always go through `PublishingHTML.group_listing_path/3` / `build_post_url/4` / `build_public_path_with_time/4`; never hand-roll prefix logic in admin templates (see Issue #7)
+- **Language normalization on read** — `Posts.read_post/4` and the slug finders retry through the legacy base language on `:not_found` and fix stale content in place via `StaleFixer`. Don't pre-check for staleness on the hot path — the retry-on-miss pattern keeps healthy reads at one query
+
+## Activity Logging
+
+Self-healing mutations (not initiated by a user click) are logged via `PhoenixKit.Modules.Publishing.ActivityLog.log/1` — a thin wrapper around `PhoenixKit.Activity.log/1` guarded with `Code.ensure_loaded?/1` so the module stays usable without the Activity context.
+
+Current auto-events:
+
+| action | when | resource_type |
+|--------|------|---------------|
+| `publishing.content.language_normalized` | Legacy base-code content (e.g. `"en"`) rewritten to the enabled dialect (`"en-US"`) by `StaleFixer` | `publishing_content` |
+| `publishing.content.merged` | Legacy and dialect rows for the same version merged by `StaleFixer` | `publishing_content` |
+| `publishing.content.promoted` | Legacy base-code row promoted in place when the admin adds the corresponding dialect translation | `publishing_content` |
+
+All three run with `mode: "auto"` and no `actor_uuid` — they're system-triggered, not user-initiated. Metadata includes `from_language`/`to_language`/`version_uuid`.
+
+## Settings Keys
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `publishing_enabled` | `false` | Master on/off switch (via `enable_system/0`) |
+| `publishing_public_enabled` | `true` | Serve public routes |
+| `publishing_default_language_no_prefix` | `false` | Omit the locale prefix from the default-language public URL (e.g. `/blog` instead of `/en/blog`). Prefixed requests 301-redirect to the canonical prefixless form |
+| `publishing_posts_per_page` | `20` | Listing pagination size |
+| `publishing_memory_cache_enabled` | `true` | Toggle the listing cache |
+| `publishing_render_cache_enabled` | `true` | Toggle the Markdown render cache (global) |
+| `publishing_render_cache_enabled_<slug>` | `true` | Per-group override for the render cache |
+
+## Testing
+
+Integration tests live in `test/phoenix_kit_publishing/integration/` and controller tests in `test/phoenix_kit_publishing/web/controller/`. Both need a PostgreSQL database — automatically excluded when unavailable.
+
+```bash
+createdb phoenix_kit_publishing_test      # first-time setup
+mix test                                  # full suite
+mix test --only integration               # DB-backed tests only
+```
+
+### Controller integration tests
+
+`phoenix_kit_publishing` has no endpoint of its own in production — the host app provides one. For controller tests we ship a tiny test endpoint + router + layouts under `test/support/`:
+
+- `PhoenixKitPublishing.Test.Endpoint` — minimal `Phoenix.Endpoint`
+- `PhoenixKitPublishing.Test.Router` — routes matching `Web.Controller.show/2`, plus an `:assign_test_scope` plug that mirrors the parent-app's `fetch_phoenix_kit_current_scope`
+- `PhoenixKitPublishing.Test.Layouts` — minimal root + parent layout stand-in (the test layout emits assign-derived markers so tests can verify forwarding)
+- `PhoenixKitPublishing.ConnCase` — ExUnit case template with sandbox checkout and a `with_scope/1` helper
+
+`config/test.exs` points `PhoenixKit.Config :layout` at the test layouts so `LayoutWrapper.app_layout` doesn't fall back to `PhoenixKitWeb.Layouts.root` (which requires `PhoenixKitWeb.Endpoint`). Reference test: `test/phoenix_kit_publishing/web/controller/show_layout_test.exs`.
+
+## Pre-commit Commands
+
+Always run before committing:
+
+```bash
+mix precommit      # compile + format + credo --strict + dialyzer
+```
 
 ## Tailwind CSS Scanning
 

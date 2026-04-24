@@ -41,6 +41,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Listing do
       |> assign(:group_slug, group_slug)
       |> assign(:enabled_languages, Publishing.enabled_language_codes())
       |> assign(:default_language, Publishing.get_primary_language())
+      |> assign(:default_url_language, Publishing.get_primary_language_base())
       |> assign(
         :default_language_name,
         Helpers.get_language_name(Publishing.get_primary_language())
@@ -915,19 +916,8 @@ defmodule PhoenixKit.Modules.Publishing.Web.Listing do
     <div class="container flex-col mx-auto px-4 py-6">
     <%!-- Header Section --%>
     <% group_slug = (@current_group && @current_group["slug"]) || @group_slug || "your-group" %>
-    <% url_prefix =
-      PhoenixKit.Config.get_url_prefix()
-      |> case do
-        "/" -> ""
-        prefix -> prefix
-      end %>
-    <%!-- Use primary language for public URL preview --%>
     <% public_url =
-      if length(@enabled_languages) == 1 do
-        @endpoint_url <> url_prefix <> "/" <> group_slug
-      else
-        @endpoint_url <> url_prefix <> "/#{@default_language}/" <> group_slug
-      end %>
+      @endpoint_url <> PublishingHTML.group_listing_path(@default_url_language, group_slug) %>
     <.admin_page_header back={Routes.path("/admin/publishing")}>
       <h1 class="text-xl sm:text-2xl lg:text-3xl font-bold text-base-content">
         {(@current_group && @current_group["name"]) || @group_slug || gettext("Group")}
@@ -1035,9 +1025,9 @@ defmodule PhoenixKit.Modules.Publishing.Web.Listing do
                 <% group_slug =
                   post.group || (@current_group && @current_group["slug"]) || @group_slug ||
                     "group" %>
-                <%!-- Use site default primary language --%>
-                <% post_primary_lang = @default_language %>
-                <%!-- Use post's primary language for the public URL --%>
+                <%!-- Use site default primary language base for public URL preview --%>
+                <% post_primary_lang = @default_url_language %>
+                <%!-- Build the public URL from the site primary URL language. --%>
                 <% public_url =
                   PublishingHTML.build_post_url(
                     group_slug,

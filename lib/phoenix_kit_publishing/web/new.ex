@@ -6,6 +6,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.New do
   use Gettext, backend: PhoenixKitWeb.Gettext
 
   alias PhoenixKit.Modules.Publishing
+  alias PhoenixKit.Modules.Publishing.Web.HTML, as: PublishingHTML
   alias PhoenixKit.Settings
   alias PhoenixKit.Utils.Routes
 
@@ -31,6 +32,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.New do
       |> assign(:form, new_group_form(initial_params))
       |> assign(:preset_types, @preset_types)
       |> assign(:enabled_languages, Publishing.enabled_language_codes())
+      |> assign(:default_url_language, Publishing.get_primary_language_base())
       |> assign(:endpoint_url, nil)
 
     {:ok, socket}
@@ -440,27 +442,11 @@ defmodule PhoenixKit.Modules.Publishing.Web.New do
               </div>
               <% slug_value = @form[:slug].value || "" %>
               <% slug_sample = if slug_value == "", do: gettext("your-group"), else: slug_value %>
-              <% url_prefix =
-                PhoenixKit.Config.get_url_prefix()
-                |> case do
-                  "/" -> ""
-                  prefix -> prefix
-                end %>
-              <%!-- Use first enabled language (default) for preview URLs --%>
-              <% default_language = List.first(@enabled_languages) %>
-              <% timestamp_url_pattern =
-                if length(@enabled_languages) == 1 do
-                  @endpoint_url <> "#{url_prefix}/#{slug_sample}/<YYYY-MM-DD>/<HH:mm>"
-                else
-                  @endpoint_url <>
-                    "#{url_prefix}/#{default_language}/#{slug_sample}/<YYYY-MM-DD>/<HH:mm>"
-                end %>
-              <% slug_url_pattern =
-                if length(@enabled_languages) == 1 do
-                  @endpoint_url <> "#{url_prefix}/#{slug_sample}/:post_slug"
-                else
-                  @endpoint_url <> "#{url_prefix}/#{default_language}/#{slug_sample}/:post_slug"
-                end %>
+              <% group_base_url =
+                @endpoint_url <>
+                  PublishingHTML.group_listing_path(@default_url_language, slug_sample) %>
+              <% timestamp_url_pattern = group_base_url <> "/<YYYY-MM-DD>/<HH:mm>" %>
+              <% slug_url_pattern = group_base_url <> "/:post_slug" %>
             </div>
 
             <%!-- Content Type Section --%>

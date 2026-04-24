@@ -10,6 +10,8 @@ defmodule PhoenixKit.Modules.Publishing.LanguageHelpers do
   alias PhoenixKit.Modules.Languages.DialectMapper
   alias PhoenixKit.Settings
 
+  @default_language_no_prefix_key "publishing_default_language_no_prefix"
+
   @doc """
   Returns all enabled language codes for multi-language support.
   Falls back to content language if Languages module is disabled.
@@ -18,6 +20,7 @@ defmodule PhoenixKit.Modules.Publishing.LanguageHelpers do
   def enabled_language_codes do
     if Languages.enabled?() do
       Languages.get_enabled_language_codes()
+      |> normalize_enabled_language_codes()
     else
       [Settings.get_content_language()]
     end
@@ -30,6 +33,52 @@ defmodule PhoenixKit.Modules.Publishing.LanguageHelpers do
   @spec get_primary_language() :: String.t()
   def get_primary_language do
     Settings.get_content_language()
+  end
+
+  @doc """
+  Returns the primary language code as it should appear in public URLs.
+
+  Content rows keep using the full configured language code (for example
+  `"en-GB"`), but public routes use the base code (`"en"`).
+  """
+  @spec get_primary_language_base() :: String.t()
+  def get_primary_language_base do
+    get_primary_language()
+    |> url_language_code()
+  end
+
+  @doc """
+  Normalizes a content language code for use in public URLs.
+  """
+  @spec url_language_code(String.t() | nil) :: String.t() | nil
+  def url_language_code(nil), do: nil
+
+  def url_language_code(language_code) when is_binary(language_code) do
+    DialectMapper.extract_base(language_code)
+  end
+
+  @doc """
+  Returns true when public URLs should omit the prefix for the default language.
+  """
+  @spec default_language_no_prefix?() :: boolean()
+  def default_language_no_prefix? do
+    Settings.get_boolean_setting(@default_language_no_prefix_key, false)
+  end
+
+  @doc """
+  Returns true when public URLs should include a language prefix.
+
+  Prefixes are omitted when:
+  - the site is effectively single-language, or
+  - the caller requested the default language and the
+    `publishing_default_language_no_prefix` setting is enabled.
+  """
+  @spec use_language_prefix?(String.t() | nil) :: boolean()
+  def use_language_prefix?(language_code) do
+    language_code = url_language_code(language_code) || get_primary_language_base()
+
+    not single_language_mode?() and
+      not (default_language_no_prefix?() and language_code == get_primary_language_base())
   end
 
   @doc """
@@ -130,6 +179,48 @@ defmodule PhoenixKit.Modules.Publishing.LanguageHelpers do
 
     slug in language_codes
   end
+
+  @doc """
+  Returns true when the site should behave as single-language for public URLs.
+  """
+  @spec single_language_mode?() :: boolean()
+  def single_language_mode? do
+    not Languages.enabled?() or length(enabled_language_codes()) <= 1
+  rescue
+    _ -> true
+  end
+
+  @doc """
+  Removes base-only language codes when a dialect of the same base is also enabled.
+
+  Publishing stores and routes against dialects when they exist. If both `"en"`
+  and `"en-US"` are enabled in the broader Languages config, Publishing should
+  treat the bare base code as legacy compatibility data, not as a separate
+  translation target.
+  """
+  @spec normalize_enabled_language_codes([String.t()]) :: [String.t()]
+  def normalize_enabled_language_codes(language_codes) when is_list(language_codes) do
+    language_codes
+    |> Enum.reject(fn language_code ->
+      base_language_code?(language_code) and
+        Enum.any?(language_codes, fn other_language ->
+          other_language != language_code and
+            DialectMapper.extract_base(other_language) == language_code
+        end)
+    end)
+  end
+
+  def normalize_enabled_language_codes(_), do: []
+
+  @doc """
+  Returns true for bare base language codes like `"en"` or `"de"`.
+  """
+  @spec base_language_code?(String.t() | any()) :: boolean()
+  def base_language_code?(language_code) when is_binary(language_code) do
+    String.length(language_code) in [2, 3] and not String.contains?(language_code, "-")
+  end
+
+  def base_language_code?(_), do: false
 
   # ===========================================================================
   # Private Helpers

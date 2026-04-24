@@ -68,7 +68,12 @@ defmodule PhoenixKit.Modules.Publishing.Posts do
   @spec find_by_url_slug(String.t(), String.t(), String.t()) ::
           {:ok, map()} | {:error, :not_found | :cache_miss}
   def find_by_url_slug(group_slug, language, url_slug) do
-    case DBStorage.find_by_url_slug(group_slug, language, url_slug) do
+    case find_content_with_stale_retry(
+           group_slug,
+           language,
+           url_slug,
+           &DBStorage.find_by_url_slug/3
+         ) do
       nil -> {:error, :not_found}
       content -> {:ok, db_content_to_post_map(content)}
     end
@@ -80,11 +85,47 @@ defmodule PhoenixKit.Modules.Publishing.Posts do
   @spec find_by_previous_url_slug(String.t(), String.t(), String.t()) ::
           {:ok, map()} | {:error, :not_found | :cache_miss}
   def find_by_previous_url_slug(group_slug, language, url_slug) do
-    case DBStorage.find_by_previous_url_slug(group_slug, language, url_slug) do
+    case find_content_with_stale_retry(
+           group_slug,
+           language,
+           url_slug,
+           &DBStorage.find_by_previous_url_slug/3
+         ) do
       nil -> {:error, :not_found}
       content -> {:ok, db_content_to_post_map(content)}
     end
   end
+
+  defp find_content_with_stale_retry(group_slug, language, url_slug, finder)
+       when is_function(finder, 3) do
+    case finder.(group_slug, language, url_slug) do
+      nil ->
+        retry_stale_slug_lookup(group_slug, language, url_slug, finder)
+
+      content ->
+        content
+    end
+  end
+
+  defp retry_stale_slug_lookup(group_slug, language, url_slug, finder) do
+    legacy_language = legacy_base_language(language)
+
+    with legacy when is_binary(legacy) <- legacy_language,
+         legacy_content when not is_nil(legacy_content) <- finder.(group_slug, legacy, url_slug),
+         %_{version: %{post: db_post}} <- legacy_content do
+      StaleFixer.fix_stale_post(db_post)
+      finder.(group_slug, language, url_slug)
+    else
+      _ -> nil
+    end
+  end
+
+  defp legacy_base_language(language) when is_binary(language) do
+    base_language = DialectMapper.extract_base(language)
+    if base_language != language, do: base_language, else: nil
+  end
+
+  defp legacy_base_language(_), do: nil
 
   @doc """
   Lists posts for a given publishing group slug.
@@ -462,13 +503,25 @@ defmodule PhoenixKit.Modules.Publishing.Posts do
         final_version = version || inferred_version
         version_number = normalize_version_number(final_version)
 
-        DBStorage.read_post_by_datetime(
-          group_slug,
-          date,
-          time,
-          final_language,
-          version_number
-        )
+        case DBStorage.read_post_by_datetime(
+               group_slug,
+               date,
+               time,
+               final_language,
+               version_number
+             ) do
+          {:ok, _} = ok ->
+            ok
+
+          {:error, :not_found} ->
+            retry_stale_timestamp_post_read(
+              group_slug,
+              date,
+              time,
+              final_language,
+              version_number
+            )
+        end
 
       _ ->
         # Fallback: try as slug-based lookup
@@ -484,7 +537,58 @@ defmodule PhoenixKit.Modules.Publishing.Posts do
     final_version = version || inferred_version
     version_number = normalize_version_number(final_version)
 
-    DBStorage.read_post(group_slug, post_slug, final_language, version_number)
+    case DBStorage.read_post(group_slug, post_slug, final_language, version_number) do
+      {:ok, _} = ok ->
+        ok
+
+      {:error, :not_found} ->
+        retry_stale_slug_post_read(group_slug, post_slug, final_language, version_number)
+    end
+  end
+
+  defp retry_stale_slug_post_read(group_slug, post_slug, language, version_number) do
+    with legacy_language when is_binary(legacy_language) <- legacy_base_language(language),
+         {:ok, _legacy_post} <-
+           DBStorage.read_post(group_slug, post_slug, legacy_language, version_number),
+         db_post when not is_nil(db_post) <- DBStorage.get_post(group_slug, post_slug) do
+      StaleFixer.fix_stale_post(db_post)
+      DBStorage.read_post(group_slug, post_slug, language, version_number)
+    else
+      _ -> {:error, :not_found}
+    end
+  rescue
+    e in [Ecto.QueryError, DBConnection.ConnectionError] ->
+      Logger.warning(
+        "[Publishing] retry_stale_slug_post_read failed for #{group_slug}/#{post_slug}: #{inspect(e)}"
+      )
+
+      {:error, :not_found}
+  end
+
+  defp retry_stale_timestamp_post_read(group_slug, date, time, language, version_number) do
+    with legacy_language when is_binary(legacy_language) <- legacy_base_language(language),
+         {:ok, _legacy_post} <-
+           DBStorage.read_post_by_datetime(
+             group_slug,
+             date,
+             time,
+             legacy_language,
+             version_number
+           ),
+         db_post when not is_nil(db_post) <-
+           DBStorage.get_post_by_datetime(group_slug, date, time) do
+      StaleFixer.fix_stale_post(db_post)
+      DBStorage.read_post_by_datetime(group_slug, date, time, language, version_number)
+    else
+      _ -> {:error, :not_found}
+    end
+  rescue
+    e in [Ecto.QueryError, DBConnection.ConnectionError] ->
+      Logger.warning(
+        "[Publishing] retry_stale_timestamp_post_read failed for #{group_slug}/#{date}/#{time}: #{inspect(e)}"
+      )
+
+      {:error, :not_found}
   end
 
   defp normalize_version_number(nil), do: nil

@@ -48,9 +48,7 @@ defmodule PhoenixKit.Modules.Publishing.PublishingAPITest do
     end
 
     test "Worker modules are defined" do
-      assert Code.ensure_loaded?(
-               PhoenixKit.Modules.Publishing.Workers.MigratePrimaryLanguageWorker
-             )
+      assert Code.ensure_loaded?(PhoenixKit.Modules.Publishing.Workers.TranslatePostWorker)
     end
 
     test "Refactored submodules are defined" do
