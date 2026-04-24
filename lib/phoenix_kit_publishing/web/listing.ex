@@ -916,19 +916,8 @@ defmodule PhoenixKit.Modules.Publishing.Web.Listing do
     <div class="container flex-col mx-auto px-4 py-6">
     <%!-- Header Section --%>
     <% group_slug = (@current_group && @current_group["slug"]) || @group_slug || "your-group" %>
-    <% url_prefix =
-      PhoenixKit.Config.get_url_prefix()
-      |> case do
-        "/" -> ""
-        prefix -> prefix
-      end %>
-    <%!-- Use primary language base for public URL preview --%>
     <% public_url =
-      if length(@enabled_languages) == 1 do
-        @endpoint_url <> url_prefix <> "/" <> group_slug
-      else
-        @endpoint_url <> url_prefix <> "/#{@default_url_language}/" <> group_slug
-      end %>
+      @endpoint_url <> PublishingHTML.group_listing_path(@default_url_language, group_slug) %>
     <.admin_page_header back={Routes.path("/admin/publishing")}>
       <h1 class="text-xl sm:text-2xl lg:text-3xl font-bold text-base-content">
         {(@current_group && @current_group["name"]) || @group_slug || gettext("Group")}
