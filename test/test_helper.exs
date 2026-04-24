@@ -121,6 +121,19 @@ Application.put_env(:phoenix_kit_publishing, :test_repo_available, repo_availabl
 {:ok, _pid} = PhoenixKit.PubSub.Manager.start_link([])
 {:ok, _pid} = PhoenixKit.ModuleRegistry.start_link([])
 
+# Pin PhoenixKit's URL prefix to "/" so public URLs built by the module
+# (e.g. `Publishing.Web.HTML.group_listing_path/3`) don't prepend an
+# unexpected prefix the test router wouldn't match.
+:persistent_term.put({PhoenixKit.Config, :url_prefix}, "/")
+
+# Start the test Endpoint only when the DB is available — controller
+# tests both need a sandbox connection and the endpoint to drive
+# requests. Support modules under `test/support/` are already compiled
+# via `elixirc_paths(:test)` so we don't need to load them explicitly.
+if repo_available do
+  {:ok, _} = PhoenixKitPublishing.Test.Endpoint.start_link()
+end
+
 # Exclude integration tests when DB is not available
 exclude = if repo_available, do: [], else: [:integration]
 

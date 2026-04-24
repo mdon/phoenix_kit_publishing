@@ -16,4 +16,20 @@ config :phoenix_kit_publishing, PhoenixKitPublishing.Test.Repo,
 # Wire repo for PhoenixKit.RepoHelper — without this, all DB calls crash.
 config :phoenix_kit, repo: PhoenixKitPublishing.Test.Repo
 
+# Point LayoutWrapper at our test layouts so controller tests render
+# through `Test.Layouts.app/1` instead of `PhoenixKitWeb.Layouts.root`
+# (which requires the PhoenixKitWeb.Endpoint persistent term).
+config :phoenix_kit, layout: {PhoenixKitPublishing.Test.Layouts, :app}
+
+# Test Endpoint for controller integration tests. `phoenix_kit_publishing`
+# has no endpoint of its own in production — the host app provides one —
+# so this tiny endpoint only exists for `Phoenix.ConnTest`.
+config :phoenix_kit_publishing, PhoenixKitPublishing.Test.Endpoint,
+  secret_key_base: String.duplicate("t", 64),
+  server: false,
+  url: [host: "localhost"],
+  render_errors: [formats: [html: PhoenixKitPublishing.Test.Layouts]]
+
+config :phoenix, :json_library, Jason
+
 config :logger, level: :warning
