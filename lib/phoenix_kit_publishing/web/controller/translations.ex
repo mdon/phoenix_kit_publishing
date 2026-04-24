@@ -8,7 +8,6 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller.Translations do
   """
 
   alias PhoenixKit.Modules.Languages
-  alias PhoenixKit.Modules.Languages.DialectMapper
   alias PhoenixKit.Modules.Publishing
   alias PhoenixKit.Modules.Publishing.LanguageHelpers
   alias PhoenixKit.Modules.Publishing.ListingCache
@@ -26,15 +25,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller.Translations do
   """
   def build_listing_translations(group_slug, current_language, posts) do
     # Get enabled languages - these are the ONLY languages that should show
-    enabled_languages =
-      try do
-        Languages.enabled_locale_codes()
-      rescue
-        _ -> ["en"]
-      end
-
-    # Extract base code from current language for comparison
-    current_base = DialectMapper.extract_base(current_language)
+    enabled_languages = Language.get_enabled_languages()
 
     # Get the primary/default language
     primary_language = List.first(enabled_languages) || "en"
@@ -57,7 +48,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller.Translations do
           name: Language.get_language_name(lang),
           flag: Language.get_language_flag(lang),
           url: PublishingHTML.group_listing_path(display_code, group_slug),
-          current: DialectMapper.extract_base(lang) == current_base
+          current: display_code == current_language
         }
       end)
 
@@ -101,15 +92,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller.Translations do
     version = Keyword.get(opts, :version)
 
     # Get enabled languages
-    enabled_languages =
-      try do
-        Languages.enabled_locale_codes()
-      rescue
-        _ -> ["en"]
-      end
-
-    # Extract base code from current language for comparison
-    current_base = DialectMapper.extract_base(current_language)
+    enabled_languages = Language.get_enabled_languages()
 
     # Use the post's primary language so it appears first in the switcher
     primary_language = LanguageHelpers.get_primary_language()
@@ -135,6 +118,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller.Translations do
 
     # Order: primary first (if present), then enabled languages, then disabled ones
     languages = order_languages_for_public(deduplicated, enabled_languages, primary_language)
+    languages = deduplicate_languages_by_display_code(languages, enabled_languages, post.language)
 
     Enum.map(languages, fn lang ->
       # Use display_code helper to determine if we show base or full code
@@ -161,7 +145,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller.Translations do
         name: Language.get_language_name(lang),
         flag: Language.get_language_flag(lang),
         url: url,
-        current: DialectMapper.extract_base(lang) == current_base,
+        current: lang == post.language,
         enabled: is_enabled,
         known: is_known
       }
@@ -197,11 +181,31 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller.Translations do
       Enum.reject(base_codes, fn base ->
         base not in enabled_languages and
           Enum.any?(dialect_codes, fn dialect ->
-            DialectMapper.extract_base(dialect) == base
+            PhoenixKit.Modules.Languages.DialectMapper.extract_base(dialect) == base
           end)
       end)
 
     dialect_codes ++ filtered_base_codes
+  end
+
+  defp deduplicate_languages_by_display_code(languages, enabled_languages, preferred_language) do
+    languages
+    |> Enum.group_by(&Publishing.get_display_code(&1, enabled_languages))
+    |> Enum.map(fn {_display_code, variants} ->
+      Enum.max_by(variants, fn lang ->
+        {
+          lang == preferred_language,
+          not Language.base_code?(lang),
+          lang in enabled_languages
+        }
+      end)
+    end)
+    |> Enum.sort_by(fn lang ->
+      case Enum.find_index(languages, &(&1 == lang)) do
+        nil -> length(languages)
+        idx -> idx
+      end
+    end)
   end
 
   # Fetches language_slugs map from cache for per-language URL slugs
@@ -233,7 +237,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller.Translations do
       # Base code (e.g., "en") - show if any dialect is enabled
       Language.base_code?(language) ->
         Enum.any?(enabled_languages, fn enabled_lang ->
-          DialectMapper.extract_base(enabled_lang) == language
+          PhoenixKit.Modules.Languages.DialectMapper.extract_base(enabled_lang) == language
         end)
 
       # Dialect (e.g., "en-US") not directly enabled - DON'T show

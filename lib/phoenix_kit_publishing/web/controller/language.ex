@@ -247,7 +247,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller.Language do
   Checks if a code is a base language code (2-3 letters, no dialect suffix).
   """
   def base_code?(code) when is_binary(code) do
-    String.length(code) in [2, 3] and not String.contains?(code, "-")
+    LanguageHelpers.base_language_code?(code)
   end
 
   def base_code?(_), do: false

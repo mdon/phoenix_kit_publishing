@@ -1,10 +1,12 @@
 defmodule PhoenixKit.Integration.Publishing.TranslationsTest do
   use PhoenixKit.DataCase, async: true
 
+  alias PhoenixKit.Modules.Publishing.DBStorage
   alias PhoenixKit.Modules.Publishing.Groups
   alias PhoenixKit.Modules.Publishing.Posts
   alias PhoenixKit.Modules.Publishing.TranslationManager
   alias PhoenixKit.Modules.Publishing.Versions
+  alias PhoenixKit.Settings
 
   defp unique_name, do: "i18n Group #{System.unique_integer([:positive])}"
 
@@ -63,6 +65,40 @@ defmodule PhoenixKit.Integration.Publishing.TranslationsTest do
 
       {:ok, post_map} = Posts.read_post(group["slug"], post[:uuid], nil, nil)
       assert post_map[:language_statuses]["de"] == "draft"
+    end
+
+    test "promotes a legacy base-language row instead of creating a duplicate dialect row" do
+      {:ok, _} = Settings.update_setting("content_language", "en")
+
+      {:ok, _} =
+        Settings.update_json_setting("languages_config", %{
+          "languages" => [
+            %{
+              "code" => "en",
+              "name" => "English",
+              "is_default" => false,
+              "is_enabled" => true,
+              "position" => 0
+            },
+            %{
+              "code" => "en-US",
+              "name" => "English (United States)",
+              "is_default" => true,
+              "is_enabled" => true,
+              "position" => 1
+            }
+          ]
+        })
+
+      {group, post} = create_group_and_post(title: "Legacy English")
+      [version] = DBStorage.list_versions(post.uuid)
+
+      assert Enum.map(DBStorage.list_contents(version.uuid), & &1.language) == ["en"]
+
+      assert {:ok, _} =
+               TranslationManager.add_language_to_post(group["slug"], post[:uuid], "en-US", nil)
+
+      assert Enum.map(DBStorage.list_contents(version.uuid), & &1.language) == ["en-US"]
     end
   end
 

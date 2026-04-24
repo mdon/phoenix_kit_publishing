@@ -13,6 +13,7 @@ defmodule PhoenixKit.Modules.Publishing.StaleFixer do
 
   alias PhoenixKit.Modules.Publishing.DBStorage
   alias PhoenixKit.Modules.Publishing.LanguageHelpers
+  alias PhoenixKit.Modules.Publishing.PublishingContent
   alias PhoenixKit.Modules.Publishing.PublishingGroup
   alias PhoenixKit.Modules.Publishing.PublishingPost
 
@@ -362,10 +363,23 @@ defmodule PhoenixKit.Modules.Publishing.StaleFixer do
   end
 
   def fix_stale_content(content) do
+    case normalize_content_language(content) do
+      {:deleted, _target_language} ->
+        :ok
+
+      {:ok, normalized_content} ->
+        apply_content_fixes(normalized_content)
+
+      :unchanged ->
+        apply_content_fixes(content)
+    end
+  end
+
+  defp apply_content_fixes(content) do
     attrs =
       %{}
       |> maybe_fix_content_status(content)
-      |> maybe_fix_content_language(content)
+      |> maybe_fix_blank_content_language(content)
 
     if attrs != %{} do
       Logger.info(
@@ -382,13 +396,196 @@ defmodule PhoenixKit.Modules.Publishing.StaleFixer do
       else: Map.put(attrs, :status, "draft")
   end
 
-  defp maybe_fix_content_language(attrs, content) do
+  defp maybe_fix_blank_content_language(attrs, content) do
     if is_binary(content.language) and content.language != "" do
       attrs
     else
       Map.put(attrs, :language, LanguageHelpers.get_primary_language())
     end
   end
+
+  defp normalize_content_language(%PublishingContent{} = content) do
+    target_language = normalized_content_language(content.language)
+
+    cond do
+      target_language in [nil, "", content.language] ->
+        :unchanged
+
+      target = DBStorage.get_content(content.version_uuid, target_language) ->
+        merge_duplicate_language_content(target, content)
+        {:deleted, target_language}
+
+      true ->
+        Logger.info(
+          "[Publishing] Normalizing legacy content language #{content.uuid}: " <>
+            "#{inspect(content.language)} → #{inspect(target_language)}"
+        )
+
+        case DBStorage.update_content(content, %{language: target_language}) do
+          {:ok, updated} ->
+            {:ok, updated}
+
+          {:error, reason} ->
+            Logger.warning(
+              "[Publishing] Failed to normalize content language for #{content.uuid}: #{inspect(reason)}"
+            )
+
+            :unchanged
+        end
+    end
+  end
+
+  defp normalized_content_language(language) when is_binary(language) and language != "" do
+    enabled_languages = LanguageHelpers.enabled_language_codes()
+
+    cond do
+      not base_language_code?(language) ->
+        language
+
+      language in enabled_languages ->
+        language
+
+      target = find_enabled_dialect_for_base(language, enabled_languages) ->
+        target
+
+      true ->
+        language
+    end
+  end
+
+  defp normalized_content_language(_), do: nil
+
+  defp find_enabled_dialect_for_base(base_language, enabled_languages) do
+    primary_language = LanguageHelpers.get_primary_language()
+
+    cond do
+      is_binary(primary_language) and
+        primary_language != base_language and
+        primary_language in enabled_languages and
+          PhoenixKit.Modules.Languages.DialectMapper.extract_base(primary_language) ==
+            base_language ->
+        primary_language
+
+      true ->
+        Enum.find(enabled_languages, fn enabled_language ->
+          PhoenixKit.Modules.Languages.DialectMapper.extract_base(enabled_language) ==
+            base_language and
+            enabled_language != base_language
+        end)
+    end
+  end
+
+  defp base_language_code?(language) do
+    LanguageHelpers.base_language_code?(language)
+  end
+
+  defp merge_duplicate_language_content(target, legacy) do
+    attrs = build_duplicate_content_merge_attrs(target, legacy)
+    repo = PhoenixKit.RepoHelper.repo()
+
+    repo.transaction(fn ->
+      if attrs != %{} do
+        Logger.info(
+          "[Publishing] Merging duplicate legacy content #{legacy.uuid} into #{target.uuid}: #{inspect(attrs)}"
+        )
+
+        case DBStorage.update_content(target, attrs) do
+          {:ok, _} -> :ok
+          {:error, reason} -> repo.rollback(reason)
+        end
+      end
+
+      Logger.info(
+        "[Publishing] Removing duplicate legacy content #{legacy.uuid} after merge into #{target.uuid}"
+      )
+
+      case DBStorage.delete_content(legacy) do
+        {:ok, _} -> :ok
+        {:error, reason} -> repo.rollback(reason)
+      end
+    end)
+  end
+
+  defp build_duplicate_content_merge_attrs(target, legacy) do
+    merged_data =
+      merge_content_data(target.data || %{}, legacy.data || %{}, target.url_slug, legacy.url_slug)
+
+    %{}
+    |> maybe_take_legacy_title(target, legacy)
+    |> maybe_take_legacy_body(target, legacy)
+    |> maybe_take_legacy_url_slug(target, legacy)
+    |> maybe_take_legacy_status(target, legacy)
+    |> maybe_put_merged_data(target.data || %{}, merged_data)
+  end
+
+  defp maybe_take_legacy_title(attrs, target, legacy) do
+    if weak_title?(target.title) and strong_title?(legacy.title) do
+      Map.put(attrs, :title, legacy.title)
+    else
+      attrs
+    end
+  end
+
+  defp maybe_take_legacy_body(attrs, target, legacy) do
+    if blank_string?(target.content) and not blank_string?(legacy.content) do
+      Map.put(attrs, :content, legacy.content)
+    else
+      attrs
+    end
+  end
+
+  defp maybe_take_legacy_url_slug(attrs, target, legacy) do
+    if blank_string?(target.url_slug) and not blank_string?(legacy.url_slug) do
+      Map.put(attrs, :url_slug, legacy.url_slug)
+    else
+      attrs
+    end
+  end
+
+  defp maybe_take_legacy_status(attrs, target, legacy) do
+    if target.status not in @valid_version_statuses and legacy.status in @valid_version_statuses do
+      Map.put(attrs, :status, legacy.status)
+    else
+      attrs
+    end
+  end
+
+  defp maybe_put_merged_data(attrs, current_data, merged_data) do
+    if merged_data != current_data do
+      Map.put(attrs, :data, merged_data)
+    else
+      attrs
+    end
+  end
+
+  defp merge_content_data(target_data, legacy_data, target_url_slug, legacy_url_slug) do
+    merged_previous_slugs =
+      [
+        Map.get(target_data, "previous_url_slugs", []),
+        Map.get(legacy_data, "previous_url_slugs", [])
+      ]
+      |> List.flatten()
+      |> then(fn slugs ->
+        if blank_string?(target_url_slug) or blank_string?(legacy_url_slug) or
+             target_url_slug == legacy_url_slug do
+          slugs
+        else
+          [legacy_url_slug | slugs]
+        end
+      end)
+      |> Enum.reject(&blank_string?/1)
+      |> Enum.uniq()
+
+    Map.merge(legacy_data, target_data)
+    |> Map.put("previous_url_slugs", merged_previous_slugs)
+  end
+
+  defp weak_title?(title), do: blank_string?(title) or title == Constants.default_title()
+
+  defp strong_title?(title),
+    do: is_binary(title) and title != "" and title != Constants.default_title()
+
+  defp blank_string?(value), do: value in [nil, ""]
 
   @doc """
   Ensures only one version is published per post.

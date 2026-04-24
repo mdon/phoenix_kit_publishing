@@ -57,6 +57,46 @@ defmodule PhoenixKit.Modules.Publishing.LanguageHelpersTest do
     end
   end
 
+  describe "enabled_language_codes/0" do
+    test "drops bare base codes when a dialect of the same base is enabled" do
+      {:ok, _} =
+        Settings.update_json_setting("languages_config", %{
+          "languages" => [
+            %{
+              "code" => "en",
+              "name" => "English",
+              "is_default" => false,
+              "is_enabled" => true,
+              "position" => 0
+            },
+            %{
+              "code" => "en-US",
+              "name" => "English (United States)",
+              "is_default" => true,
+              "is_enabled" => true,
+              "position" => 1
+            },
+            %{
+              "code" => "en-GB",
+              "name" => "English (United Kingdom)",
+              "is_default" => false,
+              "is_enabled" => true,
+              "position" => 2
+            },
+            %{
+              "code" => "de-DE",
+              "name" => "German (Germany)",
+              "is_default" => false,
+              "is_enabled" => true,
+              "position" => 3
+            }
+          ]
+        })
+
+      assert LanguageHelpers.enabled_language_codes() == ["en-US", "en-GB", "de-DE"]
+    end
+  end
+
   describe "default_language_no_prefix?/0" do
     test "defaults to false" do
       refute LanguageHelpers.default_language_no_prefix?()

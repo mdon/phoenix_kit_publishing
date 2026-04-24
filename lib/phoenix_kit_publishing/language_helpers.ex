@@ -20,6 +20,7 @@ defmodule PhoenixKit.Modules.Publishing.LanguageHelpers do
   def enabled_language_codes do
     if Languages.enabled?() do
       Languages.get_enabled_language_codes()
+      |> normalize_enabled_language_codes()
     else
       [Settings.get_content_language()]
     end
@@ -78,16 +79,6 @@ defmodule PhoenixKit.Modules.Publishing.LanguageHelpers do
 
     not single_language_mode?() and
       not (default_language_no_prefix?() and language_code == get_primary_language_base())
-  end
-
-  @doc """
-  Returns true when the site should behave as single-language for public URLs.
-  """
-  @spec single_language_mode?() :: boolean()
-  def single_language_mode? do
-    not Languages.enabled?() or length(enabled_language_codes()) <= 1
-  rescue
-    _ -> true
   end
 
   @doc """
@@ -188,6 +179,48 @@ defmodule PhoenixKit.Modules.Publishing.LanguageHelpers do
 
     slug in language_codes
   end
+
+  @doc """
+  Returns true when the site should behave as single-language for public URLs.
+  """
+  @spec single_language_mode?() :: boolean()
+  def single_language_mode? do
+    not Languages.enabled?() or length(enabled_language_codes()) <= 1
+  rescue
+    _ -> true
+  end
+
+  @doc """
+  Removes base-only language codes when a dialect of the same base is also enabled.
+
+  Publishing stores and routes against dialects when they exist. If both `"en"`
+  and `"en-US"` are enabled in the broader Languages config, Publishing should
+  treat the bare base code as legacy compatibility data, not as a separate
+  translation target.
+  """
+  @spec normalize_enabled_language_codes([String.t()]) :: [String.t()]
+  def normalize_enabled_language_codes(language_codes) when is_list(language_codes) do
+    language_codes
+    |> Enum.reject(fn language_code ->
+      base_language_code?(language_code) and
+        Enum.any?(language_codes, fn other_language ->
+          other_language != language_code and
+            DialectMapper.extract_base(other_language) == language_code
+        end)
+    end)
+  end
+
+  def normalize_enabled_language_codes(_), do: []
+
+  @doc """
+  Returns true for bare base language codes like `"en"` or `"de"`.
+  """
+  @spec base_language_code?(String.t() | any()) :: boolean()
+  def base_language_code?(language_code) when is_binary(language_code) do
+    String.length(language_code) in [2, 3] and not String.contains?(language_code, "-")
+  end
+
+  def base_language_code?(_), do: false
 
   # ===========================================================================
   # Private Helpers

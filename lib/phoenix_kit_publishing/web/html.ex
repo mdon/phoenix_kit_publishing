@@ -130,7 +130,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.HTML do
         <div class="mt-4">
           <.language_switcher
             languages={build_public_translations(@translations, @current_language)}
-            current_language={@current_language}
+            current_language={public_current_language(@translations, @current_language)}
             show_status={false}
             size={:sm}
           />
@@ -286,7 +286,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.HTML do
         <%= if length(@translations) > 1 do %>
           <.language_switcher
             languages={build_public_translations(@translations, @current_language)}
-            current_language={@current_language}
+            current_language={public_current_language(@translations, @current_language)}
             show_status={false}
             size={:sm}
           />
@@ -806,14 +806,26 @@ defmodule PhoenixKit.Modules.Publishing.Web.HTML do
   def build_public_translations(translations, _current_language) do
     Enum.map(translations, fn translation ->
       %{
-        code: translation[:code] || translation.code,
-        display_code: translation[:display_code] || translation[:code] || translation.code,
-        name: translation[:name] || translation.name,
-        flag: translation[:flag] || "",
-        url: translation[:url] || translation.url,
+        code: translation.code,
+        display_code: translation.display_code || translation.code,
+        name: translation.name,
+        flag: translation.flag || "",
+        url: translation.url,
+        current: translation.current || false,
         status: "published",
         exists: true
       }
+    end)
+  end
+
+  @doc """
+  Resolves the exact language-switcher code to highlight on public pages.
+  """
+  def public_current_language(translations, fallback) do
+    Enum.find_value(translations, fallback, fn translation ->
+      if translation.current do
+        translation.code
+      end
     end)
   end
 

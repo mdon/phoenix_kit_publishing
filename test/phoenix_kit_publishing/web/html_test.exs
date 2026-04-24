@@ -94,4 +94,15 @@ defmodule PhoenixKit.Modules.Publishing.Web.HTMLTest do
       refute url =~ "/en/blog"
     end
   end
+
+  describe "public_current_language/2" do
+    test "prefers the exact translation marked current over the fallback" do
+      translations = [
+        %{code: "en", current: false},
+        %{code: "en-US", current: true}
+      ]
+
+      assert PublishingHTML.public_current_language(translations, "en") == "en-US"
+    end
+  end
 end

@@ -460,6 +460,11 @@ defmodule PhoenixKit.Modules.Publishing.DBStorage do
     |> repo().update()
   end
 
+  @doc "Deletes content."
+  def delete_content(%PublishingContent{} = content) do
+    repo().delete(content)
+  end
+
   @doc "Bulk-updates the status of all content rows for a version."
   def update_content_status(version_uuid, new_status) do
     from(c in PublishingContent, where: c.version_uuid == ^version_uuid)
