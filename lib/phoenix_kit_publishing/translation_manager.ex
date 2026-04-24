@@ -7,13 +7,15 @@ defmodule PhoenixKit.Modules.Publishing.TranslationManager do
 
   require Logger
 
+  alias PhoenixKit.Modules.Languages.DialectMapper
   alias PhoenixKit.Modules.Publishing.Constants
   alias PhoenixKit.Modules.Publishing.DBStorage
   alias PhoenixKit.Modules.Publishing.ListingCache
+  alias PhoenixKit.Modules.Publishing.PublishingContent
   alias PhoenixKit.Modules.Publishing.PubSub, as: PublishingPubSub
   alias PhoenixKit.Modules.Publishing.Shared
+  alias PhoenixKit.Modules.Publishing.StaleFixer
   alias PhoenixKit.Modules.Publishing.Workers.TranslatePostWorker
-  alias PhoenixKit.Modules.Languages.DialectMapper
 
   @doc """
   Adds a new language translation to an existing post.
@@ -47,7 +49,7 @@ defmodule PhoenixKit.Modules.Publishing.TranslationManager do
   def add_language_to_db(group_slug, post_uuid, language_code, version_number) do
     with raw_db_post when not is_nil(raw_db_post) <-
            DBStorage.get_post_by_uuid(post_uuid, [:group]),
-         db_post = PhoenixKit.Modules.Publishing.StaleFixer.fix_stale_post(raw_db_post),
+         db_post = StaleFixer.fix_stale_post(raw_db_post),
          version when not is_nil(version) <-
            if(version_number,
              do: DBStorage.get_version(db_post.uuid, version_number),
@@ -91,11 +93,8 @@ defmodule PhoenixKit.Modules.Publishing.TranslationManager do
 
   defp ensure_language_content(version_uuid, language_code) do
     case DBStorage.get_content(version_uuid, language_code) do
-      nil ->
-        maybe_promote_legacy_base_content(version_uuid, language_code)
-
-      %PhoenixKit.Modules.Publishing.PublishingContent{} = existing ->
-        {:ok, existing}
+      nil -> maybe_promote_legacy_base_content(version_uuid, language_code)
+      %PublishingContent{} = existing -> {:ok, existing}
     end
   end
 

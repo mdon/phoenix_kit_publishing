@@ -231,6 +231,8 @@ Multi-language mode:
 
 Single-language mode omits the `/{language}` segment.
 
+When `publishing_default_language_no_prefix` is enabled, the default-language URL also drops its prefix (e.g. `/blog` instead of `/en/blog`), and requests to the prefixed form 301-redirect to the canonical prefixless URL.
+
 ### Fallback Behavior
 
 - Missing language → tries default language, then other available languages
@@ -292,6 +294,7 @@ Supported components: `Image`, `Hero`, `CTA`, `Headline`, `Subheadline`, `Video`
 |-----|---------|-------------|
 | `publishing_enabled` | `false` | Enable/disable module |
 | `publishing_public_enabled` | `true` | Show public routes |
+| `publishing_default_language_no_prefix` | `false` | Omit the locale prefix from default-language public URLs; prefixed requests 301-redirect |
 | `publishing_posts_per_page` | `20` | Listing pagination |
 | `publishing_memory_cache_enabled` | `true` | Listing cache toggle |
 | `publishing_render_cache_enabled` | `true` | Render cache global toggle |
@@ -299,14 +302,14 @@ Supported components: `Image`, `Hero`, `CTA`, `Headline`, `Subheadline`, `Video`
 
 ## Testing
 
-Unit tests run without a database. Integration tests require PostgreSQL:
+Unit tests run without a database. Integration and controller tests require PostgreSQL:
 
 ```bash
 createdb phoenix_kit_publishing_test
 mix test
 ```
 
-Integration tests are automatically excluded when the database is unavailable.
+Integration tests are automatically excluded when the database is unavailable. Controller tests run through a minimal `Phoenix.Endpoint` + `Router` + `Layouts` shipped under `test/support/` — see `AGENTS.md` for details.
 
 ## Dependencies
 

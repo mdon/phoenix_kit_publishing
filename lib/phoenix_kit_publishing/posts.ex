@@ -557,7 +557,12 @@ defmodule PhoenixKit.Modules.Publishing.Posts do
       _ -> {:error, :not_found}
     end
   rescue
-    _ -> {:error, :not_found}
+    e in [Ecto.QueryError, DBConnection.ConnectionError] ->
+      Logger.warning(
+        "[Publishing] retry_stale_slug_post_read failed for #{group_slug}/#{post_slug}: #{inspect(e)}"
+      )
+
+      {:error, :not_found}
   end
 
   defp retry_stale_timestamp_post_read(group_slug, date, time, language, version_number) do
@@ -578,7 +583,12 @@ defmodule PhoenixKit.Modules.Publishing.Posts do
       _ -> {:error, :not_found}
     end
   rescue
-    _ -> {:error, :not_found}
+    e in [Ecto.QueryError, DBConnection.ConnectionError] ->
+      Logger.warning(
+        "[Publishing] retry_stale_timestamp_post_read failed for #{group_slug}/#{date}/#{time}: #{inspect(e)}"
+      )
+
+      {:error, :not_found}
   end
 
   defp normalize_version_number(nil), do: nil

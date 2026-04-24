@@ -11,13 +11,14 @@ defmodule PhoenixKit.Modules.Publishing.StaleFixer do
 
   import Ecto.Query, only: [from: 2]
 
+  alias PhoenixKit.Modules.Languages.DialectMapper
+  alias PhoenixKit.Modules.Publishing.Constants
   alias PhoenixKit.Modules.Publishing.DBStorage
   alias PhoenixKit.Modules.Publishing.LanguageHelpers
   alias PhoenixKit.Modules.Publishing.PublishingContent
   alias PhoenixKit.Modules.Publishing.PublishingGroup
   alias PhoenixKit.Modules.Publishing.PublishingPost
-
-  alias PhoenixKit.Modules.Publishing.Constants
+  alias PhoenixKit.RepoHelper
 
   # Posts younger than this are skipped by the stale fixer's empty-post deletion
   @grace_period_seconds 300
@@ -412,8 +413,10 @@ defmodule PhoenixKit.Modules.Publishing.StaleFixer do
         :unchanged
 
       target = DBStorage.get_content(content.version_uuid, target_language) ->
-        merge_duplicate_language_content(target, content)
-        {:deleted, target_language}
+        case merge_duplicate_language_content(target, content) do
+          {:ok, _} -> {:deleted, target_language}
+          {:error, _reason} -> :unchanged
+        end
 
       true ->
         Logger.info(
@@ -458,52 +461,58 @@ defmodule PhoenixKit.Modules.Publishing.StaleFixer do
   defp find_enabled_dialect_for_base(base_language, enabled_languages) do
     primary_language = LanguageHelpers.get_primary_language()
 
-    cond do
-      is_binary(primary_language) and
-        primary_language != base_language and
-        primary_language in enabled_languages and
-          PhoenixKit.Modules.Languages.DialectMapper.extract_base(primary_language) ==
-            base_language ->
-        primary_language
-
-      true ->
-        Enum.find(enabled_languages, fn enabled_language ->
-          PhoenixKit.Modules.Languages.DialectMapper.extract_base(enabled_language) ==
-            base_language and
-            enabled_language != base_language
-        end)
+    if primary_language != base_language and
+         primary_language in enabled_languages and
+         DialectMapper.extract_base(primary_language) == base_language do
+      primary_language
+    else
+      Enum.find(enabled_languages, fn enabled_language ->
+        enabled_language != base_language and
+          DialectMapper.extract_base(enabled_language) == base_language
+      end)
     end
   end
 
-  defp base_language_code?(language) do
-    LanguageHelpers.base_language_code?(language)
-  end
+  defp base_language_code?(language), do: LanguageHelpers.base_language_code?(language)
 
   defp merge_duplicate_language_content(target, legacy) do
     attrs = build_duplicate_content_merge_attrs(target, legacy)
-    repo = PhoenixKit.RepoHelper.repo()
+    repo = RepoHelper.repo()
 
-    repo.transaction(fn ->
-      if attrs != %{} do
-        Logger.info(
-          "[Publishing] Merging duplicate legacy content #{legacy.uuid} into #{target.uuid}: #{inspect(attrs)}"
-        )
-
-        case DBStorage.update_content(target, attrs) do
-          {:ok, _} -> :ok
+    result =
+      repo.transaction(fn ->
+        with :ok <- apply_merge_attrs(target, attrs),
+             {:ok, _} <- DBStorage.delete_content(legacy) do
+          :ok
+        else
           {:error, reason} -> repo.rollback(reason)
         end
-      end
+      end)
 
-      Logger.info(
-        "[Publishing] Removing duplicate legacy content #{legacy.uuid} after merge into #{target.uuid}"
-      )
+    case result do
+      {:ok, :ok} ->
+        Logger.info(
+          "[Publishing] Merged duplicate legacy content #{legacy.uuid} into #{target.uuid}"
+        )
 
-      case DBStorage.delete_content(legacy) do
-        {:ok, _} -> :ok
-        {:error, reason} -> repo.rollback(reason)
-      end
-    end)
+        {:ok, target}
+
+      {:error, reason} = error ->
+        Logger.warning(
+          "[Publishing] Failed to merge duplicate legacy content #{legacy.uuid} into #{target.uuid}: #{inspect(reason)}"
+        )
+
+        error
+    end
+  end
+
+  defp apply_merge_attrs(_target, attrs) when map_size(attrs) == 0, do: :ok
+
+  defp apply_merge_attrs(target, attrs) do
+    case DBStorage.update_content(target, attrs) do
+      {:ok, _} -> :ok
+      {:error, _reason} = error -> error
+    end
   end
 
   defp build_duplicate_content_merge_attrs(target, legacy) do

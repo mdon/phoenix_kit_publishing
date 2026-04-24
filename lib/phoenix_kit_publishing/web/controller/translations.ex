@@ -8,6 +8,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller.Translations do
   """
 
   alias PhoenixKit.Modules.Languages
+  alias PhoenixKit.Modules.Languages.DialectMapper
   alias PhoenixKit.Modules.Publishing
   alias PhoenixKit.Modules.Publishing.LanguageHelpers
   alias PhoenixKit.Modules.Publishing.ListingCache
@@ -181,7 +182,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller.Translations do
       Enum.reject(base_codes, fn base ->
         base not in enabled_languages and
           Enum.any?(dialect_codes, fn dialect ->
-            PhoenixKit.Modules.Languages.DialectMapper.extract_base(dialect) == base
+            DialectMapper.extract_base(dialect) == base
           end)
       end)
 
@@ -237,7 +238,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller.Translations do
       # Base code (e.g., "en") - show if any dialect is enabled
       Language.base_code?(language) ->
         Enum.any?(enabled_languages, fn enabled_lang ->
-          PhoenixKit.Modules.Languages.DialectMapper.extract_base(enabled_lang) == language
+          DialectMapper.extract_base(enabled_lang) == language
         end)
 
       # Dialect (e.g., "en-US") not directly enabled - DON'T show

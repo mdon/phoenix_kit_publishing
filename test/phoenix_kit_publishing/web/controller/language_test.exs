@@ -1,6 +1,7 @@
 defmodule PhoenixKit.Modules.Publishing.Web.Controller.LanguageTest do
   use PhoenixKitPublishing.DataCase, async: true
 
+  alias PhoenixKit.Modules.Publishing
   alias PhoenixKit.Modules.Publishing.Web.Controller.Language
   alias PhoenixKit.Settings
 
@@ -64,8 +65,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller.LanguageTest do
 
   describe "get_default_language/0" do
     test "prefers the publishing primary language over the frontend languages default" do
-      assert Language.get_default_language() ==
-               PhoenixKit.Modules.Publishing.get_primary_language()
+      assert Language.get_default_language() == Publishing.get_primary_language()
     end
   end
 end
