@@ -192,7 +192,13 @@ defmodule PhoenixKit.Modules.Publishing.StaleFixer do
     end
   end
 
-  # Ensures a slug is unique within a group by appending a UUID suffix if needed
+  # Builds a candidate slug for the post. The probe is a happy-path
+  # optimisation — most stale-fixer runs land on a free slug. The
+  # `(group_uuid, slug)` UNIQUE INDEX backs the operation: a concurrent
+  # fixer that wins the race causes the eventual `update_post` call to
+  # return `{:error, %Ecto.Changeset{}}` with a `:slug` unique error,
+  # and `apply_stale_fix/3` retries once with the deterministic
+  # `post_uuid` suffix appended (PR #9 follow-up — Pincer review).
   defp ensure_unique_slug(group_uuid, slug, post_uuid) do
     conflict =
       from(p in PublishingPost,
@@ -203,11 +209,15 @@ defmodule PhoenixKit.Modules.Publishing.StaleFixer do
       |> PhoenixKit.RepoHelper.repo().one()
 
     if conflict do
-      suffix = String.slice(post_uuid || "", 0, 8)
-      "#{slug}-#{suffix}"
+      slug_with_post_suffix(slug, post_uuid)
     else
       slug
     end
+  end
+
+  defp slug_with_post_suffix(slug, post_uuid) do
+    suffix = String.slice(post_uuid || "", 0, 8)
+    "#{slug}-#{suffix}"
   end
 
   defp generate_and_assign_slug(attrs, post, ctx) do
@@ -322,12 +332,59 @@ defmodule PhoenixKit.Modules.Publishing.StaleFixer do
       {:ok, updated} ->
         updated
 
-      {:error, reason} ->
-        Logger.warning(
-          "[Publishing] Failed to fix stale values for #{identifier}: #{inspect(reason)}"
-        )
+      {:error, %Ecto.Changeset{} = cs} ->
+        case retry_on_slug_conflict(record, attrs, cs, update_fn) do
+          {:ok, updated} ->
+            updated
 
+          {:error, reason} ->
+            warn_stale_fix_failed(identifier, reason)
+            record
+        end
+
+      {:error, reason} ->
+        warn_stale_fix_failed(identifier, reason)
         record
+    end
+  end
+
+  defp warn_stale_fix_failed(identifier, reason) do
+    Logger.warning(
+      "[Publishing] Failed to fix stale values for #{identifier}: #{inspect(reason)}"
+    )
+  end
+
+  # Recovery for the rare race where a concurrent stale-fixer pass committed
+  # the same slug between our `ensure_unique_slug/3` probe and the eventual
+  # `update_post`. The DB unique index (`idx_publishing_posts_group_slug`)
+  # rejects the second writer; we suffix with the deterministic
+  # `post_uuid[0..8]` and retry once. Any other constraint failure (or a
+  # second slug collision after the suffix — practically impossible with a
+  # UUIDv7 prefix) propagates the error so the stale fixer logs and skips.
+  defp retry_on_slug_conflict(record, attrs, cs, update_fn) do
+    cond do
+      not slug_conflict?(cs) ->
+        {:error, cs}
+
+      not Map.has_key?(attrs, :slug) ->
+        {:error, cs}
+
+      not is_binary(Map.get(record, :uuid)) ->
+        {:error, cs}
+
+      true ->
+        retry_attrs = Map.put(attrs, :slug, slug_with_post_suffix(attrs.slug, record.uuid))
+        update_fn.(record, retry_attrs)
+    end
+  end
+
+  defp slug_conflict?(%Ecto.Changeset{errors: errors}) do
+    case Keyword.get(errors, :slug) do
+      {_msg, opts} ->
+        Keyword.get(opts, :constraint) == :unique
+
+      _ ->
+        false
     end
   end
 
@@ -339,6 +396,13 @@ defmodule PhoenixKit.Modules.Publishing.StaleFixer do
   Fixes stale values across all groups, posts, versions, and content.
   Also reconciles active_version_uuid consistency and ensures single published version.
   Callable via internal API or IEx.
+
+  Streams the per-group post listing inside a `Repo.checkout/1` so the BEAM
+  doesn't have to hold every post in memory at once for large catalogues
+  (PR #9 follow-up — Pincer review). Group fix-up still loads the group
+  list eagerly because the count is bounded by the number of CMS sections
+  (typically <100), and `fix_stale_group/1` mutates rows that the post
+  pass also reads.
   """
   @spec fix_all_stale_values() :: :ok
   def fix_all_stale_values do
@@ -346,10 +410,13 @@ defmodule PhoenixKit.Modules.Publishing.StaleFixer do
     groups = DBStorage.list_groups(nil)
     Enum.each(groups, &fix_stale_group/1)
 
-    for group <- groups do
-      posts = DBStorage.list_posts(group.slug)
-      Enum.each(posts, &fix_stale_post/1)
-    end
+    PhoenixKit.RepoHelper.repo().checkout(fn ->
+      for group <- groups do
+        DBStorage.stream_posts(group.slug)
+        |> Stream.each(&fix_stale_post/1)
+        |> Stream.run()
+      end
+    end)
 
     :ok
   end

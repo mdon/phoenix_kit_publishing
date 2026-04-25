@@ -170,11 +170,15 @@ defmodule PhoenixKit.Modules.Publishing.LanguageHelpers do
   """
   @spec reserved_language_code?(String.t()) :: boolean()
   def reserved_language_code?(slug) do
+    # Languages context may not be loaded / configured in this host. Catch
+    # only the dispatch failures we expect from that case; let any other
+    # exception (DB, programmer error) propagate so it isn't silenced.
     language_codes =
       try do
         Languages.get_language_codes()
       rescue
-        _ -> []
+        UndefinedFunctionError -> []
+        ArgumentError -> []
       end
 
     slug in language_codes
@@ -187,7 +191,11 @@ defmodule PhoenixKit.Modules.Publishing.LanguageHelpers do
   def single_language_mode? do
     not Languages.enabled?() or length(enabled_language_codes()) <= 1
   rescue
-    _ -> true
+    # Same as `reserved_language_code?/1` — Languages may not be wired
+    # up; any other exception class is a genuine failure and shouldn't
+    # be silently coerced to `true`.
+    UndefinedFunctionError -> true
+    ArgumentError -> true
   end
 
   @doc """

@@ -125,7 +125,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller.Translations do
     Enum.map(languages, fn lang ->
       # Use display_code helper to determine if we show base or full code
       display_code = Publishing.get_display_code(lang, enabled_languages)
-      is_enabled = language_enabled_for_public?(lang, enabled_languages)
+      is_enabled = exact_enabled_for_public?(lang, enabled_languages)
       is_known = Languages.get_predefined_language(lang) != nil
 
       # Get the URL slug for this specific language
@@ -162,7 +162,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller.Translations do
   defp order_languages_for_public(languages, enabled_languages, primary_language) do
     {enabled, disabled} =
       Enum.split_with(languages, fn lang ->
-        language_enabled_for_public?(lang, enabled_languages)
+        exact_enabled_for_public?(lang, enabled_languages)
       end)
 
     # Put primary first if present
@@ -226,11 +226,13 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller.Translations do
   defp normalize_languages([], current_language), do: [current_language]
   defp normalize_languages(languages, _current_language) when is_list(languages), do: languages
 
-  # Strict check for public display - only shows languages that are:
-  # 1. Directly in the enabled languages list, OR
-  # 2. Base codes where any dialect of that base is enabled
-  # This prevents showing en-US, en-GB etc when only en-CA is enabled
-  defp language_enabled_for_public?(language, enabled_languages) do
+  # Strict check for public display — distinguishable by name from
+  # `LanguageHelpers.language_enabled?/2` which is the looser variant.
+  # Only shows languages that are:
+  #   1. Directly in the enabled languages list, OR
+  #   2. Base codes where any dialect of that base is enabled
+  # This prevents showing en-US/en-GB when only en-CA is enabled.
+  defp exact_enabled_for_public?(language, enabled_languages) do
     cond do
       # Direct match - language code exactly matches an enabled language
       language in enabled_languages ->

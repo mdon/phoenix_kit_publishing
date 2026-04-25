@@ -228,6 +228,24 @@ defmodule PhoenixKit.Modules.Publishing.DBStorage do
   end
 
   @doc """
+  Streams every post in a group (including trashed) for batch operations
+  that shouldn't materialise the whole listing in memory.
+
+  Caller MUST be inside a `Repo.checkout/1` (or an explicit transaction) —
+  Postgres-backed Ecto streams require a checked-out connection. Yields raw
+  `%PublishingPost{}` structs with `:group` preloaded; no version/content
+  metadata (callers re-read what they need).
+  """
+  def stream_posts(group_slug) do
+    from(p in PublishingPost,
+      join: g in assoc(p, :group),
+      where: g.slug == ^group_slug,
+      preload: [group: g]
+    )
+    |> repo().stream(max_rows: 200)
+  end
+
+  @doc """
   Lists posts in timestamp mode (ordered by date/time desc).
 
   Options:

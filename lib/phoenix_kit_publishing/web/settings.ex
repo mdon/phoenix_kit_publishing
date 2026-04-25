@@ -18,21 +18,27 @@ defmodule PhoenixKit.Modules.Publishing.Web.Settings do
   @render_cache_key "publishing_render_cache_enabled"
 
   def mount(_params, _session, socket) do
-    # Subscribe to group changes for live updates
+    # Subscribe to group changes for live updates. All DB-backed reads
+    # live in `handle_params/3` (PR #9 follow-up — Phoenix iron law:
+    # mount runs twice per page load, handle_params once).
     if connected?(socket) do
       PublishingPubSub.subscribe_to_groups()
     end
 
+    socket =
+      socket
+      |> assign(:page_title, gettext("Publishing Settings"))
+      |> assign(:current_path, Routes.path("/admin/settings/publishing"))
+
+    {:ok, socket}
+  end
+
+  def handle_params(_params, _uri, socket) do
     cache_groups = db_groups_to_maps()
 
     socket =
       socket
       |> assign(:project_title, Settings.get_project_title())
-      |> assign(:page_title, gettext("Publishing Settings"))
-      |> assign(
-        :current_path,
-        Routes.path("/admin/settings/publishing")
-      )
       |> assign(:module_enabled, Publishing.enabled?())
       |> assign(:cache_groups, cache_groups)
       |> assign(
@@ -51,10 +57,8 @@ defmodule PhoenixKit.Modules.Publishing.Web.Settings do
       |> assign(:render_cache_stats, get_render_cache_stats())
       |> assign(:render_cache_per_group, build_render_cache_per_group(cache_groups))
 
-    {:ok, socket}
+    {:noreply, socket}
   end
-
-  def handle_params(_params, _uri, socket), do: {:noreply, socket}
 
   def handle_event("regenerate_cache", %{"slug" => slug}, socket) do
     case ListingCache.regenerate(slug) do
