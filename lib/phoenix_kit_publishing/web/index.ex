@@ -579,6 +579,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Index do
                         type="button"
                         phx-click="trash_group"
                         phx-value-slug={insight.slug}
+                        phx-disable-with={gettext("Trashing…")}
                         class="btn btn-outline btn-sm btn-xs sm:btn-sm min-w-0 text-error hover:bg-error hover:text-error-content"
                         data-confirm={gettext("Move this group to trash?")}
                       >
@@ -589,6 +590,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Index do
                         type="button"
                         phx-click="restore_group"
                         phx-value-slug={insight.slug}
+                        phx-disable-with={gettext("Restoring…")}
                         class="btn btn-outline btn-sm btn-xs sm:btn-sm flex-1 sm:flex-none min-w-0 text-success"
                       >
                         <.icon name="hero-arrow-uturn-left" class="w-4 h-4 sm:mr-1" />
@@ -598,6 +600,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Index do
                         type="button"
                         phx-click="delete_group"
                         phx-value-slug={insight.slug}
+                        phx-disable-with={gettext("Deleting…")}
                         class="btn btn-outline btn-sm btn-xs sm:btn-sm flex-1 sm:flex-none min-w-0 text-error hover:bg-error hover:text-error-content"
                         data-confirm={
                           gettext(

@@ -2097,6 +2097,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
                   type="button"
                   class={"btn btn-primary btn-sm #{if @ai_selected_endpoint_uuid == nil or @ai_selected_prompt_uuid == nil or @ai_translation_status in [:enqueued, :in_progress], do: "btn-disabled"}"}
                   phx-click="translate_to_all_languages"
+                  phx-disable-with={gettext("Enqueueing…")}
                   disabled={
                     @ai_selected_endpoint_uuid == nil or
                       @ai_selected_prompt_uuid == nil or
@@ -2111,6 +2112,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
                   type="button"
                   class={"btn btn-outline btn-sm #{if @ai_selected_endpoint_uuid == nil or @ai_selected_prompt_uuid == nil or @ai_translation_status in [:enqueued, :in_progress], do: "btn-disabled"}"}
                   phx-click="translate_missing_languages"
+                  phx-disable-with={gettext("Enqueueing…")}
                   disabled={
                     @ai_selected_endpoint_uuid == nil or
                       @ai_selected_prompt_uuid == nil or
@@ -2125,6 +2127,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
                   type="button"
                   class={"btn btn-primary btn-sm #{if @ai_selected_endpoint_uuid == nil or @ai_selected_prompt_uuid == nil or @ai_translation_status in [:enqueued, :in_progress], do: "btn-disabled"}"}
                   phx-click="translate_to_this_language"
+                  phx-disable-with={gettext("Translating…")}
                   disabled={
                     @ai_selected_endpoint_uuid == nil or
                       @ai_selected_prompt_uuid == nil or
@@ -2549,6 +2552,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
                   <button
                     type="button"
                     phx-click="clear_translation"
+                    phx-disable-with={gettext("Clearing…")}
                     class="btn btn-outline btn-error btn-sm w-full gap-2"
                     data-confirm={
                       gettext(
@@ -2646,6 +2650,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
             type="button"
             class="btn btn-primary"
             phx-click="create_version_from_source"
+            phx-disable-with={gettext("Creating…")}
           >
             <.icon name="hero-plus" class="w-4 h-4" />
             {gettext("Create Version")}

@@ -102,8 +102,20 @@ defmodule PhoenixKit.Modules.Publishing.Web.Edit do
          |> assign(:form, Component.to_form(params, as: :group))}
     end
   rescue
-    e ->
-      Logger.error("[Publishing.Edit] Group save failed: #{Exception.message(e)}")
+    # Narrow to the realistic failure classes (DB errors, optimistic-lock
+    # races, query construction). Leaves system errors / programmer mistakes
+    # / ArithmeticError etc. to crash the LV with a useful stacktrace.
+    e in [
+      Ecto.QueryError,
+      Ecto.ConstraintError,
+      Ecto.StaleEntryError,
+      DBConnection.ConnectionError
+    ] ->
+      Logger.error(
+        "[Publishing.Edit] Group save failed: " <>
+          Exception.format(:error, e, __STACKTRACE__)
+      )
+
       {:noreply, put_flash(socket, :error, gettext("Something went wrong. Please try again."))}
   end
 
@@ -189,7 +201,11 @@ defmodule PhoenixKit.Modules.Publishing.Web.Edit do
             </div>
 
             <div class="flex flex-wrap gap-3 justify-end">
-              <button type="submit" class="btn btn-primary btn-sm">
+              <button
+                type="submit"
+                class="btn btn-primary btn-sm"
+                phx-disable-with={gettext("Saving…")}
+              >
                 <.icon name="hero-check" class="w-4 h-4 mr-1" /> {gettext("Save Changes")}
               </button>
               <button type="button" class="btn btn-ghost btn-sm" phx-click="cancel">

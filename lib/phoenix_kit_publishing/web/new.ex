@@ -651,7 +651,11 @@ defmodule PhoenixKit.Modules.Publishing.Web.New do
             </div>
 
             <div class="flex flex-wrap gap-3 justify-end">
-              <button type="submit" class="btn btn-primary btn-sm">
+              <button
+                type="submit"
+                class="btn btn-primary btn-sm"
+                phx-disable-with={gettext("Creating…")}
+              >
                 <.icon name="hero-plus" class="w-4 h-4 mr-1" /> {gettext(
                   "Create Publishing Group"
                 )}

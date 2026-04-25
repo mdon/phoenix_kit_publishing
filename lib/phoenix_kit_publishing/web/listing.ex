@@ -942,10 +942,20 @@ defmodule PhoenixKit.Modules.Publishing.Web.Listing do
     <div class="space-y-4">
       <div class="flex-1">
         <div class="flex flex-wrap gap-2 items-center justify-end mb-2">
-          <button type="button" class="btn btn-outline btn-sm shadow-none" phx-click="refresh">
+          <button
+            type="button"
+            class="btn btn-outline btn-sm shadow-none"
+            phx-click="refresh"
+            phx-disable-with={gettext("Refreshing…")}
+          >
             <.icon name="hero-arrow-path" class="w-4 h-4 mr-1" /> {gettext("Refresh")}
           </button>
-          <button type="button" class="btn btn-primary btn-sm" phx-click="create_post">
+          <button
+            type="button"
+            class="btn btn-primary btn-sm"
+            phx-click="create_post"
+            phx-disable-with={gettext("Creating…")}
+          >
             <.icon name="hero-plus" class="w-4 h-4 mr-1" /> {gettext("Create Post")}
           </button>
         </div>
@@ -1152,6 +1162,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Listing do
                             type="button"
                             phx-click="trash_post"
                             phx-value-uuid={post[:uuid]}
+                            phx-disable-with={gettext("Trashing…")}
                             class="inline-flex items-center gap-1.5 px-2.5 h-[2.5em] rounded-lg border border-error/20 bg-error/5 hover:bg-error/15 text-error/60 hover:text-error transition-colors cursor-pointer"
                             data-confirm={gettext("Move this post to trash?")}
                             title={gettext("Move to trash")}
@@ -1163,6 +1174,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Listing do
                             type="button"
                             phx-click="restore_post"
                             phx-value-uuid={post[:uuid]}
+                            phx-disable-with={gettext("Restoring…")}
                             class="inline-flex items-center gap-1.5 px-2.5 h-[2.5em] rounded-lg border border-success/30 bg-success/10 hover:bg-success/20 text-success font-medium transition-colors cursor-pointer"
                             title={gettext("Restore")}
                           >

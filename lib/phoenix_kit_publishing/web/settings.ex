@@ -346,6 +346,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Settings do
               <button
                 type="button"
                 phx-click="regenerate_all_caches"
+                phx-disable-with={gettext("Regenerating…")}
                 class="btn btn-primary btn-sm whitespace-nowrap"
               >
                 <.icon name="hero-arrow-path" class="w-4 h-4 mr-1" />
@@ -440,6 +441,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Settings do
                                 type="button"
                                 phx-click="invalidate_cache"
                                 phx-value-slug={group["slug"]}
+                                phx-disable-with={gettext("Clearing…")}
                                 class="btn btn-outline btn-xs text-error tooltip tooltip-bottom"
                                 data-tip={gettext("Clear cache")}
                               >
@@ -453,6 +455,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Settings do
                               type="button"
                               phx-click="regenerate_cache"
                               phx-value-slug={group["slug"]}
+                              phx-disable-with={gettext("Regenerating…")}
                               class="btn btn-outline btn-xs tooltip tooltip-bottom"
                               data-tip={gettext("Regenerate cache")}
                             >
@@ -505,6 +508,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Settings do
               <button
                 type="button"
                 phx-click="clear_render_cache"
+                phx-disable-with={gettext("Clearing…")}
                 class="btn btn-outline btn-error btn-sm whitespace-nowrap"
                 data-confirm={
                   gettext(
@@ -605,6 +609,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Settings do
                               type="button"
                               phx-click="clear_group_render_cache"
                               phx-value-slug={slug}
+                              phx-disable-with={gettext("Clearing…")}
                               class="btn btn-outline btn-xs text-error tooltip tooltip-bottom"
                               data-tip={gettext("Clear cache for this group")}
                             >
