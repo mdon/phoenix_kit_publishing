@@ -102,12 +102,18 @@ defmodule PhoenixKit.Modules.Publishing.DBStorage do
     |> repo().update()
   end
 
-  @doc "Gets a post by group slug and post slug. Excludes trashed posts."
+  @doc """
+  Gets a post by group slug and post slug. Excludes trashed posts.
+
+  Preloads `:active_version` so that downstream `get_active_version/1` calls
+  read from the in-memory association instead of issuing a second query — the
+  read-then-resolve hot path becomes a single round trip.
+  """
   def get_post(group_slug, post_slug) do
     from(p in PublishingPost,
       join: g in assoc(p, :group),
       where: g.slug == ^group_slug and p.slug == ^post_slug and is_nil(p.trashed_at),
-      preload: [group: g]
+      preload: [group: g, active_version: :post]
     )
     |> repo().one()
   end
@@ -121,12 +127,13 @@ defmodule PhoenixKit.Modules.Publishing.DBStorage do
   """
   def get_post_by_datetime(group_slug, %Date{} = date, nil) do
     # Date-only lookup — return the first post on this date (by time asc)
+    # Preload :active_version (see get_post/2 docstring).
     from(p in PublishingPost,
       join: g in assoc(p, :group),
       where: g.slug == ^group_slug and p.post_date == ^date and is_nil(p.trashed_at),
       order_by: [asc: p.post_time],
       limit: 1,
-      preload: [group: g]
+      preload: [group: g, active_version: :post]
     )
     |> repo().one()
   end
@@ -136,13 +143,14 @@ defmodule PhoenixKit.Modules.Publishing.DBStorage do
     normalized_time = %Time{hour: time.hour, minute: time.minute, second: 0, microsecond: {0, 0}}
 
     # Try exact match first (fast, uses index, works for all properly-stored posts)
+    # Preload :active_version (see get_post/2 docstring).
     result =
       from(p in PublishingPost,
         join: g in assoc(p, :group),
         where:
           g.slug == ^group_slug and p.post_date == ^date and p.post_time == ^normalized_time and
             is_nil(p.trashed_at),
-        preload: [group: g]
+        preload: [group: g, active_version: :post]
       )
       |> repo().one()
 
@@ -166,7 +174,7 @@ defmodule PhoenixKit.Modules.Publishing.DBStorage do
             ),
         order_by: [asc: p.post_time],
         limit: 1,
-        preload: [group: g]
+        preload: [group: g, active_version: :post]
       )
       |> repo().one()
     end
@@ -181,37 +189,33 @@ defmodule PhoenixKit.Modules.Publishing.DBStorage do
 
   @doc "Lists posts in a group, optionally filtered by status. Excludes trashed by default."
   def list_posts(group_slug, status \\ nil) do
-    query =
+    # Base query has no trashed_at filter — each status branch adds its own.
+    # Composing additively means future base-query refinements (e.g. extra
+    # joins / preloads) can't be silently dropped by a status branch that
+    # rebuilds from scratch.
+    base =
       from(p in PublishingPost,
         join: g in assoc(p, :group),
-        where: g.slug == ^group_slug and is_nil(p.trashed_at),
+        where: g.slug == ^group_slug,
         preload: [group: g]
       )
 
-    query =
-      case status do
-        "published" ->
-          where(query, [p], not is_nil(p.active_version_uuid))
-
-        "draft" ->
-          where(query, [p], is_nil(p.active_version_uuid))
-
-        "trashed" ->
-          # Override the trashed_at filter for listing trashed posts
-          from(p in PublishingPost,
-            join: g in assoc(p, :group),
-            where: g.slug == ^group_slug and not is_nil(p.trashed_at),
-            preload: [group: g]
-          )
-
-        _ ->
-          query
-      end
-
-    query
+    base
+    |> filter_by_status(status)
     |> order_by_mode()
     |> repo().all()
   end
+
+  defp filter_by_status(query, "published"),
+    do: where(query, [p], is_nil(p.trashed_at) and not is_nil(p.active_version_uuid))
+
+  defp filter_by_status(query, "draft"),
+    do: where(query, [p], is_nil(p.trashed_at) and is_nil(p.active_version_uuid))
+
+  defp filter_by_status(query, "trashed"),
+    do: where(query, [p], not is_nil(p.trashed_at))
+
+  defp filter_by_status(query, _), do: where(query, [p], is_nil(p.trashed_at))
 
   @doc "Counts non-trashed posts in a group."
   def count_posts(group_slug) do
@@ -330,11 +334,24 @@ defmodule PhoenixKit.Modules.Publishing.DBStorage do
     |> repo().one()
   end
 
-  @doc "Gets the active (published) version for a post via active_version_uuid."
+  @doc """
+  Gets the active (published) version for a post via active_version_uuid.
+
+  Reads from the preloaded `:active_version` association if present (see
+  `get_post/2`), otherwise falls back to a direct lookup. This keeps callers
+  that received a hand-built struct working while letting the read paths
+  short-circuit the second round trip.
+  """
   def get_active_version(%PublishingPost{} = post) do
-    case Map.get(post, :active_version_uuid) do
-      nil -> nil
-      uuid -> repo().get(PublishingVersion, uuid)
+    case post do
+      %PublishingPost{active_version_uuid: nil} ->
+        nil
+
+      %PublishingPost{active_version: %PublishingVersion{} = version} ->
+        version
+
+      %PublishingPost{active_version_uuid: uuid} when is_binary(uuid) ->
+        repo().get(PublishingVersion, uuid)
     end
   end
 
@@ -794,8 +811,26 @@ defmodule PhoenixKit.Modules.Publishing.DBStorage do
   end
 
   defp order_by_mode(query) do
-    # Order by post_date/time desc for timestamp mode posts, inserted_at desc as fallback
-    order_by(query, [p], desc: p.post_date, desc: p.post_time, desc: p.inserted_at)
+    # Timestamp-mode posts sort by post_date/post_time (the user-visible
+    # publication date in the URL). Slug-mode posts have nil post_date and
+    # post_time, so coalesce them to inserted_at — without the fallback,
+    # a multi-post slug-mode listing would collapse onto a single inserted_at
+    # tiebreaker (the previous behaviour) and slug-mode posts would all
+    # cluster at the top of a mixed listing under PostgreSQL's default
+    # NULLS FIRST DESC ordering.
+    order_by(query, [p],
+      desc:
+        coalesce(
+          p.post_date,
+          fragment("CAST(? AS DATE)", p.inserted_at)
+        ),
+      desc:
+        coalesce(
+          p.post_time,
+          fragment("CAST(? AS TIME)", p.inserted_at)
+        ),
+      desc: p.inserted_at
+    )
   end
 
   @doc false

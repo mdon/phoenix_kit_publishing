@@ -98,7 +98,7 @@ defmodule PhoenixKit.Modules.Publishing.Workers.TranslatePostWorker do
     # by a previous attempt of this job (content updated after job was inserted).
     target_languages =
       if attempt > 1 do
-        skip_already_translated(target_languages, group_slug, post_uuid, version, inserted_at)
+        skip_already_translated(target_languages, post_uuid, version, inserted_at)
       else
         target_languages
       end
@@ -659,7 +659,7 @@ defmodule PhoenixKit.Modules.Publishing.Workers.TranslatePostWorker do
   @doc false
   # Skip languages that were already translated by a previous attempt of this job.
   # Checks content rows directly via DBStorage to avoid read_post's fallback behavior.
-  def skip_already_translated(target_languages, _group_slug, post_uuid, version, job_inserted_at) do
+  def skip_already_translated(target_languages, post_uuid, version, job_inserted_at) do
     alias PhoenixKit.Modules.Publishing.DBStorage
 
     version_uuid = resolve_version_uuid(post_uuid, version)
@@ -820,7 +820,7 @@ defmodule PhoenixKit.Modules.Publishing.Workers.TranslatePostWorker do
       # => {:ok, %{title: "Primeros Pasos", url_slug: "primeros-pasos", content: "..."}}
 
   """
-  def translate_content(_group_slug, post_uuid, target_language, opts \\ []) do
+  def translate_content(post_uuid, target_language, opts \\ []) do
     endpoint_uuid = Keyword.get(opts, :endpoint_uuid) || get_default_endpoint_uuid()
     prompt_uuid = Keyword.get(opts, :prompt_uuid)
     version = Keyword.get(opts, :version)
@@ -898,7 +898,7 @@ defmodule PhoenixKit.Modules.Publishing.Workers.TranslatePostWorker do
       :ok = TranslatePostWorker.translate_now("docs", "019cce93-...", "es", endpoint_uuid: "endpoint-uuid")
 
   """
-  def translate_now(_group_slug, post_uuid, target_language, opts \\ []) do
+  def translate_now(post_uuid, target_language, opts \\ []) do
     endpoint_uuid = Keyword.get(opts, :endpoint_uuid) || get_default_endpoint_uuid()
     prompt_uuid = Keyword.get(opts, :prompt_uuid)
     version = Keyword.get(opts, :version)

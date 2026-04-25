@@ -10,6 +10,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller.Translations do
   alias PhoenixKit.Modules.Languages
   alias PhoenixKit.Modules.Languages.DialectMapper
   alias PhoenixKit.Modules.Publishing
+  alias PhoenixKit.Modules.Publishing.Constants
   alias PhoenixKit.Modules.Publishing.LanguageHelpers
   alias PhoenixKit.Modules.Publishing.ListingCache
   alias PhoenixKit.Modules.Publishing.Web.Controller.Language
@@ -79,7 +80,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller.Translations do
 
   defp has_content?(post, language) do
     title = get_in(post, [:language_titles, language])
-    title != nil and title != "" and title != "Untitled"
+    title != nil and title != "" and title != Constants.default_title()
   end
 
   # ============================================================================
@@ -257,16 +258,18 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller.Translations do
   # Check if a post has actual content for a language (not just an empty content row)
   defp post_has_content_for_language?(post, language) do
     # On post pages, language_titles may not be available — check the current content
+    default_title = Constants.default_title()
+
     cond do
       # Listing maps have language_titles
       is_map(post[:language_titles]) ->
         title = Map.get(post.language_titles, language)
-        title != nil and title != "" and title != "Untitled"
+        title != nil and title != "" and title != default_title
 
       # Post maps: if we're checking the current language, check metadata title
       language == post[:language] ->
         title = get_in(post, [:metadata, :title])
-        title != nil and title != "" and title != "Untitled"
+        title != nil and title != "" and title != default_title
 
       # For other languages on post maps, assume content exists if in available_languages
       # (the content row was created intentionally)
