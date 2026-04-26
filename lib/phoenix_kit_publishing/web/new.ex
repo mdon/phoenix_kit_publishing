@@ -6,6 +6,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.New do
   use Gettext, backend: PhoenixKitWeb.Gettext
 
   alias PhoenixKit.Modules.Publishing
+  alias PhoenixKit.Modules.Publishing.Shared
   alias PhoenixKit.Modules.Publishing.Web.HTML, as: PublishingHTML
   alias PhoenixKit.Settings
   alias PhoenixKit.Utils.Routes
@@ -136,7 +137,12 @@ defmodule PhoenixKit.Modules.Publishing.Web.New do
 
     # Build options for add_group
     opts =
-      [mode: mode, slug: slug_to_validate, type: type]
+      [
+        mode: mode,
+        slug: slug_to_validate,
+        type: type,
+        actor_uuid: Shared.actor_uuid_from_socket(socket)
+      ]
       |> maybe_add_opt(:item_singular, item_singular)
       |> maybe_add_opt(:item_plural, item_plural)
 

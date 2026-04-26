@@ -10,6 +10,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Edit do
   alias Phoenix.Component
   alias PhoenixKit.Modules.Publishing
   alias PhoenixKit.Modules.Publishing.PubSub, as: PublishingPubSub
+  alias PhoenixKit.Modules.Publishing.Shared
   alias PhoenixKit.Settings
   alias PhoenixKit.Utils.Routes
 
@@ -45,7 +46,9 @@ defmodule PhoenixKit.Modules.Publishing.Web.Edit do
   end
 
   def handle_event("save", %{"group" => params}, socket) do
-    case Publishing.update_group(socket.assigns.group["slug"], params) do
+    case Publishing.update_group(socket.assigns.group["slug"], params,
+           actor_uuid: Shared.actor_uuid_from_socket(socket)
+         ) do
       {:ok, updated_group} ->
         # Broadcast group updated for live dashboard updates
         PublishingPubSub.broadcast_group_updated(updated_group)

@@ -66,6 +66,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.IndexLiveTest do
 
     # `view_mode` flipped → the trash tab is now styled active. Use the
     # underline-color class as the structural marker.
-    assert html_after =~ ~s|phx-value-mode="trashed" class="px-3 py-1 text-xs font-medium border-b-2 transition-colors cursor-pointer border-error|
+    assert html_after =~
+             ~s|phx-value-mode="trashed" class="px-3 py-1 text-xs font-medium border-b-2 transition-colors cursor-pointer border-error|
   end
 end

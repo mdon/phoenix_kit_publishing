@@ -262,7 +262,11 @@ defmodule PhoenixKit.Modules.Publishing.Web.Settings do
   defp get_render_cache_stats do
     PhoenixKit.Cache.stats(:publishing_posts)
   rescue
-    _ -> %{hits: 0, misses: 0, puts: 0, invalidations: 0, hit_rate: 0.0}
+    # `:publishing_posts` cache may not be registered yet (parent app
+    # hasn't started PhoenixKit.Cache.Registry, host-app boot ordering).
+    # Catch the registry-missing path only; other exceptions propagate so
+    # genuine bugs surface as crash reports.
+    ArgumentError -> %{hits: 0, misses: 0, puts: 0, invalidations: 0, hit_rate: 0.0}
   end
 
   defp build_render_cache_per_group(groups) do

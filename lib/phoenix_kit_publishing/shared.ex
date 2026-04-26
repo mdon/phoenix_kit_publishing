@@ -92,6 +92,24 @@ defmodule PhoenixKit.Modules.Publishing.Shared do
     |> normalize_audit_value()
   end
 
+  @doc """
+  Reads the current user's UUID from a LiveView socket's
+  `phoenix_kit_current_scope` assign. Returns `nil` when the LV is
+  mounted in a logged-out context (no scope, no user). LV callers
+  thread the result into mutating context functions as
+  `actor_uuid: actor_uuid_from_socket(socket)` so the activity log
+  records who initiated the change.
+  """
+  @spec actor_uuid_from_socket(struct() | map() | any()) :: String.t() | nil
+  def actor_uuid_from_socket(%{assigns: assigns}), do: actor_uuid_from_assigns(assigns)
+  def actor_uuid_from_socket(_), do: nil
+
+  defp actor_uuid_from_assigns(%{phoenix_kit_current_scope: %{user: %{uuid: uuid}}})
+       when is_binary(uuid),
+       do: uuid
+
+  defp actor_uuid_from_assigns(_), do: nil
+
   # ============================================================================
   # Post Reading (shared by Posts, Versions, TranslationManager)
   # ============================================================================

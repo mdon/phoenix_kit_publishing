@@ -79,15 +79,26 @@ defmodule PhoenixKit.Modules.Publishing.DBStorage do
     update_group(group, %{status: "active"})
   end
 
-  @doc "Upserts a group by slug."
+  @doc """
+  Upserts a group by slug atomically via PostgreSQL `ON CONFLICT`.
+
+  The previous check-then-act version (`get_group_by_slug` then create
+  or update) had a TOCTOU race: two concurrent callers with the same
+  slug could both observe `nil` and both attempt to insert, with one
+  crashing on the unique index. This version delegates conflict
+  resolution to PostgreSQL and replaces the mutable columns on hit.
+  """
   @spec upsert_group(map()) :: changeset_or_struct(PublishingGroup.t())
   def upsert_group(attrs) do
-    slug = Map.get(attrs, :slug) || Map.get(attrs, "slug")
-
-    case get_group_by_slug(slug) do
-      nil -> create_group(attrs)
-      group -> update_group(group, attrs)
-    end
+    %PublishingGroup{}
+    |> PublishingGroup.changeset(attrs)
+    |> repo().insert(
+      on_conflict:
+        {:replace,
+         [:name, :mode, :status, :position, :data, :title_i18n, :description_i18n, :updated_at]},
+      conflict_target: :slug,
+      returning: true
+    )
   end
 
   @doc "Deletes a group and all its posts (cascade)."

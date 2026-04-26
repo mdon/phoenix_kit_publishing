@@ -16,6 +16,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Index do
   alias PhoenixKit.Modules.Publishing.LanguageHelpers
   alias PhoenixKit.Modules.Publishing.ListingCache
   alias PhoenixKit.Modules.Publishing.PubSub, as: PublishingPubSub
+  alias PhoenixKit.Modules.Publishing.Shared
   alias PhoenixKit.Modules.Publishing.Web.HTML, as: PublishingHTML
   alias PhoenixKit.Settings
   alias PhoenixKit.Utils.Date, as: UtilsDate
@@ -147,7 +148,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Index do
   end
 
   def handle_event("trash_group", %{"slug" => slug}, socket) do
-    case Publishing.trash_group(slug) do
+    case Publishing.trash_group(slug, actor_uuid: Shared.actor_uuid_from_socket(socket)) do
       {:ok, _} ->
         {:noreply,
          socket
@@ -161,7 +162,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Index do
   end
 
   def handle_event("restore_group", %{"slug" => slug}, socket) do
-    case Publishing.restore_group(slug) do
+    case Publishing.restore_group(slug, actor_uuid: Shared.actor_uuid_from_socket(socket)) do
       {:ok, _} ->
         {:noreply,
          socket
@@ -175,7 +176,10 @@ defmodule PhoenixKit.Modules.Publishing.Web.Index do
   end
 
   def handle_event("delete_group", %{"slug" => slug}, socket) do
-    case Publishing.remove_group(slug, force: true) do
+    case Publishing.remove_group(slug,
+           force: true,
+           actor_uuid: Shared.actor_uuid_from_socket(socket)
+         ) do
       {:ok, _} ->
         {:noreply,
          socket

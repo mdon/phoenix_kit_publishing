@@ -38,7 +38,9 @@ defmodule PhoenixKit.Integration.Publishing.StaleFixerSlugRetryTest do
   end
 
   test "retries with the post_uuid suffix when the bare slug is already taken" do
-    {:ok, group} = Groups.add_group("Slug Race #{System.unique_integer([:positive])}", mode: "slug")
+    {:ok, group} =
+      Groups.add_group("Slug Race #{System.unique_integer([:positive])}", mode: "slug")
+
     {:ok, _winner} = Posts.create_post(group["slug"], %{title: "Conflict Slug"})
     {:ok, target} = Posts.create_post(group["slug"], %{title: "Different Title"})
 
@@ -62,7 +64,9 @@ defmodule PhoenixKit.Integration.Publishing.StaleFixerSlugRetryTest do
   end
 
   test "non-slug constraint failures propagate (no retry)" do
-    {:ok, group} = Groups.add_group("Non Slug #{System.unique_integer([:positive])}", mode: "slug")
+    {:ok, group} =
+      Groups.add_group("Non Slug #{System.unique_integer([:positive])}", mode: "slug")
+
     {:ok, target} = Posts.create_post(group["slug"], %{title: "Anything"})
 
     target_post = repo().get!(PublishingPost, target[:uuid])

@@ -114,20 +114,33 @@ defmodule PhoenixKit.Modules.Publishing.PubSub do
   end
 
   @doc """
-  Broadcasts a post created event.
+  Broadcasts a post created event with a minimal payload (uuid + slug).
+
+  Receivers only need the identifier to refresh their views — sending the
+  full post map risks leaking title/body/metadata into pubsub trace logs.
   """
   @spec broadcast_post_created(String.t(), map()) :: broadcast_result
   def broadcast_post_created(group_slug, post) do
-    Manager.broadcast(posts_topic(group_slug), {:post_created, post})
+    Manager.broadcast(posts_topic(group_slug), {:post_created, minimal_payload(post)})
   end
 
   @doc """
-  Broadcasts a post updated event.
+  Broadcasts a post updated event with a minimal payload (uuid + slug).
+
+  See `broadcast_post_created/2` for rationale on the trimmed payload.
   """
   @spec broadcast_post_updated(String.t(), map()) :: broadcast_result
   def broadcast_post_updated(group_slug, post) do
-    Manager.broadcast(posts_topic(group_slug), {:post_updated, post})
+    Manager.broadcast(posts_topic(group_slug), {:post_updated, minimal_payload(post)})
   end
+
+  # Strips a post map to the only fields receivers actually use, so
+  # broadcasts don't leak title/body/version metadata into PubSub traces.
+  defp minimal_payload(post) when is_map(post) do
+    %{uuid: post[:uuid] || post["uuid"], slug: post[:slug] || post["slug"]}
+  end
+
+  defp minimal_payload(other), do: other
 
   @doc """
   Broadcasts a post deleted event.

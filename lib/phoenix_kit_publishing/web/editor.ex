@@ -29,6 +29,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
   alias PhoenixKit.Modules.Publishing
   alias PhoenixKit.Modules.Publishing.LanguageHelpers
   alias PhoenixKit.Modules.Publishing.PubSub, as: PublishingPubSub
+  alias PhoenixKit.Modules.Publishing.Shared
   alias PhoenixKit.Settings
   alias PhoenixKit.Utils.Routes
   alias PhoenixKitAI, as: AI
@@ -941,7 +942,10 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
     scope = socket.assigns[:phoenix_kit_current_scope]
     params = %{"allow_version_access" => enabled}
 
-    case Publishing.update_post(group_slug, updated_post, params, %{scope: scope}) do
+    case Publishing.update_post(group_slug, updated_post, params, %{
+           scope: scope,
+           actor_uuid: Shared.actor_uuid_from_socket(socket)
+         }) do
       {:ok, saved_post} ->
         flash_msg = version_access_flash(enabled)
 
@@ -1424,6 +1428,15 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
       socket = Collaborative.check_lock_expiration(socket)
       {:noreply, socket}
     end
+  end
+
+  # Catch-all — log unknown PubSub messages at :debug instead of crashing
+  # the LV. Matches the workspace precedent
+  # (`phoenix_kit_sync/lib/phoenix_kit_sync/web/connections_live.ex:1042`).
+  def handle_info(msg, socket) do
+    require Logger
+    Logger.debug("[Publishing.Editor] unhandled handle_info: #{inspect(msg)}")
+    {:noreply, socket}
   end
 
   # ============================================================================

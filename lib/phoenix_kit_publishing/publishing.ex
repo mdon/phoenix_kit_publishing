@@ -83,12 +83,15 @@ defmodule PhoenixKit.Modules.Publishing do
   defdelegate remove_group(slug), to: Groups
   defdelegate remove_group(slug, opts), to: Groups
   defdelegate update_group(slug, params), to: Groups
+  defdelegate update_group(slug, params, opts), to: Groups
   defdelegate trash_group(slug), to: Groups
+  defdelegate trash_group(slug, opts), to: Groups
   defdelegate group_name(slug), to: Groups
   defdelegate get_group_mode(group_slug), to: Groups
   defdelegate preset_types(), to: Groups
   defdelegate valid_types(), to: Groups
   defdelegate restore_group(slug), to: Groups
+  defdelegate restore_group(slug, opts), to: Groups
   defdelegate list_trashed_groups(), to: Groups
 
   # ============================================================================
@@ -105,7 +108,9 @@ defmodule PhoenixKit.Modules.Publishing do
   defdelegate read_post_by_uuid(post_uuid, language \\ nil, version \\ nil), to: Posts
   defdelegate update_post(group_slug, post, params, opts \\ %{}), to: Posts
   defdelegate trash_post(group_slug, post_uuid), to: Posts
+  defdelegate trash_post(group_slug, post_uuid, opts), to: Posts
   defdelegate restore_post(group_slug, post_uuid), to: Posts
+  defdelegate restore_post(group_slug, post_uuid, opts), to: Posts
   defdelegate count_posts_on_date(group_slug, date), to: Posts
   defdelegate list_times_on_date(group_slug, date), to: Posts
   defdelegate read_post_by_datetime(group_slug, date, time), to: DBStorage
@@ -147,6 +152,7 @@ defmodule PhoenixKit.Modules.Publishing do
 
   defdelegate unpublish_post(group_slug, post_uuid, opts \\ []), to: Versions
   defdelegate delete_version(group_slug, post_uuid, version), to: Versions
+  defdelegate delete_version(group_slug, post_uuid, version, opts), to: Versions
   @doc false
   defdelegate broadcast_version_created(group_slug, broadcast_id, new_version), to: Versions
 
@@ -156,11 +162,17 @@ defmodule PhoenixKit.Modules.Publishing do
 
   alias PhoenixKit.Modules.Publishing.TranslationManager
 
+  defdelegate add_language_to_post(group_slug, post_uuid, language_code, version, opts),
+    to: TranslationManager
+
   defdelegate add_language_to_post(group_slug, post_uuid, language_code, version \\ nil),
     to: TranslationManager
 
   @doc false
   defdelegate add_language_to_db(group_slug, post_uuid, language_code, version_number),
+    to: TranslationManager
+
+  defdelegate delete_language(group_slug, post_uuid, language_code, version, opts),
     to: TranslationManager
 
   defdelegate delete_language(group_slug, post_uuid, language_code, version \\ nil),
