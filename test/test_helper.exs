@@ -140,6 +140,13 @@ Application.put_env(:phoenix_kit_publishing, :test_repo_available, repo_availabl
 {:ok, _pid} = PhoenixKit.PubSub.Manager.start_link([])
 {:ok, _pid} = PhoenixKit.ModuleRegistry.start_link([])
 
+# Web.Listing's `handle_params/3` spawns a stale-fixer task via
+# Task.Supervisor.start_child(PhoenixKit.TaskSupervisor, …) — start that
+# supervisor under a tiny task supervisor so LV mount tests don't crash
+# with `:noproc`. Same need for any LV that schedules background work.
+{:ok, _pid} =
+  Task.Supervisor.start_link(name: PhoenixKit.TaskSupervisor)
+
 # Pin PhoenixKit's URL prefix to "/" so public URLs built by the module
 # (e.g. `Publishing.Web.HTML.group_listing_path/3`) don't prepend an
 # unexpected prefix the test router wouldn't match.
