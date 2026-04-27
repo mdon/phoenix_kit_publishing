@@ -276,14 +276,84 @@ massive cross-table fixtures that belong in integration tests.
 | `test/test_helper.exs` | `PhoenixKit.TaskSupervisor` startup |
 | 14 new + 4 extended test files | +216 tests pinning the deltas above |
 
+## Re-validation — Batch 5 — Editor + Presence unlocks (`1a8a787`, 2026-04-27)
+
+Pushed line coverage **41.94% → 53.43%** by stubbing the previously-deferred coupled subsystems' external dependencies in `test_helper.exs`. Each unlock matches a known pattern from another module's coverage push.
+
+### Presence subsystem (Batch 5a)
+
+`Publishing.Presence` (Phoenix.Presence-via-`use`) now boots under a tiny supervisor in `test_helper.exs`. Reference: `phoenix_kit_entities` AGENTS.md notes the same trap for their EntityForm / DataForm LVs.
+
+- Added `Supervisor.start_link([Presence], …)` in `test_helper.exs`.
+- 16 new tests in `presence_helpers_test.exs` covering `get_sorted_presences/1`, `get_editing_role/3` (owner / spectator / multi-tab same-user), `get_lock_owner/1`, `get_spectators/1`, `count_editors/1`, plus `track_editing_session/3` + `untrack_editing_session/2` round-trip and `subscribe_to_editing/1` presence_diff broadcasts.
+- **PresenceHelpers: 2.86% → 94.29%.**
+
+### Editor LV mount (Batch 5b)
+
+`test_helper.exs` creates five new stub tables — `phoenix_kit_buckets`, `phoenix_kit_files`, `phoenix_kit_file_instances`, `phoenix_kit_media_folder_links`, `oban_jobs` — so the Editor LV's `MediaSelectorModal.update/2` and `TranslatePostWorker.active_job/1` queries succeed against empty results.
+
+`LiveCase.fake_scope/1` now returns a real `%PhoenixKit.Users.Auth.Scope{user: %User{}}` struct (was a plain map). `Scope.user_uuid/1`'s pattern match fires correctly so save / version paths don't crash with FunctionClauseError.
+
+- New `editor_live_test.exs` with 21 smoke tests:
+  - mount on `/:group/new` (virtual draft) and `/:group/:uuid/edit`
+  - `?lang=` query param language selection
+  - 18 handle_event paths (update_content, switch_language, update_meta, regenerate_slug, noop, open_media_selector, clear_featured_image, toggle_ai_translation, open / close_new_version_modal, set_new_version_source, save, create_version_from_source, select_ai_endpoint, select_ai_prompt, insert_component for video + cta, insert_video_component, toggle_version_access)
+  - 2 handle_info smoke tests (catch-all + post_updated)
+- **Web.Editor: 0% → 39.84%. Web.Editor.Helpers: 56% → 86.59%. Web.Editor.Forms: 71.64% → 82.84%. Web.Editor.Collaborative: 0% → 46.06%.**
+
+### TranslatePostWorker (Batch 5c)
+
+- 6 new tests in `translate_post_worker_test.exs` covering `create_job/3` (Oban changeset construction without insertion) and `active_job/1` (the DB lookup the Editor mount fires).
+- **Workers.TranslatePostWorker: 6.61% → 9.92%.** (Full `perform/1` + `translate_now/3` paths still need real AI HTTP infra — out of scope for unit tests.)
+
+### Web.Controller submodules (Batch 5d)
+
+- New `public_routes_test.exs` (5 tests) drives the public path through the full Plug pipeline: `/:group` listing, `/:group/:post_slug` published-post path, missing-slug fallback, empty-group rendering, `publishing_public_enabled` toggle.
+- `async: false` because the test mutates the global `content_language` setting; a parallel `stale_fixer_test` also writes to that row and the two upserts deadlock under concurrent Postgres load.
+- **Web.Controller: 29.85% → 56.72%. Web.Controller.Listing: 77% → 83%. Web.Controller.Translations: 91% → 93.59%. Web.Controller.Language: 30.59% → 50.59%.**
+
+### Stability fixes
+
+- `ActivityLog.log/1` rescue widened to catch `DBConnection.OwnershipError` and a `catch :exit, _reason` clause. Background async tasks (PubSub broadcasts, debounced LV refreshes) can cross into a logging path without sandbox allowance — those now silently no-op instead of letting the activity-log call propagate the error to the primary mutation. Fixes a 1-in-10 flake on `activity_log_test.exs`.
+- `listing_cache_test.exs` migrated to `DataCase` because every read path queries `phoenix_kit_settings` for the `memory_cache_enabled?` flag. Two test expectations adjusted to reflect the with-DB behavior (`:not_found` vs `:cache_miss`).
+
+### Per-module deltas (Batch 4 → Batch 5)
+
+| Module | Batch 4 | Batch 5 |
+|--------|---------|---------|
+| PresenceHelpers | 2.86% | 94.29% |
+| Web.Controller | 29.85% | 56.72% |
+| Web.Editor | 0% | 39.84% |
+| Web.Editor.Collaborative | 0% | 46.06% |
+| Web.Editor.Helpers | 56.10% | 86.59% |
+| Web.Editor.Forms | 71.64% | 82.84% |
+| Web.Controller.Listing | 77.00% | 83.00% |
+| Web.Controller.Translations | 91.03% | 93.59% |
+| Web.Controller.Language | 30.59% | 50.59% |
+| ActivityLog | 50.00% | 68.75% |
+| Versions | 74.56% | 78.70% |
+| **Total** | **41.94%** | **53.43%** |
+
+### What's still uncovered (genuinely external)
+
+| Module | Reason |
+|--------|--------|
+| Web.Editor.{Persistence, Preview, Translation, Versions} | Save / version / AI-translate paths need real AI HTTP stubs (PhoenixKitAI integration). |
+| Workers.TranslatePostWorker.perform/1 | Full job execution needs Oban pipeline + AI mocking. |
+| Web.Components.VersionSwitcher | Function component, branch-specific render paths only fire in specific multi-version states. |
+| Migrations.PublishingTables | Pure migration code, runs once at test_helper boot. |
+
+These residuals cap the total around ~70-75% without external deps — Mox / Oban Pro / AI HTTP mocking would push higher but are explicitly out of scope per the workspace AGENTS.md "Coverage push pattern" rules.
+
 ## Verification
 
 - `mix compile --warnings-as-errors` ✓
 - `mix format` clean
 - `mix credo --strict` clean (1667 mods/funs, 0 issues)
 - `mix dialyzer` 0 errors
-- `mix test`: 493 → 709 tests, 0 failures
-- `mix test --cover` (production code only): 33.34% → 41.94%
+- `mix test`: 451 → 757 tests, 0 failures
+- `mix test --cover` (production code only): 33.34% → **53.43%**
+- 10/10 stable runs
 
 ## Open
 
