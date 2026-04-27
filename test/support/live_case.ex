@@ -71,20 +71,28 @@ defmodule PhoenixKitPublishing.LiveCase do
   Builds a minimal admin scope for tests. Pass `roles:` to override
   the default `["Owner", "Admin"]` (the roles `Scope.admin?/1`
   pattern-matches against).
+
+  Returns a real `%PhoenixKit.Users.Auth.Scope{}` with a `%User{}` so
+  callers using `Scope.user_uuid/1` (which pattern-matches the struct
+  shape) work correctly. The `cached_roles` field is set on the Scope
+  struct itself so `Scope.admin?/1` `is_list/1` clause fires.
   """
   def fake_scope(opts \\ []) do
     user_uuid = Keyword.get(opts, :user_uuid, "019cce93-0000-7000-8000-000000000001")
     email = Keyword.get(opts, :email, "test@example.com")
     roles = Keyword.get(opts, :roles, ["Owner", "Admin"])
 
-    %{
-      user: %{
-        uuid: user_uuid,
-        email: email,
-        first_name: "Test",
-        last_name: "User"
-      },
-      cached_roles: roles
+    user = %PhoenixKit.Users.Auth.User{
+      uuid: user_uuid,
+      email: email,
+      first_name: "Test",
+      last_name: "User"
+    }
+
+    %PhoenixKit.Users.Auth.Scope{
+      user: user,
+      cached_roles: roles,
+      authenticated?: true
     }
   end
 end

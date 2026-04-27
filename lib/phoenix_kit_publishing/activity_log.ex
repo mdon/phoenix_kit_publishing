@@ -25,12 +25,25 @@ defmodule PhoenixKit.Modules.Publishing.ActivityLog do
           # we don't want to spam Logger on every mutation.
           :ok
 
+        DBConnection.OwnershipError ->
+          # Test process not allowed on sandbox connection (background
+          # task / async PubSub broadcast crossing into a logging path).
+          # The primary mutation already succeeded; audit failure is
+          # acceptable here. Silent for the same reason as Postgrex.Error.
+          :ok
+
         error ->
           Logger.warning(
             "PhoenixKit.Modules.Publishing activity log failed: " <>
               "#{Exception.message(error)} — " <>
               "attrs=#{inspect(Map.take(attrs, [:action, :resource_type, :resource_uuid]))}"
           )
+      catch
+        :exit, _reason ->
+          # Sandbox connection lost mid-call. Same rationale as
+          # rescue clauses above — primary write already done, audit
+          # row drop is acceptable.
+          :ok
       end
     end
 

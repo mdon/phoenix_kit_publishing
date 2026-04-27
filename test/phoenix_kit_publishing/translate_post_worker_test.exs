@@ -1,5 +1,5 @@
 defmodule PhoenixKit.Modules.Publishing.TranslatePostWorkerTest do
-  use ExUnit.Case, async: true
+  use PhoenixKitPublishing.DataCase, async: true
 
   alias PhoenixKit.Modules.Publishing.Workers.TranslatePostWorker
 
@@ -38,6 +38,69 @@ defmodule PhoenixKit.Modules.Publishing.TranslatePostWorkerTest do
 
     defp build_job(args) do
       %Oban.Job{args: args}
+    end
+  end
+
+  # ============================================================================
+  # create_job/3 — Job-args construction (no Oban insertion)
+  # ============================================================================
+
+  describe "create_job/3" do
+    test "builds an Oban.Job changeset with required args" do
+      changeset = TranslatePostWorker.create_job("docs", "post-uuid")
+
+      assert %Ecto.Changeset{} = changeset
+      args = Ecto.Changeset.get_field(changeset, :args)
+      assert args["group_slug"] == "docs"
+      assert args["post_uuid"] == "post-uuid"
+    end
+
+    test "includes endpoint_uuid when provided" do
+      changeset =
+        TranslatePostWorker.create_job("docs", "post-uuid", endpoint_uuid: "endpoint-1")
+
+      args = Ecto.Changeset.get_field(changeset, :args)
+      assert args["endpoint_uuid"] == "endpoint-1"
+    end
+
+    test "includes target_languages when provided" do
+      changeset =
+        TranslatePostWorker.create_job("docs", "post-uuid", target_languages: ~w(es fr de))
+
+      args = Ecto.Changeset.get_field(changeset, :args)
+      assert args["target_languages"] == ~w(es fr de)
+    end
+
+    test "drops nil-valued opts (no defaults written into args)" do
+      changeset = TranslatePostWorker.create_job("docs", "post-uuid", endpoint_uuid: nil)
+      args = Ecto.Changeset.get_field(changeset, :args)
+      refute Map.has_key?(args, "endpoint_uuid")
+    end
+
+    test "passes through user_uuid + version + prompt_uuid + source_language" do
+      changeset =
+        TranslatePostWorker.create_job("docs", "post-uuid",
+          user_uuid: "user-1",
+          version: 2,
+          prompt_uuid: "prompt-1",
+          source_language: "en"
+        )
+
+      args = Ecto.Changeset.get_field(changeset, :args)
+      assert args["user_uuid"] == "user-1"
+      assert args["version"] == 2
+      assert args["prompt_uuid"] == "prompt-1"
+      assert args["source_language"] == "en"
+    end
+  end
+
+  # ============================================================================
+  # active_job/1 — DB lookup (uses test sandbox)
+  # ============================================================================
+
+  describe "active_job/1" do
+    test "returns nil when no active job exists for the given post" do
+      assert TranslatePostWorker.active_job("019cce93-bbbb-7000-8000-000000000aaa") == nil
     end
   end
 end
