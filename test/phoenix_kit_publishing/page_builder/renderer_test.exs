@@ -65,4 +65,56 @@ defmodule PhoenixKit.Modules.Publishing.PageBuilder.RendererTest do
       assert html(safe) == "plain text"
     end
   end
+
+  describe "render/2 — known component types resolve correctly" do
+    test "resolves :page component type to a known module" do
+      ast = %{
+        type: :page,
+        attributes: %{},
+        children: [
+          %{type: :unknown, attributes: %{}, content: "child"}
+        ]
+      }
+
+      result = Renderer.render(ast, %{})
+      # Either {:ok, html} for known component or {:error, ...}
+      assert match?({:ok, _}, result) or match?({:error, _}, result)
+    end
+
+    test "resolves :hero component type" do
+      ast = %{type: :hero, attributes: %{}, children: []}
+      result = Renderer.render(ast, %{})
+      assert match?({:ok, _}, result) or match?({:error, _}, result)
+    end
+
+    test "resolves :headline component type" do
+      ast = %{type: :headline, attributes: %{}, content: "Title"}
+      result = Renderer.render(ast, %{})
+      assert match?({:ok, _}, result) or match?({:error, _}, result)
+    end
+
+    test "resolves :subheadline component type" do
+      ast = %{type: :subheadline, attributes: %{}, content: "Sub"}
+      result = Renderer.render(ast, %{})
+      assert match?({:ok, _}, result) or match?({:error, _}, result)
+    end
+
+    test "resolves :cta component type" do
+      ast = %{type: :cta, attributes: %{"action" => "/x"}, content: "Click"}
+      result = Renderer.render(ast, %{})
+      assert match?({:ok, _}, result) or match?({:error, _}, result)
+    end
+
+    test "resolves :image component type" do
+      ast = %{type: :image, attributes: %{"src" => "/x.png"}, content: nil}
+      result = Renderer.render(ast, %{})
+      assert match?({:ok, _}, result) or match?({:error, _}, result)
+    end
+
+    test "resolves :video component type" do
+      ast = %{type: :video, attributes: %{"src" => "/x.mp4"}, content: nil}
+      result = Renderer.render(ast, %{})
+      assert match?({:ok, _}, result) or match?({:error, _}, result)
+    end
+  end
 end

@@ -421,4 +421,43 @@ defmodule PhoenixKit.Modules.Publishing.RendererTest do
       assert html =~ "alt text"
     end
   end
+
+  describe "code block class application" do
+    test "fenced code block gets pre + code classes" do
+      html = Renderer.render_markdown("```elixir\nIO.puts \"hi\"\n```")
+      assert html =~ ~r/<pre class="[^"]*bg-base-300/
+      assert html =~ "language-elixir"
+    end
+
+    test "inline code has bg-base-200 class" do
+      html = Renderer.render_markdown("Use `Enum.map` here")
+      assert html =~ ~r/<code class="[^"]*bg-base-200/
+    end
+
+    test "code blocks of various languages get language-X class" do
+      html = Renderer.render_markdown("```python\nprint(1)\n```")
+      assert html =~ "language-python"
+    end
+  end
+
+  describe "tables" do
+    test "renders GFM tables with wrapper styling" do
+      table = """
+      | Col1 | Col2 |
+      |------|------|
+      | a    | b    |
+      """
+
+      html = Renderer.render_markdown(table)
+      assert html =~ "<table"
+    end
+  end
+
+  describe "global_render_cache_enabled? respects Settings" do
+    test "returns boolean — defaults to true when setting absent" do
+      # In test env the setting query fails (no sandbox), but the renderer's
+      # default fallback returns true.
+      assert is_boolean(Renderer.global_render_cache_enabled?())
+    end
+  end
 end

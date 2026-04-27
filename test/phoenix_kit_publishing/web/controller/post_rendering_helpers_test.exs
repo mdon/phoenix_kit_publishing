@@ -6,7 +6,8 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller.PostRenderingHelpersTest 
   `public_routes_test.exs`.
   """
 
-  use ExUnit.Case, async: true
+  # build_breadcrumbs queries Listing.fetch_group → DB, so use DataCase.
+  use PhoenixKitPublishing.DataCase, async: false
 
   alias PhoenixKit.Modules.Publishing.Web.Controller.PostRendering
 
@@ -58,6 +59,29 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller.PostRenderingHelpersTest 
       }
 
       assert "" = PostRendering.render_post_content(post)
+    end
+  end
+
+  describe "build_timestamp_url/4 + build_breadcrumbs/3" do
+    test "build_timestamp_url returns a path string" do
+      url = PostRendering.build_timestamp_url("blog", "2026-04-27", "10:00", "en")
+      assert is_binary(url)
+      assert url =~ "blog"
+    end
+
+    test "build_breadcrumbs returns a 2-element list with group + post" do
+      post = %{slug: "x", metadata: %{title: "Title"}, mode: :slug}
+      result = PostRendering.build_breadcrumbs("nonexistent-group", post, "en")
+
+      assert is_list(result)
+      assert length(result) == 2
+    end
+  end
+
+  describe "handle_date_only_url/4" do
+    test "function exists with the right arity" do
+      # Full flow is exercised by rich_fixtures_test through the public route.
+      assert function_exported?(PostRendering, :handle_date_only_url, 4)
     end
   end
 end
