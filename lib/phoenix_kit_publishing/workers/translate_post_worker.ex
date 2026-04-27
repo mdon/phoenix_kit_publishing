@@ -371,7 +371,10 @@ defmodule PhoenixKit.Modules.Publishing.Workers.TranslatePostWorker do
   end
 
   # Extract title from post (first # heading or metadata title)
-  defp extract_title(post) do
+  @doc false
+  # Public for testing — extract a post's title from `# heading` in
+  # content, falling back to `metadata.title` or the default.
+  def extract_title(post) do
     content = post.content || ""
 
     case Regex.run(~r/^#\s+(.+)$/m, content) do
@@ -380,9 +383,11 @@ defmodule PhoenixKit.Modules.Publishing.Workers.TranslatePostWorker do
     end
   end
 
-  # Parse the translated response to extract title, slug, and content
-  # Returns {title, slug, content} tuple
-  defp parse_translated_response(response) do
+  @doc false
+  # Public for testing — parse the AI translation response into
+  # {title, slug, content}. Handles three formats: structured with slug,
+  # structured without slug, and bare markdown.
+  def parse_translated_response(response) do
     # Try to parse the structured format with slug
     case Regex.run(
            ~r/---TITLE---\s*\n(.+?)\n---SLUG---\s*\n(.+?)\n---CONTENT---\s*\n(.+)/s,
@@ -406,8 +411,9 @@ defmodule PhoenixKit.Modules.Publishing.Workers.TranslatePostWorker do
     end
   end
 
-  # Sanitize and validate the translated slug
-  defp sanitize_slug(slug) do
+  @doc false
+  # Public for testing — sanitize and validate the AI-returned slug.
+  def sanitize_slug(slug) do
     sanitized =
       slug
       |> String.trim()
@@ -427,8 +433,11 @@ defmodule PhoenixKit.Modules.Publishing.Workers.TranslatePostWorker do
     end
   end
 
-  # Parse a response that's just markdown (no markers)
-  defp parse_markdown_response(response) do
+  @doc false
+  # Public for testing — parse a markdown-only response (no marker
+  # lines) into {title, content}, using the first markdown heading as
+  # the title.
+  def parse_markdown_response(response) do
     # Clean up the response - remove any stray marker text that might have been partially output
     cleaned =
       response

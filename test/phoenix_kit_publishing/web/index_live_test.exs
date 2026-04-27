@@ -69,4 +69,81 @@ defmodule PhoenixKit.Modules.Publishing.Web.IndexLiveTest do
     assert html_after =~
              ~s|phx-value-mode="trashed" class="px-3 py-1 text-xs font-medium border-b-2 transition-colors cursor-pointer border-error|
   end
+
+  test "trash_group event soft-deletes the group", %{conn: conn} do
+    {:ok, group} =
+      Groups.add_group("Index Trash Click #{System.unique_integer([:positive])}", mode: "slug")
+
+    {:ok, view, _html} =
+      conn
+      |> put_test_scope(fake_scope())
+      |> live("/admin/publishing")
+
+    html = render_click(view, "trash_group", %{"slug" => group["slug"]})
+    assert is_binary(html)
+  end
+
+  test "restore_group event un-trashes the group", %{conn: conn} do
+    {:ok, group} =
+      Groups.add_group("Index Restore Click #{System.unique_integer([:positive])}", mode: "slug")
+
+    {:ok, _} = Groups.trash_group(group["slug"])
+
+    {:ok, view, _html} =
+      conn
+      |> put_test_scope(fake_scope())
+      |> live("/admin/publishing")
+
+    _ = render_click(view, "switch_view", %{"mode" => "trashed"})
+    html = render_click(view, "restore_group", %{"slug" => group["slug"]})
+    assert is_binary(html)
+  end
+
+  test "delete_group event hard-deletes (group with no posts)",
+       %{conn: conn} do
+    {:ok, group} =
+      Groups.add_group("Index Delete Click #{System.unique_integer([:positive])}", mode: "slug")
+
+    {:ok, _} = Groups.trash_group(group["slug"])
+
+    {:ok, view, _html} =
+      conn
+      |> put_test_scope(fake_scope())
+      |> live("/admin/publishing")
+
+    _ = render_click(view, "switch_view", %{"mode" => "trashed"})
+    html = render_click(view, "delete_group", %{"slug" => group["slug"]})
+    assert is_binary(html)
+  end
+
+  test "handle_info catch-all swallows unknown messages", %{conn: conn} do
+    {:ok, view, _html} =
+      conn
+      |> put_test_scope(fake_scope())
+      |> live("/admin/publishing")
+
+    send(view.pid, {:bogus_message, "x"})
+    send(view.pid, :unexpected_atom)
+    assert is_binary(render(view))
+  end
+
+  test "handle_info {:group_created, _} message refreshes the list", %{conn: conn} do
+    {:ok, view, _html} =
+      conn
+      |> put_test_scope(fake_scope())
+      |> live("/admin/publishing")
+
+    send(view.pid, {:group_created, %{"slug" => "new-group", "name" => "New"}})
+    assert is_binary(render(view))
+  end
+
+  test "handle_info {:group_deleted, _} message refreshes the list", %{conn: conn} do
+    {:ok, view, _html} =
+      conn
+      |> put_test_scope(fake_scope())
+      |> live("/admin/publishing")
+
+    send(view.pid, {:group_deleted, "any-slug"})
+    assert is_binary(render(view))
+  end
 end

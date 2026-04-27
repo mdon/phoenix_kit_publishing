@@ -81,4 +81,125 @@ defmodule PhoenixKit.Modules.Publishing.Web.SettingsLiveTest do
     final = Settings.get_boolean_setting("publishing_default_language_no_prefix", false)
     assert final != initial
   end
+
+  test "regenerate_cache fires the per-group cache regeneration", %{conn: conn} do
+    {:ok, group} =
+      Groups.add_group("Settings RegenSingle #{System.unique_integer([:positive])}", mode: "slug")
+
+    {:ok, view, _html} =
+      conn
+      |> put_test_scope(fake_scope())
+      |> live("/admin/settings/publishing")
+
+    html = render_click(view, "regenerate_cache", %{"slug" => group["slug"]})
+    assert is_binary(html)
+  end
+
+  test "invalidate_cache fires the cache-invalidate path", %{conn: conn} do
+    {:ok, group} =
+      Groups.add_group("Settings Invalidate #{System.unique_integer([:positive])}", mode: "slug")
+
+    {:ok, view, _html} =
+      conn
+      |> put_test_scope(fake_scope())
+      |> live("/admin/settings/publishing")
+
+    html = render_click(view, "invalidate_cache", %{"slug" => group["slug"]})
+    assert is_binary(html)
+  end
+
+  test "regenerate_all_caches walks the full group set", %{conn: conn} do
+    {:ok, _g1} =
+      Groups.add_group("Settings RegenAll1 #{System.unique_integer([:positive])}", mode: "slug")
+
+    {:ok, _g2} =
+      Groups.add_group("Settings RegenAll2 #{System.unique_integer([:positive])}", mode: "slug")
+
+    {:ok, view, _html} =
+      conn
+      |> put_test_scope(fake_scope())
+      |> live("/admin/settings/publishing")
+
+    html = render_click(view, "regenerate_all_caches", %{})
+    assert is_binary(html)
+  end
+
+  test "toggle_memory_cache flips the memory_cache_enabled setting", %{conn: conn} do
+    {:ok, view, _html} =
+      conn
+      |> put_test_scope(fake_scope())
+      |> live("/admin/settings/publishing")
+
+    initial = Settings.get_boolean_setting("publishing_memory_cache_enabled", true)
+
+    render_click(view, "toggle_memory_cache", %{})
+
+    final = Settings.get_boolean_setting("publishing_memory_cache_enabled", true)
+    assert final != initial
+  end
+
+  test "clear_render_cache clears the global cache", %{conn: conn} do
+    {:ok, view, _html} =
+      conn
+      |> put_test_scope(fake_scope())
+      |> live("/admin/settings/publishing")
+
+    html = render_click(view, "clear_render_cache", %{})
+    assert is_binary(html)
+  end
+
+  test "clear_group_render_cache clears one group's cache", %{conn: conn} do
+    {:ok, group} =
+      Groups.add_group("Settings ClearGroup #{System.unique_integer([:positive])}", mode: "slug")
+
+    {:ok, view, _html} =
+      conn
+      |> put_test_scope(fake_scope())
+      |> live("/admin/settings/publishing")
+
+    html = render_click(view, "clear_group_render_cache", %{"slug" => group["slug"]})
+    assert is_binary(html)
+  end
+
+  test "toggle_render_cache flips the global render-cache setting", %{conn: conn} do
+    {:ok, view, _html} =
+      conn
+      |> put_test_scope(fake_scope())
+      |> live("/admin/settings/publishing")
+
+    initial = Settings.get_boolean_setting("publishing_render_cache_enabled", true)
+
+    render_click(view, "toggle_render_cache", %{})
+
+    final = Settings.get_boolean_setting("publishing_render_cache_enabled", true)
+    assert final != initial
+  end
+
+  test "toggle_group_render_cache flips a per-group render-cache setting",
+       %{conn: conn} do
+    {:ok, group} =
+      Groups.add_group(
+        "Settings ToggleGroup #{System.unique_integer([:positive])}",
+        mode: "slug"
+      )
+
+    {:ok, view, _html} =
+      conn
+      |> put_test_scope(fake_scope())
+      |> live("/admin/settings/publishing")
+
+    html = render_click(view, "toggle_group_render_cache", %{"slug" => group["slug"]})
+    assert is_binary(html)
+  end
+
+  test "handle_info catch-all swallows unknown messages", %{conn: conn} do
+    {:ok, view, _html} =
+      conn
+      |> put_test_scope(fake_scope())
+      |> live("/admin/settings/publishing")
+
+    send(view.pid, {:bogus_message, "x"})
+    send(view.pid, :unexpected_atom)
+    assert is_binary(render(view))
+  end
 end

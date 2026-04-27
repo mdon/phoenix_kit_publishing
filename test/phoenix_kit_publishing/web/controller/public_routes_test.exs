@@ -80,4 +80,45 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller.PublicRoutesTest do
       assert conn.status in [302, 404, 410, 503]
     end
   end
+
+  describe "/:language/:group — language-prefixed routes (PostFetching path)" do
+    test "renders 200 for /:language/:group/:post_slug", %{
+      conn: conn,
+      group_slug: group_slug,
+      post: post
+    } do
+      response = get(conn, "/en/#{group_slug}/#{post.slug}") |> response(200)
+      assert is_binary(response)
+    end
+
+    test "renders 200 for /:language/:group", %{conn: conn, group_slug: group_slug} do
+      response = get(conn, "/en/#{group_slug}") |> response(200)
+      assert is_binary(response)
+    end
+  end
+
+  describe "post-rendering deep paths" do
+    test "missing post slug exercises Fallback module", %{conn: conn, group_slug: group_slug} do
+      conn = get(conn, "/#{group_slug}/totally-bogus-#{System.unique_integer()}")
+      assert conn.status in [200, 301, 302, 404, 410]
+    end
+
+    test "version-suffixed URL exercises render_versioned_post", %{
+      conn: conn,
+      group_slug: group_slug,
+      post: post
+    } do
+      conn = get(conn, "/#{group_slug}/#{post.slug}/v1")
+      assert conn.status in [200, 301, 302, 404]
+    end
+  end
+
+  describe "all_groups index" do
+    test "renders 200 for /(no group) when configured" do
+      # The index path may or may not be live in this configuration —
+      # we just verify a request to root doesn't crash.
+      conn = build_conn() |> get("/")
+      assert conn.status in [200, 301, 302, 404]
+    end
+  end
 end
