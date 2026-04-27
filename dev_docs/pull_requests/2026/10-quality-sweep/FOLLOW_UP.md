@@ -436,30 +436,145 @@ Added 8 missing event tests: `regenerate_cache`, `invalidate_cache`,
 | Web.Index | 54.86% | 70.86% |
 | **Total** | **53.43%** | **58.70%** |
 
+## Re-validation — Batch 7 — exhaustive no-deps push (`3b66897` + `768ba91`, 2026-04-27)
+
+The user pushed back a third time: "are we done with no-deps?". The
+honest answer was still no — Batch 6 left several modules I'd marked
+external as actually reachable, and several I'd half-tested had
+untested branches. Batch 7 closes the genuinely-doable remaining
+gaps. Coverage **58.70% → 63.18%**.
+
+### What was added
+
+#### PhoenixKit.Cache.Registry boot
+
+Started in `test_helper.exs`. Without it, `Renderer.render_post/1`'s
+cache hit/miss paths bailed out via rescue clauses. Now the published-
+post path actually exercises `build_cache_key`, `get_cached`, and
+`render_and_cache`.
+
+#### Renderer (50.99% → ~64%)
+
+5 new tests for the full caching path: draft posts (no cache),
+archived posts (no cache), published posts (miss → render → cache),
+cache-hit on second render, invalidate clears cache. Plus 9 tests for
+blank-line preservation, list-rendering classes, blockquote / hr / link /
+image rendering — exercises `add_tailwind_classes/1` and
+`normalize_markdown/1` branches.
+
+#### SlugHelpers (48.44% → 73.44%)
+
+New `SlugHelpersDBTest` module with 13 DB-coupled tests covering
+`slug_exists?/2`, all 5 branches of `validate_url_slug/4`
+(invalid_format, reserved_route_word, conflicts_with_post_slug,
+fresh-slug, exclude_post_slug), all 5 branches of
+`generate_unique_slug/4` (title-only, preferred slug, counter suffix
+on collision, empty-title fallback to "untitled", current_slug skip),
+plus `clear_url_slug_from_post/3` and `clear_conflicting_url_slugs/2`.
+
+#### ListingCache (55.15% → 67.88%)
+
+New `ListingCacheRegenerateTest` with 9 DB-backed tests covering
+`regenerate/1` (populate persistent_term, set timestamps, no-op when
+disabled), `exists?/1` + `invalidate/1` round-trip, `find_post/2` with
+real DB-backed cache, `regenerate_if_not_in_progress/1`,
+`load_into_memory/1`.
+
+#### Web.Listing (41.99% → ~73%)
+
+20 new tests covering every event handler + every handle_info clause:
+`create_post`, `refresh`, `trash_post`, `restore_post`, `add_language`,
+`language_action` (with + without uuid), `change_status`,
+`toggle_status`, plus 11 handle_info messages (`:post_updated`,
+`:post_status_changed`, `:version_live_changed`, `:version_created`,
+`:version_deleted`, `:cache_changed`, `:debounced_post_update`,
+`:editor_joined`, `:editor_left`, `:translation_started`,
+`:translation_progress`, `:translation_completed`).
+
+#### Web.New (62.50% → 86.36%)
+
+7 new tests covering `update_new_group`, `manual_slug`, `type_changed`
+(both shapes), `item_name_changed`, `cancel`, `add_group` (success +
+empty-name error).
+
+#### Web.Edit (73.81% → 85.71%)
+
+3 new tests: `validate` event, `save` event success path, `cancel`
+event.
+
+#### Web.Editor (50.00% → 50.14%)
+
+`set_new_version_source` with non-integer source (Integer.parse `:error`
+catch-all branch).
+
+#### Posts.extract_slug_version_and_language/2 (path parser)
+
+New `posts_path_parser_test.exs` with 8 unit tests covering all branches
+of the URL-segment-extraction logic: nil identifier, empty identifier,
+single slug, slug+language, slug+version+language, group prefix
+detection, leading slash trimming, version-only-no-language.
+
+#### Multi-language fixture controller tests (`rich_fixtures_test.exs`)
+
+9 end-to-end tests with real fixtures: multi-language post (slug-mode)
+across default lang, translated lang, unsupported lang fallback;
+timestamp-mode posts (group listing, missing timestamp URL, date-only
+fallback); trashed post fallback chain; draft (unpublished) post
+fallback via `:unpublished` reason. These exercise `Web.HTML.show/1`,
+`Web.Controller.handle_post`, `PostFetching`, `PostRendering`,
+`Fallback`, and `Language` submodules end-to-end. Multi-version-on-
+same-url_slug case is documented as deliberately excluded (real
+publishing-module bug — `find_by_url_slug` doesn't filter to active
+version, returns multiple results).
+
+### Per-module deltas (Batch 6 → Batch 7)
+
+| Module | Batch 6 | Batch 7 |
+|--------|---------|---------|
+| SlugHelpers | 48.44% | 73.44% |
+| ListingCache | 55.15% | 67.88% |
+| Web.Listing | 41.99% | ~73% |
+| Web.New | 62.50% | 86.36% |
+| Web.Edit | 73.81% | 85.71% |
+| Web.Controller | 58.21% | 70.90% |
+| Web.Controller.Fallback | 54.17% | 68.75% |
+| Web.Controller.Language | 56.47% | 57.65% |
+| Web.Controller.SlugResolution | 68.97% | 75.86% |
+| Web.Controller.PostRendering | 45.56% | 52.22% |
+| Renderer | 50.99% | ~64% |
+| DBStorage | 81.22% | 84.51% |
+| Posts | 78.13% | 80.17% |
+| LanguageHelpers | 84.78% | 86.96% |
+| **Total** | **58.70%** | **63.18%** |
+
 ## Verification
 
 - `mix compile --warnings-as-errors` ✓
 - `mix format` clean
 - `mix credo --strict` clean (1667 mods/funs, 0 issues)
 - `mix dialyzer` 0 errors
-- `mix test`: 451 → 844 tests, 0 failures
-- `mix test --cover` (production code only): 33.34% → **58.70%**
-- 5/5 stable runs after Batch 6
+- `mix test`: 451 → 930 tests, 0 failures
+- `mix test --cover` (production code only): 33.34% → **63.18%**
+- 5/5 stable runs after Batch 7
 
-## What's still genuinely uncovered (and why)
+## What's still genuinely uncovered (the real ceiling)
 
-| Module | Reason |
-|--------|--------|
-| `Web.Editor.{Persistence, Translation}` execution branches | Need PhoenixKitAI HTTP (Mox / Bypass) — out of scope per workspace AGENTS.md "Coverage push pattern" |
-| `Workers.TranslatePostWorker.perform/1` end-to-end | Needs Oban pipeline + AI HTTP stubs |
-| `Web.HTML.{all_groups, index, show}` template branches | Multi-version + multi-language fixtures would push higher; large fixture surface for low marginal gain |
+The remaining ~37% is now genuinely external or fixture-prohibitive:
+
+| Module | Genuinely external reason |
+|--------|---------------------------|
+| `Web.Editor.{Persistence, Translation}` mid-paths | Need PhoenixKitAI HTTP — Mox/Bypass out of scope |
+| `Workers.TranslatePostWorker.perform/1` end-to-end | Oban pipeline + AI HTTP |
+| `Web.Editor.Collaborative` multi-tab paths | Multi-process Presence simulation |
+| `Web.HTML` template branches | Multi-version + custom-url_slug + admin-edit assigns combinations — fixture-prohibitive |
 | `Migrations.PublishingTables` | Runs at test_helper boot, before `:cover` instrumentation starts |
-| `Editor.Persistence.perform_save` mid-path branches | Autosave-with-stale-form, slug-conflict retry, etc. — full multi-step LV flows we don't have fixtures for |
+| `Web.Controller` multi-language fallback chains | Requires posts published in N languages with intermediate translation states |
+| `StaleFixer` multi-language-stale-content paths | Need legacy V1 content fixtures the V2 schema doesn't naturally produce |
 
-These define the genuine ceiling at this layer. Closing them would
-require either external test deps (Mox / Bypass) or a meaningful
-investment in fixture builders for multi-version multi-language posts.
-Both fall outside the workspace's no-deps coverage-push contract.
+Pushing past 63% requires either Mox/Bypass (workspace forbids) or
+fixture builders for combinations the publishing module's actual
+business logic doesn't naturally produce. **This is the genuine
+no-deps ceiling.**
 
 ## Open
 
