@@ -1,5 +1,32 @@
 # Changelog
 
+## Unreleased
+
+PR #10 — quality sweep + 4 coverage-push batches (33.34% → 63.79% line coverage).
+
+### Added
+- `PhoenixKit.Modules.Publishing.Errors` — central atom-to-gettext mapping (36 atoms + 4 tagged-tuple shapes) plus `truncate_for_log/2` to cap unbounded log payloads (AI responses, HTTP errors).
+- `PhoenixKit.Modules.Publishing.ActivityLog.log_failed_mutation/5` — writes a `db_pending: true` audit row when a user-driven mutation fails, so the audit trail still captures intent on DB constraint failures.
+- Activity logging on every Posts / Groups / Versions / TranslationManager mutation (success and failure paths).
+- `phx-disable-with` on every async / destructive admin button.
+
+### Changed
+- **PubSub payload contract** — `broadcast_post_created/2`, `broadcast_post_updated/2`, `broadcast_post_status_changed/2`, and `broadcast_version_created/2` now emit a minimal `%{uuid:, slug:}` payload instead of the full post map. Receivers should refetch the post via `Publishing.read_post/4` (or any of the read helpers) rather than destructuring the broadcast. Internal consumers were already doing this; **host apps that subscribe to `PubSub.posts_topic/1` must update their pattern matches.**
+- `DBStorage.upsert_group/1` rewritten as atomic `INSERT ... ON CONFLICT DO UPDATE` — closes a TOCTOU race where two concurrent callers with the same slug could both observe `nil` and then crash on the unique index.
+- `Web.Settings.mount/3` moved DB reads into `handle_params/3` (Phoenix iron law: `mount/3` runs twice per page load).
+- `StaleFixer.apply_stale_fix/3` retries once on `(group_uuid, slug)` unique-index conflict using a deterministic `post_uuid[0..8]` suffix.
+- `StaleFixer.fix_all_stale_values/0` now streams posts under `Repo.checkout/1` so large catalogues don't hold every post in memory.
+- Posts save path: `maybe_sync_datetime_and_audit/3` consolidates timestamp-mode date sync + audit field updates into a single `update_post/2` (halves round-trips per save).
+- Three `rescue _` clauses narrowed to `UndefinedFunctionError | ArgumentError`: `LanguageHelpers.reserved_language_code?/1`, `LanguageHelpers.single_language_mode?/0`, `Web.Controller.Language.valid_language?/1`.
+- `Web.Controller.Translations.language_enabled_for_public?/2` renamed to `exact_enabled_for_public?/2` to distinguish from `LanguageHelpers.language_enabled?/2` (the looser variant).
+- `Workers.TranslatePostWorker.translate_content/4` → `/3` and `skip_already_translated/5` → `/4` — dropped unused `group_slug` parameter (internal callers only).
+
+### Fixed
+- `Errors.truncate_for_log/2` UTF-8 boundary handling — multibyte input could previously return an invalid binary if `max` landed mid-codepoint; clip now walks back to the previous codepoint boundary.
+
+### Docs
+- Earmark `escape: false` trust model documented inline in `renderer.ex` (admin-authored Markdown only; rewire `html_sanitize_ex` if untrusted input ever reaches `render_markdown/1`).
+
 ## 0.1.4 - 2026-04-24
 
 PR #9 — closes issues #6, #7, #8 plus related content-normalization and admin URL consistency work.

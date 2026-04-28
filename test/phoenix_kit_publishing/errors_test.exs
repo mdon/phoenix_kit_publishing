@@ -133,5 +133,18 @@ defmodule PhoenixKit.Modules.Publishing.ErrorsTest do
       assert String.contains?(result, "(truncated,")
       assert byte_size(result) < 700
     end
+
+    test "clips multibyte UTF-8 input on a codepoint boundary" do
+      # "日" is 3 bytes in UTF-8. With max=4 we'd land mid-sequence on a
+      # naive byte slice; the clip must walk back to the previous
+      # boundary so the prefix is always valid UTF-8.
+      input = String.duplicate("日", 10)
+      result = Errors.truncate_for_log(input, 4)
+
+      [head | _] = String.split(result, "…")
+      assert String.valid?(head)
+      assert head == "日"
+      assert result =~ "(truncated, #{byte_size(input)} bytes)"
+    end
   end
 end

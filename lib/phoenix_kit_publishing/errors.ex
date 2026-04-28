@@ -39,7 +39,7 @@ defmodule PhoenixKit.Modules.Publishing.Errors do
 
   use Gettext, backend: PhoenixKitWeb.Gettext
 
-  @max_log_chars 500
+  @max_log_bytes 500
 
   @typedoc "Atoms returned by Publishing's public API on error."
   @type error_atom ::
@@ -168,14 +168,32 @@ defmodule PhoenixKit.Modules.Publishing.Errors do
   ellipsis hint when truncated.
   """
   @spec truncate_for_log(term(), pos_integer()) :: String.t()
-  def truncate_for_log(reason, max \\ @max_log_chars) when is_integer(max) and max > 0 do
+  def truncate_for_log(reason, max \\ @max_log_bytes) when is_integer(max) and max > 0 do
     string = if is_binary(reason), do: reason, else: inspect(reason)
+    size = byte_size(string)
 
-    if byte_size(string) > max do
-      String.slice(string, 0, max) <>
-        "… (truncated, " <> Integer.to_string(byte_size(string)) <> " bytes)"
+    if size > max do
+      clip_to_utf8_boundary(string, max) <>
+        "… (truncated, " <> Integer.to_string(size) <> " bytes)"
     else
       string
+    end
+  end
+
+  # Take the first `max` bytes of a binary, walking back to the nearest
+  # UTF-8 codepoint boundary so the clipped prefix is always a valid
+  # string. `max` is in bytes (logs are sized in bytes, not graphemes);
+  # the boundary walk is bounded by 3 since UTF-8 sequences are at most
+  # 4 bytes.
+  defp clip_to_utf8_boundary(_string, max) when max <= 0, do: ""
+
+  defp clip_to_utf8_boundary(string, max) do
+    candidate = binary_part(string, 0, max)
+
+    if String.valid?(candidate) do
+      candidate
+    else
+      clip_to_utf8_boundary(string, max - 1)
     end
   end
 end
