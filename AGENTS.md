@@ -109,13 +109,12 @@ lib/phoenix_kit_publishing/
 ├── metadata.ex                # YAML frontmatter parsing helpers
 ├── schemas/                   # 4 Ecto schemas (group, post, version, content)
 ├── web/                       # 8 admin LiveViews + Controller + HTML templates
-├── workers/                   # Oban background jobs (translate worker)
-└── migrations/                # Standalone consolidated migration (reference)
+└── workers/                   # Oban background jobs (translate worker)
 ```
 
 ### Database Tables
 
-All 4 tables use UUIDv7 primary keys. **Migrations live in phoenix_kit core** (versioned system, currently V88). The publishing package includes a consolidated standalone migration (`lib/phoenix_kit_publishing/migrations/publishing_tables.ex`) for reference/independent installs.
+All 4 tables use UUIDv7 primary keys. **Migrations live in phoenix_kit core** — `phoenix_kit_publishing_*` tables are created by V59 and evolved in later V*.ex files. There is no module-owned migration; tests delegate schema setup to `Ecto.Migrator.run(TestRepo, [{0, PhoenixKit.Migration}], :up, ...)` (see `test/test_helper.exs`), the same call the host app makes in production.
 
 ```
 Group (1) ──→ (many) Post (1) ──→ (many) Version (1) ──→ (many) Content
