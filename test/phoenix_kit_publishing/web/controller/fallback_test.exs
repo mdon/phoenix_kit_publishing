@@ -50,12 +50,23 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller.FallbackTest do
       assert match?({:redirect_with_flash, _, _}, result) or match?({:render_404}, result)
     end
 
-    test "renders 404 when group doesn't exist and no default group is configured" do
+    test "renders 404 when group doesn't exist (never redirects to an unrelated group)" do
       conn = fake_conn(%{"group" => "definitely-does-not-exist-#{System.unique_integer()}"})
 
-      result = Fallback.handle_not_found(conn, :group_not_found)
-      # No default group → :render_404, OR a default group exists → redirect
-      assert match?({:render_404}, result) or match?({:redirect_with_flash, _, _}, result)
+      # Even if other groups exist in the DB, an unknown group must render
+      # 404 — redirecting to "the first group" would hijack non-publishing
+      # paths when url_prefix is "/".
+      assert {:render_404} = Fallback.handle_not_found(conn, :group_not_found)
+    end
+
+    test "renders 404 when group doesn't exist for :not_found reason" do
+      conn = fake_conn(%{"group" => "missing-group-#{System.unique_integer()}"})
+      assert {:render_404} = Fallback.handle_not_found(conn, :not_found)
+    end
+
+    test "renders 404 when group doesn't exist for catch-all reason" do
+      conn = fake_conn(%{"group" => "missing-group-#{System.unique_integer()}"})
+      assert {:render_404} = Fallback.handle_not_found(conn, :totally_random_reason)
     end
 
     test "redirects to group listing for :post_not_found with slug-mode path",
