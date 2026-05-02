@@ -189,6 +189,42 @@ defmodule PhoenixKit.Modules.Publishing.SharedTest do
       assert Shared.audit_metadata(nil, :create) == %{}
       assert Shared.audit_metadata(nil, :update) == %{}
     end
+
+    test ":create returns only created_by_uuid + updated_by_uuid (no email keys)" do
+      # Pins the post-2026-05-02 shape — the schema (PublishingPost) has no
+      # *_email column so threading user email through audit metadata was
+      # always dead plumbing. Stripping it eliminates a misleading public
+      # API surface and prevents accidental future PII landing if someone
+      # adds the column without a separate review.
+      uuid = "019cce93-0000-7000-8000-000000000001"
+
+      scope = %PhoenixKit.Users.Auth.Scope{
+        user: %PhoenixKit.Users.Auth.User{
+          uuid: uuid,
+          email: "test@example.com"
+        },
+        authenticated?: true
+      }
+
+      assert Shared.audit_metadata(scope, :create) == %{
+               created_by_uuid: uuid,
+               updated_by_uuid: uuid
+             }
+    end
+
+    test ":update returns only updated_by_uuid (no email keys)" do
+      uuid = "019cce93-0000-7000-8000-000000000002"
+
+      scope = %PhoenixKit.Users.Auth.Scope{
+        user: %PhoenixKit.Users.Auth.User{
+          uuid: uuid,
+          email: "test@example.com"
+        },
+        authenticated?: true
+      }
+
+      assert Shared.audit_metadata(scope, :update) == %{updated_by_uuid: uuid}
+    end
   end
 
   # ============================================================================

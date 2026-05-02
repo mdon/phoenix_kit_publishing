@@ -33,6 +33,15 @@ defmodule PhoenixKitPublishing.Routes do
           prefix -> "#{prefix}/:language"
         end
 
+      # Note: the previous `constraints: %{...}` map on these routes was
+      # always dead code — Phoenix.Router has no per-segment regex constraint
+      # mechanism. `:group` discrimination against admin/asset URLs is
+      # actually achieved by route declaration order (the admin scope is
+      # declared earlier in `phoenix_kit_routes()` and wins first-match).
+      # Locale-vs-group disambiguation happens at the controller layer in
+      # `Web.Controller.Language.detect_language_or_group/2`, which sees the
+      # raw params and rewrites `conn.params` when the first segment is
+      # actually a group slug, not a locale.
       scope blog_scope_multi do
         pipe_through [
           :browser,
@@ -41,17 +50,8 @@ defmodule PhoenixKitPublishing.Routes do
           :phoenix_kit_optional_scope
         ]
 
-        get "/:group", PhoenixKit.Modules.Publishing.Web.Controller, :show,
-          constraints: %{
-            "group" => ~r/^(?!admin$|assets$|images$|fonts$|js$|css$|favicon)/,
-            "language" => ~r/^[a-z]{2,3}(-[A-Za-z]{2,4})?$/
-          }
-
-        get "/:group/*path", PhoenixKit.Modules.Publishing.Web.Controller, :show,
-          constraints: %{
-            "group" => ~r/^(?!admin$|assets$|images$|fonts$|js$|css$|favicon)/,
-            "language" => ~r/^[a-z]{2,3}(-[A-Za-z]{2,4})?$/
-          }
+        get "/:group", PhoenixKit.Modules.Publishing.Web.Controller, :show
+        get "/:group/*path", PhoenixKit.Modules.Publishing.Web.Controller, :show
       end
 
       blog_scope_non_localized =
@@ -68,11 +68,8 @@ defmodule PhoenixKitPublishing.Routes do
           :phoenix_kit_optional_scope
         ]
 
-        get "/:group", PhoenixKit.Modules.Publishing.Web.Controller, :show,
-          constraints: %{"group" => ~r/^(?!admin$|assets$|images$|fonts$|js$|css$|favicon)/}
-
-        get "/:group/*path", PhoenixKit.Modules.Publishing.Web.Controller, :show,
-          constraints: %{"group" => ~r/^(?!admin$|assets$|images$|fonts$|js$|css$|favicon)/}
+        get "/:group", PhoenixKit.Modules.Publishing.Web.Controller, :show
+        get "/:group/*path", PhoenixKit.Modules.Publishing.Web.Controller, :show
       end
     end
   end

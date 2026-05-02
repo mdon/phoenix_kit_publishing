@@ -358,7 +358,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.HTML do
         class="btn btn-ghost btn-sm"
       >
         <.icon name="hero-arrow-left" class="w-4 h-4 mr-2" /> {gettext("Back to %{group}",
-          group: String.capitalize(@group_slug)
+          group: @group_name
         )}
       </.link>
     </footer>

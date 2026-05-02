@@ -109,13 +109,12 @@ lib/phoenix_kit_publishing/
 ├── metadata.ex                # YAML frontmatter parsing helpers
 ├── schemas/                   # 4 Ecto schemas (group, post, version, content)
 ├── web/                       # 8 admin LiveViews + Controller + HTML templates
-├── workers/                   # Oban background jobs (translate worker)
-└── migrations/                # Standalone consolidated migration (reference)
+└── workers/                   # Oban background jobs (translate worker)
 ```
 
 ### Database Tables
 
-All 4 tables use UUIDv7 primary keys. **Migrations live in phoenix_kit core** (versioned system, currently V88). The publishing package includes a consolidated standalone migration (`lib/phoenix_kit_publishing/migrations/publishing_tables.ex`) for reference/independent installs.
+All 4 tables use UUIDv7 primary keys. **Migrations live in phoenix_kit core** — `phoenix_kit_publishing_*` tables are created by V59 and evolved in later V*.ex files. There is no module-owned migration; tests delegate schema setup to `Ecto.Migrator.run(TestRepo, [{0, PhoenixKit.Migration}], :up, ...)` (see `test/test_helper.exs`), the same call the host app makes in production.
 
 ```
 Group (1) ──→ (many) Post (1) ──→ (many) Version (1) ──→ (many) Content
@@ -171,7 +170,20 @@ Publishing uses the **route module** pattern via `Publishing.Routes`. Both `admi
 
 Public routes (the Controller's `show/2`, `index/2`, `all_groups/2`) live in `Publishing.Routes.public_routes/1` — NOT in `generate/1`. Catch-all paths must go in `public_routes/1` because routes in `generate/1` are placed early and would intercept `/admin/*` paths.
 
-The `regex` constraint on `:group` (`~r/^(?!admin$|assets$|images$|fonts$|js$|css$|favicon)/`) prevents the `/:group/*path` catch-all from swallowing assets and admin URLs.
+> Phoenix.Router has **no per-segment regex constraint mechanism** — `constraints: %{...}` on a route is silently ignored. Don't add one expecting it to filter; the only reason `/admin/*` doesn't fall into publishing's catch-all is route declaration order (admin scope is registered earlier in core's `phoenix_kit_routes()` macro and wins first-match). Locale-vs-group disambiguation is done in the controller by `Web.Controller.Language.detect_language_or_group/2`, which then rewrites `conn.params` so the smart-fallback below reads the corrected interpretation.
+
+## Smart fallback semantics
+
+The public Controller delegates 404 handling to `Web.Controller.Fallback`. The policy is two-layer:
+
+| Situation | Behavior |
+|-----------|----------|
+| Requested **group exists**, post/version/translation/time missing | redirect to nearest valid parent (other language → other time on date → group listing) with the `"Showing closest match"` flash |
+| Requested **group does not exist** | render 404. Never redirect to "the first group in the DB" |
+
+This split is **load-bearing when `url_prefix` is `"/"`** — publishing's `/:group/*path` catch-all then sits at the host's absolute root and sees every URL the host's own routes don't claim earlier. Falling back to the first group in that mode would hijack random host-app paths (`/about`, `/contact`, ...) and silently redirect them to an unrelated publishing page.
+
+Tests pin the exact contract in `test/phoenix_kit_publishing/web/controller/public_routes_test.exs` — "smart fallback contract" describe block. Don't loosen those to `assert conn.status in [...]` matches; the bug they prevent only shows up when the assertion is exact.
 
 ## Activity Logging
 

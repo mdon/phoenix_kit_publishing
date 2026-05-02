@@ -1073,16 +1073,15 @@ defmodule PhoenixKit.Modules.Publishing.Posts do
   end
 
   # Combined post-row update: timestamp-mode date/time sync (when
-  # `published_at` changed) + audit metadata (`updated_by_uuid`,
-  # `updated_by_email`). Issuing both as a single `update_post/2` halves
-  # the number of round-trips per save (PR #2 review #6) and keeps the
-  # post row's `updated_at` consistent across the two concerns.
+  # `published_at` changed) + audit metadata (`updated_by_uuid`).
+  # Issuing both as a single `update_post/2` halves the number of
+  # round-trips per save (PR #2 review #6) and keeps the post row's
+  # `updated_at` consistent across the two concerns.
   defp maybe_sync_datetime_and_audit(db_post, params, audit_meta) do
     attrs =
       %{}
       |> add_datetime_sync_attrs(db_post, params)
       |> maybe_put(:updated_by_uuid, audit_meta[:updated_by_uuid])
-      |> maybe_put(:updated_by_email, audit_meta[:updated_by_email])
 
     if map_size(attrs) == 0 do
       {:ok, db_post}

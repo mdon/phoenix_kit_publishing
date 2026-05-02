@@ -51,11 +51,15 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller do
   - [group_slug, date, time] -> Timestamp mode post
   """
   def show(conn, %{"language" => language_param} = params) do
-    # Detect if 'language' param is actually a language code or a group slug
-    # This allows the same route to work for both single and multi-language setups
+    # Detect if 'language' param is actually a language code or a group slug.
+    # This allows the same route to work for both single and multi-language setups.
     {language, adjusted_params} = Language.detect_language_or_group(language_param, params)
 
-    conn = assign(conn, :current_language, language)
+    conn =
+      conn
+      |> rewrite_params_after_shift(params, adjusted_params)
+      |> assign(:current_language, language)
+
     set_gettext_locale(language)
 
     if Publishing.enabled?() and public_enabled?() do
@@ -79,7 +83,11 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller do
       case Language.detect_language_in_group_param(params) do
         {:language_detected, language, adjusted_params} ->
           # First segment was a language code with content - use localized logic
-          conn = assign(conn, :current_language, language)
+          conn =
+            conn
+            |> rewrite_params_after_shift(params, adjusted_params)
+            |> assign(:current_language, language)
+
           set_gettext_locale(language)
           handle_request(conn, language, adjusted_params)
 
@@ -93,6 +101,19 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller do
     else
       handle_not_found(conn, :module_disabled)
     end
+  end
+
+  # When `Language.detect_*` reinterprets which segment is the group and which
+  # is the language, downstream code (including the smart-fallback in
+  # `Controller.Fallback`) needs to see the corrected `group`/`path` on
+  # `conn.params`. Without this, the fallback reads the raw bindings and
+  # blames the wrong slug — manifesting as "404 instead of in-group fallback"
+  # for URLs like `/<group>/<missing-post>` that happened to match the
+  # localized route as `language=<group>, group=<missing-post>`.
+  defp rewrite_params_after_shift(conn, original_params, original_params), do: conn
+
+  defp rewrite_params_after_shift(conn, _original_params, adjusted_params) do
+    %{conn | params: Map.merge(conn.params, adjusted_params)}
   end
 
   # ============================================================================
@@ -216,6 +237,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller do
         conn
         |> assign(:page_title, assigns.page_title)
         |> assign(:group_slug, assigns.group_slug)
+        |> assign(:group_name, Publishing.group_name(assigns.group_slug) || assigns.group_slug)
         |> assign(:post, assigns.post)
         |> assign(:html_content, assigns.html_content)
         |> assign(:current_language, assigns.current_language)
@@ -245,6 +267,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller do
         conn
         |> assign(:page_title, assigns.page_title)
         |> assign(:group_slug, assigns.group_slug)
+        |> assign(:group_name, Publishing.group_name(assigns.group_slug) || assigns.group_slug)
         |> assign(:post, assigns.post)
         |> assign(:html_content, assigns.html_content)
         |> assign(:current_language, assigns.current_language)
@@ -275,6 +298,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller do
         conn
         |> assign(:page_title, assigns.page_title)
         |> assign(:group_slug, assigns.group_slug)
+        |> assign(:group_name, Publishing.group_name(assigns.group_slug) || assigns.group_slug)
         |> assign(:post, assigns.post)
         |> assign(:html_content, assigns.html_content)
         |> assign(:current_language, assigns.current_language)

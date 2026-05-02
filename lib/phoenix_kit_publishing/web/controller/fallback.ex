@@ -2,11 +2,29 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller.Fallback do
   @moduledoc """
   404 fallback handling for the publishing controller.
 
-  Implements a smart fallback chain that attempts to redirect users
-  to related content when the requested resource is not found:
-  - Posts in other languages
-  - Other posts on the same date
-  - Group listing page
+  ## Policy
+
+  Smart fallback only fires when the requested **group exists**. The signal
+  is "you're inside a real publishing URL but I can't find this specific
+  post / language / time" — in that case we redirect to the nearest valid
+  parent (other-language version, other-time-on-date, group listing) with
+  a flash explaining the substitution.
+
+  When the **group itself doesn't exist**, the request gets a clean 404.
+  This is critical when `url_prefix` is `"/"`: publishing's catch-all
+  routes then sit at the host's absolute root, so any path the host app
+  doesn't claim earlier flows into this controller. Falling back to "the
+  first group in the DB" (the previous behaviour) would hijack random
+  host-app URLs and redirect them to an unrelated page.
+
+  ## Fallback chain (group-existing case only)
+
+  - `:not_found` (post trashed/deleted) → group listing
+  - `:post_not_found | :unpublished | :version_access_disabled` on a slug
+    path → other languages → group listing
+  - same on a timestamp path → other languages → other times on the date →
+    group listing
+  - any other reason with a known group → group listing
   """
 
   use Gettext, backend: PhoenixKitWeb.Gettext
@@ -61,7 +79,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller.Fallback do
     if group_exists?(group_slug) do
       {:ok, PublishingHTML.group_listing_path(language, group_slug)}
     else
-      fallback_to_default_group(language)
+      :no_fallback
     end
   end
 
@@ -77,14 +95,11 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller.Fallback do
     fallback_timestamp_to_other_language(group_slug, date, time, language)
   end
 
-  # Group not found with a path - try default group
-  defp handle_fallback_case(:group_not_found, [_group_slug | _], language) do
-    fallback_to_default_group(language)
-  end
-
-  defp handle_fallback_case(:group_not_found, [], language) do
-    fallback_to_default_group(language)
-  end
+  # Group itself doesn't exist — render 404. Don't redirect to "the first
+  # group" because the request had no signal of publishing intent (the bug
+  # manifests acutely when url_prefix == "/" and the catch-all sits at
+  # the host's root, where /about, /contact, etc. would otherwise be hijacked).
+  defp handle_fallback_case(:group_not_found, _path, _language), do: :no_fallback
 
   # Any post-level error with a 2+ segment path — fall back to group listing
   # Catches errors like :invalid_version, unknown reasons from read_post, etc.
@@ -92,7 +107,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller.Fallback do
     if group_exists?(group_slug) do
       {:ok, PublishingHTML.group_listing_path(language, group_slug)}
     else
-      fallback_to_default_group(language)
+      :no_fallback
     end
   end
 
@@ -106,7 +121,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller.Fallback do
     if group_exists?(group_slug) do
       find_any_available_language_version(group_slug, post_slug, requested_language)
     else
-      fallback_to_default_group(requested_language)
+      :no_fallback
     end
   end
 
@@ -227,7 +242,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller.Fallback do
         default_lang
       )
     else
-      fallback_to_default_group(requested_language)
+      :no_fallback
     end
   end
 
@@ -316,17 +331,6 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller.Fallback do
           nil
       end
     end) || :not_found
-  end
-
-  # ============================================================================
-  # Group Fallback
-  # ============================================================================
-
-  defp fallback_to_default_group(language) do
-    case Listing.default_group_listing(language) do
-      nil -> :no_fallback
-      path -> {:ok, path}
-    end
   end
 
   # ============================================================================

@@ -20,13 +20,7 @@ Then run `mix deps.get` and `mix phoenix_kit.install`. The module is auto-discov
 
 ### Database Setup
 
-The publishing tables are created by PhoenixKit's core migrations. If you need to set them up independently (e.g. fresh install without core migrations), the module includes a consolidated migration:
-
-```elixir
-PhoenixKit.Modules.Publishing.Migrations.PublishingTables.up(%{prefix: nil})
-```
-
-All statements use `IF NOT EXISTS`, so it's safe to run even when tables already exist.
+The publishing tables (`phoenix_kit_publishing_groups`, `_posts`, `_versions`, `_contents`) are created by PhoenixKit's core versioned migrations (V59). Run `mix phoenix_kit.install` in the host app and they're set up automatically — no module-owned migration to invoke.
 
 ### Enable the Module
 
@@ -163,7 +157,6 @@ lib/phoenix_kit_publishing/
   schemas/                   # Ecto schemas (4 files)
   web/                       # LiveViews, controller, templates
   workers/                   # Oban background jobs
-  migrations/                # Consolidated DB migration
 ```
 
 ### Core Modules

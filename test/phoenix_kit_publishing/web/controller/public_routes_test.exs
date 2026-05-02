@@ -121,4 +121,74 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller.PublicRoutesTest do
       assert conn.status in [200, 301, 302, 404]
     end
   end
+
+  # =====================================================================
+  # Smart fallback contract — exact behaviour, not "any of these statuses".
+  #
+  # Critical when `url_prefix` is "/" because publishing's catch-all then
+  # sits at the host's absolute root. A miss inside a real group must
+  # redirect to that group's listing (in-group fallback), but a miss on
+  # an unknown first segment must 404 — never redirect to "the first
+  # group in the DB", which would hijack every host-app path.
+  # =====================================================================
+  describe "smart fallback contract" do
+    test "missing post in a known group → 302 to THAT group's listing", %{
+      conn: conn,
+      group_slug: group_slug
+    } do
+      conn = get(conn, "/#{group_slug}/definitely-not-a-real-post")
+      assert conn.status == 302
+      assert {"location", target} = List.keyfind(conn.resp_headers, "location", 0)
+      assert target == "/#{group_slug}"
+    end
+
+    test "missing post in a known group → flash explains the redirect", %{
+      conn: conn,
+      group_slug: group_slug
+    } do
+      conn = get(conn, "/#{group_slug}/definitely-not-a-real-post")
+      assert Phoenix.Flash.get(conn.assigns.flash, :info) =~ "Showing closest match"
+    end
+
+    test "unknown first segment → 404 (must NOT redirect to any group)", %{conn: conn} do
+      slug = "host-app-page-#{System.unique_integer()}"
+      conn = get(conn, "/#{slug}")
+      assert conn.status == 404
+    end
+
+    test "unknown nested path → 404 (catch-all must not hijack host-app routes)", %{
+      conn: conn
+    } do
+      slug = "host-#{System.unique_integer()}"
+      conn = get(conn, "/#{slug}/team/page")
+      assert conn.status == 404
+    end
+
+    test "even with several real groups in the DB, an unknown slug 404s", %{conn: conn} do
+      # Pre-fix this returned 302 to whatever group was first. Pin the
+      # exact contract: the dispatcher must not browse the group list to
+      # pick a redirect target when the requested slug isn't a group.
+      {:ok, _} = Groups.add_group(unique_name(), mode: "slug")
+      {:ok, _} = Groups.add_group(unique_name(), mode: "slug")
+
+      conn = get(conn, "/totally-not-any-of-them-#{System.unique_integer()}")
+      assert conn.status == 404
+    end
+
+    test "/<group>/<missing-post> via localized route still redirects correctly", %{
+      conn: conn,
+      group_slug: group_slug
+    } do
+      # The localized route /:language/:group binds language=<group>,
+      # group=<missing-post>, then the controller reinterprets via
+      # `Language.detect_language_or_group/2`. Without the conn.params
+      # rewrite the in-group fallback would read the wrong slug — pin
+      # that the Location header is the actual requested group, not
+      # whatever happens to be first.
+      conn = get(conn, "/#{group_slug}/missing-post-#{System.unique_integer()}")
+      assert conn.status == 302
+      assert {"location", target} = List.keyfind(conn.resp_headers, "location", 0)
+      assert target == "/#{group_slug}"
+    end
+  end
 end

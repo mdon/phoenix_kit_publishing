@@ -298,7 +298,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Preview do
           <footer class="mt-12 pt-6 border-t">
             <span class="btn btn-ghost btn-sm opacity-60 cursor-not-allowed">
               <.icon name="hero-arrow-left" class="w-4 h-4 mr-2" /> {gettext("Back to %{group}",
-                group: String.capitalize(@group_slug)
+                group: @group_name
               )}
             </span>
           </footer>

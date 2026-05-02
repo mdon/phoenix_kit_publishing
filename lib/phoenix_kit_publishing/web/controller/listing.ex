@@ -357,14 +357,4 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller.Listing do
   end
 
   defp group_slug_matches?(_, _), do: false
-
-  @doc """
-  Gets the default group listing path for a language.
-  """
-  def default_group_listing(language) do
-    case Publishing.list_groups() do
-      [%{"slug" => slug} | _] -> PublishingHTML.group_listing_path(language, slug)
-      _ -> nil
-    end
-  end
 end
