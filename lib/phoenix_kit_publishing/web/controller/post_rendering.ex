@@ -78,14 +78,16 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller.PostRendering do
       {:redirect_301, canonical_url}
     else
       html_content = render_post_content(post)
+      group_name = fetch_group_name(group_slug)
       translations = Translations.build_translation_links(group_slug, post, canonical_language)
-      breadcrumbs = build_breadcrumbs(group_slug, post, canonical_language)
+      breadcrumbs = build_breadcrumbs(group_slug, post, canonical_language, group_name)
       version_dropdown = build_version_dropdown(group_slug, post, canonical_language)
 
       {:ok,
        %{
          page_title: post.metadata.title || Constants.default_title(),
          group_slug: group_slug,
+         group_name: group_name,
          post: post,
          html_content: html_content,
          current_language: canonical_language,
@@ -123,11 +125,12 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller.PostRendering do
   defp build_versioned_post_response(group_slug, post, version) do
     canonical_language = Language.get_canonical_url_language_for_post(post.language)
     html_content = render_post_content(post)
+    group_name = fetch_group_name(group_slug)
 
     translations =
       Translations.build_translation_links(group_slug, post, canonical_language, version: version)
 
-    breadcrumbs = build_breadcrumbs(group_slug, post, canonical_language)
+    breadcrumbs = build_breadcrumbs(group_slug, post, canonical_language, group_name)
     canonical_url = PublishingHTML.build_post_url(group_slug, post, canonical_language)
     version_dropdown = build_version_dropdown(group_slug, post, canonical_language)
 
@@ -137,6 +140,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller.PostRendering do
      %{
        page_title: post.metadata.title || Constants.default_title(),
        group_slug: group_slug,
+       group_name: group_name,
        post: post,
        html_content: html_content,
        current_language: canonical_language,
@@ -356,17 +360,18 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller.PostRendering do
   @doc """
   Builds breadcrumbs for a post page.
   """
-  def build_breadcrumbs(group_slug, post, language) do
-    group_name =
-      case Listing.fetch_group(group_slug) do
-        {:ok, group} -> group["name"]
-        {:error, _} -> group_slug
-      end
-
+  def build_breadcrumbs(group_slug, post, language, group_name) do
     [
       %{label: group_name, url: PublishingHTML.group_listing_path(language, group_slug)},
       %{label: post.metadata.title, url: nil}
     ]
+  end
+
+  defp fetch_group_name(group_slug) do
+    case Listing.fetch_group(group_slug) do
+      {:ok, group} -> group["name"]
+      {:error, _} -> group_slug
+    end
   end
 
   # ============================================================================

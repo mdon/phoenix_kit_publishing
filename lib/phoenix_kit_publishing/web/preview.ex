@@ -60,11 +60,12 @@ defmodule PhoenixKit.Modules.Publishing.Web.Preview do
 
             # Build the same data as the public controller
             canonical_language = post.language
+            group_name = Publishing.group_name(post.group) || post.group
 
             translations =
               Translations.build_translation_links(group_slug, post, canonical_language)
 
-            breadcrumbs = PostRendering.build_breadcrumbs(group_slug, post, canonical_language)
+            breadcrumbs = PostRendering.build_breadcrumbs(group_slug, post, canonical_language, group_name)
 
             version_dropdown =
               PostRendering.build_version_dropdown(group_slug, post, canonical_language)
@@ -73,7 +74,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Preview do
              socket
              |> assign(:post, post)
              |> assign(:group_slug, post.group)
-             |> assign(:group_name, Publishing.group_name(post.group) || post.group)
+             |> assign(:group_name, group_name)
              |> assign(:html_content, rendered_html)
              |> assign(:current_language, canonical_language)
              |> assign(:translations, translations)

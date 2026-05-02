@@ -110,9 +110,14 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller do
   # blames the wrong slug — manifesting as "404 instead of in-group fallback"
   # for URLs like `/<group>/<missing-post>` that happened to match the
   # localized route as `language=<group>, group=<missing-post>`.
+  # Same-binding pattern: both heads match the same variable, so this clause
+  # fires only when adjusted_params is identical to original_params (no shift).
   defp rewrite_params_after_shift(conn, original_params, original_params), do: conn
 
   defp rewrite_params_after_shift(conn, _original_params, adjusted_params) do
+    # Map.merge preserves all original keys — conn.params["language"] may be
+    # stale after a language→group shift. No downstream reader uses it (locale
+    # is held in conn.assigns.current_language), so this is intentional.
     %{conn | params: Map.merge(conn.params, adjusted_params)}
   end
 
@@ -237,7 +242,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller do
         conn
         |> assign(:page_title, assigns.page_title)
         |> assign(:group_slug, assigns.group_slug)
-        |> assign(:group_name, Publishing.group_name(assigns.group_slug) || assigns.group_slug)
+        |> assign(:group_name, Map.get(assigns, :group_name) || assigns.group_slug)
         |> assign(:post, assigns.post)
         |> assign(:html_content, assigns.html_content)
         |> assign(:current_language, assigns.current_language)
@@ -267,7 +272,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller do
         conn
         |> assign(:page_title, assigns.page_title)
         |> assign(:group_slug, assigns.group_slug)
-        |> assign(:group_name, Publishing.group_name(assigns.group_slug) || assigns.group_slug)
+        |> assign(:group_name, Map.get(assigns, :group_name) || assigns.group_slug)
         |> assign(:post, assigns.post)
         |> assign(:html_content, assigns.html_content)
         |> assign(:current_language, assigns.current_language)
@@ -298,7 +303,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller do
         conn
         |> assign(:page_title, assigns.page_title)
         |> assign(:group_slug, assigns.group_slug)
-        |> assign(:group_name, Publishing.group_name(assigns.group_slug) || assigns.group_slug)
+        |> assign(:group_name, Map.get(assigns, :group_name) || assigns.group_slug)
         |> assign(:post, assigns.post)
         |> assign(:html_content, assigns.html_content)
         |> assign(:current_language, assigns.current_language)

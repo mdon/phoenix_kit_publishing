@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.1.6 - 2026-05-02
+
+PR #12 — fix smart-fallback URL hijack + drop hand-rolled migrations + Phase 2 cleanup.
+
+### Fixed
+- **Smart-fallback URL hijacking** — when `url_prefix` is `""`/`"/"`, publishing's catch-all sits at the host's absolute root. Unknown first segments now 404 instead of silently redirecting to the first group in the DB (which hijacked host-app paths like `/about`, `/contact`).
+- `conn.params` rewrite after `Language.detect_*` reinterpretation — downstream code (including the fallback) now sees corrected `group`/`path` instead of the raw (wrong) bindings from the localized route.
+
+### Removed
+- `PhoenixKit.Modules.Publishing.Migrations.PublishingTables` — 311-line consolidated migration was dead code; every consumer pulls in `phoenix_kit` core whose V59 creates the same tables. Use `mix phoenix_kit.install` (has been the correct path since extraction).
+- `constraints: %{...}` maps on public routes — Phoenix.Router has no per-segment regex constraint mechanism; these were always no-ops. Route declaration order + controller-layer disambiguation are the actual mechanisms.
+- `created_by_email`/`updated_by_email` from `Shared.audit_metadata/2` — the publishing schema has no email columns; these keys were silently stripped by mass-assignment guard (dead plumbing from core's pre-extraction blogging module).
+
+### Changed
+- Test suite uses `Ecto.Migrator.run(TestRepo, [{0, PhoenixKit.Migration}], :up, ...)` instead of 178 lines of inline DDL — test/prod schema drift is now impossible by construction.
+- `Listing.default_group_listing/1` removed — no longer a meaningful concept after the fallback-policy fix.
+- `build_breadcrumbs/3` → `/4` — accepts `group_name` directly, eliminating a redundant group lookup per public page render. `render_published_post` and `build_versioned_post_response` now include `group_name` in their assigns maps; the controller consumes it instead of calling `Publishing.group_name/1` separately.
+- `String.capitalize(@group_slug)` in `html.ex` and `preview.ex` replaced with `@group_name` assign — slugs like `"date12"` no longer render as `"Date12"` in the "Back to" link.
+
+### Docs
+- AGENTS.md and README.md updated: removed `migrations/` from lib-tree, documented smart-fallback semantics, noted that `constraints:` on public routes is a no-op.
+
 ## 0.1.5 - 2026-04-28
 
 PR #10 — quality sweep + 4 coverage-push batches (33.34% → 63.79% line coverage).
