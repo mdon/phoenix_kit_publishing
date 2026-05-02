@@ -45,9 +45,10 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller.FallbackTest do
          %{group_slug: slug} do
       conn = fake_conn(%{"group" => slug, "path" => []})
 
-      result = Fallback.handle_not_found(conn, :not_found)
+      assert {:redirect_with_flash, path, _msg} =
+               Fallback.handle_not_found(conn, :not_found)
 
-      assert match?({:redirect_with_flash, _, _}, result) or match?({:render_404}, result)
+      assert path =~ "/" <> slug
     end
 
     test "renders 404 when group doesn't exist (never redirects to an unrelated group)" do
@@ -73,40 +74,50 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller.FallbackTest do
          %{group_slug: slug} do
       conn = fake_conn(%{"group" => slug, "path" => ["missing-slug"]})
 
-      result = Fallback.handle_not_found(conn, :post_not_found)
-      assert match?({:redirect_with_flash, _, _}, result) or match?({:render_404}, result)
+      assert {:redirect_with_flash, path, _msg} =
+               Fallback.handle_not_found(conn, :post_not_found)
+
+      assert path =~ "/" <> slug
     end
 
     test "redirects to group listing for :unpublished reason",
          %{group_slug: slug} do
       conn = fake_conn(%{"group" => slug, "path" => ["my-post"]})
 
-      result = Fallback.handle_not_found(conn, :unpublished)
-      assert match?({:redirect_with_flash, _, _}, result) or match?({:render_404}, result)
+      assert {:redirect_with_flash, path, _msg} =
+               Fallback.handle_not_found(conn, :unpublished)
+
+      assert path =~ "/" <> slug
     end
 
     test "handles timestamp-mode 3-segment paths",
          %{group_slug: slug} do
       conn = fake_conn(%{"group" => slug, "path" => ["2026-04-27", "10:00"]})
 
-      result = Fallback.handle_not_found(conn, :post_not_found)
-      assert match?({:redirect_with_flash, _, _}, result) or match?({:render_404}, result)
+      assert {:redirect_with_flash, path, _msg} =
+               Fallback.handle_not_found(conn, :post_not_found)
+
+      assert path =~ "/" <> slug
     end
 
     test "handles :version_access_disabled reason",
          %{group_slug: slug} do
       conn = fake_conn(%{"group" => slug, "path" => ["my-post"]})
 
-      result = Fallback.handle_not_found(conn, :version_access_disabled)
-      assert match?({:redirect_with_flash, _, _}, result) or match?({:render_404}, result)
+      assert {:redirect_with_flash, path, _msg} =
+               Fallback.handle_not_found(conn, :version_access_disabled)
+
+      assert path =~ "/" <> slug
     end
 
     test "catch-all reason with a path falls back to group listing",
          %{group_slug: slug} do
       conn = fake_conn(%{"group" => slug, "path" => ["something"]})
 
-      result = Fallback.handle_not_found(conn, :totally_random_reason)
-      assert match?({:redirect_with_flash, _, _}, result) or match?({:render_404}, result)
+      assert {:redirect_with_flash, path, _msg} =
+               Fallback.handle_not_found(conn, :totally_random_reason)
+
+      assert path =~ "/" <> slug
     end
   end
 

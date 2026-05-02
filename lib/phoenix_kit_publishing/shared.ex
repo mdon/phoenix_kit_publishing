@@ -48,26 +48,13 @@ defmodule PhoenixKit.Modules.Publishing.Shared do
       |> Scope.user_uuid()
       |> normalize_audit_value()
 
-    user_email =
-      scope
-      |> Scope.user_email()
-      |> normalize_audit_value()
-
     base =
       case action do
-        :create ->
-          %{
-            created_by_uuid: user_uuid,
-            created_by_email: user_email
-          }
-
-        _ ->
-          %{}
+        :create -> %{created_by_uuid: user_uuid}
+        _ -> %{}
       end
 
-    base
-    |> maybe_put_audit(:updated_by_uuid, user_uuid)
-    |> maybe_put_audit(:updated_by_email, user_email)
+    maybe_put_audit(base, :updated_by_uuid, user_uuid)
   end
 
   @dialyzer {:nowarn_function, normalize_audit_value: 1}

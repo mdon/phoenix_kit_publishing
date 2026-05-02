@@ -237,6 +237,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller do
         conn
         |> assign(:page_title, assigns.page_title)
         |> assign(:group_slug, assigns.group_slug)
+        |> assign(:group_name, Publishing.group_name(assigns.group_slug) || assigns.group_slug)
         |> assign(:post, assigns.post)
         |> assign(:html_content, assigns.html_content)
         |> assign(:current_language, assigns.current_language)
@@ -266,6 +267,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller do
         conn
         |> assign(:page_title, assigns.page_title)
         |> assign(:group_slug, assigns.group_slug)
+        |> assign(:group_name, Publishing.group_name(assigns.group_slug) || assigns.group_slug)
         |> assign(:post, assigns.post)
         |> assign(:html_content, assigns.html_content)
         |> assign(:current_language, assigns.current_language)
@@ -296,6 +298,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller do
         conn
         |> assign(:page_title, assigns.page_title)
         |> assign(:group_slug, assigns.group_slug)
+        |> assign(:group_name, Publishing.group_name(assigns.group_slug) || assigns.group_slug)
         |> assign(:post, assigns.post)
         |> assign(:html_content, assigns.html_content)
         |> assign(:current_language, assigns.current_language)

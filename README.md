@@ -157,7 +157,6 @@ lib/phoenix_kit_publishing/
   schemas/                   # Ecto schemas (4 files)
   web/                       # LiveViews, controller, templates
   workers/                   # Oban background jobs
-  migrations/                # Consolidated DB migration
 ```
 
 ### Core Modules
