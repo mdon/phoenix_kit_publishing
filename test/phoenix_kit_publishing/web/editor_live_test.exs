@@ -22,6 +22,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.EditorLiveTest do
 
   use PhoenixKitPublishing.LiveCase
 
+  alias PhoenixKit.Modules.Publishing
   alias PhoenixKit.Modules.Publishing.Groups
   alias PhoenixKit.Modules.Publishing.Posts
   alias PhoenixKit.Settings
@@ -494,6 +495,65 @@ defmodule PhoenixKit.Modules.Publishing.Web.EditorLiveTest do
       # Send a minimal-payload PubSub message (matches Batch 2 pubsub trim)
       send(view.pid, {:post_updated, %{uuid: post[:uuid], slug: post[:slug]}})
       assert is_binary(render(view))
+    end
+  end
+
+  describe "?lang= base code that maps to a non-default enabled dialect (issue #11)" do
+    setup do
+      {:ok, _} = Settings.update_boolean_setting("languages_enabled", true)
+
+      {:ok, _} =
+        Settings.update_json_setting("languages_config", %{
+          "languages" => [
+            %{
+              "code" => "en-GB",
+              "name" => "English (United Kingdom)",
+              "is_default" => true,
+              "is_enabled" => true,
+              "position" => 0
+            },
+            %{
+              "code" => "ru",
+              "name" => "Russian",
+              "is_default" => false,
+              "is_enabled" => true,
+              "position" => 1
+            }
+          ]
+        })
+
+      {:ok, _} = Settings.update_setting("content_language", "en-GB")
+
+      {:ok, group} =
+        Groups.add_group("Issue11 LV #{System.unique_integer([:positive])}", mode: "slug")
+
+      {:ok, post} =
+        Posts.create_post(group["slug"], %{title: "British Title", slug: "issue-11-lv"})
+
+      {:ok, saved} =
+        Publishing.update_post(group["slug"], post, %{
+          "title" => "British Title",
+          "content" => "British body for issue 11.",
+          "status" => "draft"
+        })
+
+      {:ok, _} = Publishing.add_language_to_post(group["slug"], saved[:uuid], "ru", 1)
+
+      %{group: group, post_uuid: saved[:uuid]}
+    end
+
+    test "loads existing en-GB content instead of opening a blank new-translation form",
+         %{conn: conn, group: group, post_uuid: uuid} do
+      {:ok, _view, html} =
+        conn
+        |> put_test_scope(fake_scope())
+        |> live("/admin/publishing/#{group["slug"]}/#{uuid}/edit?lang=en")
+
+      # Pre-fix: the LV branched into handle_new_translation_params, which
+      # blanked title and content. Post-fix: the en-GB content row should be
+      # loaded and rendered in the form.
+      assert html =~ "British Title"
+      assert html =~ "British body"
     end
   end
 end
