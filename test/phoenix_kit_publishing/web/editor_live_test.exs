@@ -544,7 +544,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.EditorLiveTest do
 
     test "loads existing en-GB content instead of opening a blank new-translation form",
          %{conn: conn, group: group, post_uuid: uuid} do
-      {:ok, _view, html} =
+      {:ok, view, html} =
         conn
         |> put_test_scope(fake_scope())
         |> live("/admin/publishing/#{group["slug"]}/#{uuid}/edit?lang=en")
@@ -554,6 +554,124 @@ defmodule PhoenixKit.Modules.Publishing.Web.EditorLiveTest do
       # loaded and rendered in the form.
       assert html =~ "British Title"
       assert html =~ "British body"
+
+      refute view.pid
+             |> :sys.get_state()
+             |> get_in([Access.key(:socket), Access.key(:assigns), :is_new_translation])
+    end
+
+    test "?lang=en-GB (full code already in available_languages) loads the en-GB content",
+         %{conn: conn, group: group, post_uuid: uuid} do
+      {:ok, view, html} =
+        conn
+        |> put_test_scope(fake_scope())
+        |> live("/admin/publishing/#{group["slug"]}/#{uuid}/edit?lang=en-GB")
+
+      assert html =~ "British Title"
+
+      refute view.pid
+             |> :sys.get_state()
+             |> get_in([Access.key(:socket), Access.key(:assigns), :is_new_translation])
+    end
+
+    test "?lang=en-US (full code not in available, but base 'en' maps to enabled 'en-GB') loads en-GB",
+         %{conn: conn, group: group, post_uuid: uuid} do
+      # Pre-fix: this would also blank the form via the membership-check bug.
+      # Post-fix: new_translation_request?/2 resolves "en-US" → "en-GB" via
+      # the shared base, so the editor opens the existing en-GB content.
+      {:ok, view, html} =
+        conn
+        |> put_test_scope(fake_scope())
+        |> live("/admin/publishing/#{group["slug"]}/#{uuid}/edit?lang=en-US")
+
+      assert html =~ "British Title"
+
+      refute view.pid
+             |> :sys.get_state()
+             |> get_in([Access.key(:socket), Access.key(:assigns), :is_new_translation])
+    end
+
+    test "?lang=fr (genuinely new — no enabled dialect for 'fr') still opens new-translation form",
+         %{conn: conn, group: group, post_uuid: uuid} do
+      # Regression guard: my fix must NOT collapse legitimate new-translation
+      # requests into the existing-post branch. "fr" has no enabled dialect
+      # and no matching dialect in post.available_languages, so the editor
+      # must open a blank form ready for a new translation.
+      {:ok, view, _html} =
+        conn
+        |> put_test_scope(fake_scope())
+        |> live("/admin/publishing/#{group["slug"]}/#{uuid}/edit?lang=fr")
+
+      assigns =
+        view.pid |> :sys.get_state() |> get_in([Access.key(:socket), Access.key(:assigns)])
+
+      assert assigns[:is_new_translation] == true
+      assert assigns[:content] == ""
+    end
+  end
+
+  describe "?lang= resolution with multiple dialects of the same base" do
+    setup do
+      {:ok, _} = Settings.update_boolean_setting("languages_enabled", true)
+
+      {:ok, _} =
+        Settings.update_json_setting("languages_config", %{
+          "languages" => [
+            %{
+              "code" => "en-GB",
+              "name" => "English (United Kingdom)",
+              "is_default" => false,
+              "is_enabled" => true,
+              "position" => 0
+            },
+            %{
+              "code" => "en-US",
+              "name" => "English (United States)",
+              "is_default" => true,
+              "is_enabled" => true,
+              "position" => 1
+            }
+          ]
+        })
+
+      {:ok, _} = Settings.update_setting("content_language", "en-US")
+
+      {:ok, group} =
+        Groups.add_group("Tie-break LV #{System.unique_integer([:positive])}", mode: "slug")
+
+      {:ok, post} = Posts.create_post(group["slug"], %{title: "American Title", slug: "tiebreak"})
+
+      {:ok, saved} =
+        Publishing.update_post(group["slug"], post, %{
+          "title" => "American Title",
+          "content" => "American body.",
+          "status" => "draft"
+        })
+
+      {:ok, _} = Publishing.add_language_to_post(group["slug"], saved[:uuid], "en-GB", 1)
+
+      # Save distinct content for the en-GB row so the tie-break is observable.
+      {:ok, fetched} = Publishing.read_post_by_uuid(saved[:uuid], "en-GB", 1)
+
+      {:ok, _} =
+        Publishing.update_post(group["slug"], fetched, %{
+          "title" => "British Title",
+          "content" => "British body.",
+          "status" => "draft"
+        })
+
+      %{group: group, post_uuid: saved[:uuid]}
+    end
+
+    test "?lang=en routes to the primary dialect (en-US) when both en-US and en-GB exist",
+         %{conn: conn, group: group, post_uuid: uuid} do
+      {:ok, _view, html} =
+        conn
+        |> put_test_scope(fake_scope())
+        |> live("/admin/publishing/#{group["slug"]}/#{uuid}/edit?lang=en")
+
+      assert html =~ "American Title"
+      refute html =~ "British Title"
     end
   end
 end

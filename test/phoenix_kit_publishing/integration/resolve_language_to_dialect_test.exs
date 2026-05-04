@@ -117,6 +117,83 @@ defmodule PhoenixKit.Integration.Publishing.ResolveLanguageToDialectTest do
       assert {:ok, ru} = Publishing.read_post_by_uuid(saved[:uuid], "ru", 1)
       assert ru.language == "ru"
     end
+
+    test "resolves base to first match when the primary language is for a different base" do
+      configure_languages([
+        {"en-GB", false},
+        {"en-US", false},
+        {"fr-FR", true}
+      ])
+
+      {:ok, _} = Settings.update_setting("content_language", "fr-FR")
+
+      {:ok, group} = Groups.add_group(unique_name(), mode: "slug")
+      {:ok, post} = Posts.create_post(group["slug"], %{title: "T", slug: "tie-break-fallback"})
+
+      {:ok, saved} =
+        Publishing.update_post(group["slug"], post, %{
+          "title" => "Titre",
+          "content" => "Corps",
+          "status" => "draft"
+        })
+
+      {:ok, _} = Publishing.add_language_to_post(group["slug"], saved[:uuid], "en-GB", 1)
+      {:ok, _} = Publishing.add_language_to_post(group["slug"], saved[:uuid], "en-US", 1)
+
+      # Primary "fr-FR" is not an English dialect, so the helper falls back to
+      # the first enabled dialect with base "en" — which is "en-GB" (declaration
+      # order in `languages_config`).
+      assert {:ok, fetched} = Publishing.read_post_by_uuid(saved[:uuid], "en", 1)
+      assert fetched.language == "en-GB"
+    end
+
+    test "passes a full dialect through unchanged when it is not enabled" do
+      configure_languages([
+        {"en-GB", true},
+        {"ru", false}
+      ])
+
+      {:ok, _} = Settings.update_setting("content_language", "en-GB")
+
+      {:ok, group} = Groups.add_group(unique_name(), mode: "slug")
+      {:ok, post} = Posts.create_post(group["slug"], %{title: "T", slug: "passthrough"})
+
+      {:ok, saved} =
+        Publishing.update_post(group["slug"], post, %{
+          "title" => "British Title",
+          "content" => "British body",
+          "status" => "draft"
+        })
+
+      # "en-US" is not enabled and is not a base code. The resolver returns it
+      # unchanged; DBStorage's resolve_content/2 fallback then matches the
+      # site default ("en-GB") and returns that content. This preserves
+      # backwards compatibility for any caller that hands in a full code
+      # without consulting the enabled list first.
+      assert {:ok, fetched} = Publishing.read_post_by_uuid(saved[:uuid], "en-US", 1)
+      assert fetched.language == "en-GB"
+      assert fetched.metadata.title == "British Title"
+    end
+
+    test "returns nil for a nil language input" do
+      configure_languages([{"en-GB", true}])
+      {:ok, _} = Settings.update_setting("content_language", "en-GB")
+
+      {:ok, group} = Groups.add_group(unique_name(), mode: "slug")
+      {:ok, post} = Posts.create_post(group["slug"], %{title: "T", slug: "nil-input"})
+
+      {:ok, saved} =
+        Publishing.update_post(group["slug"], post, %{
+          "title" => "British Title",
+          "content" => "Body",
+          "status" => "draft"
+        })
+
+      # nil → DBStorage.resolve_content/2 picks the site default. Pinning the
+      # nil clause prevents accidental "if language do ..." regressions.
+      assert {:ok, fetched} = Publishing.read_post_by_uuid(saved[:uuid], nil, 1)
+      assert fetched.language == "en-GB"
+    end
   end
 
   defp configure_languages(codes_with_default) do
