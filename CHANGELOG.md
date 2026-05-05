@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.1.7 - 2026-05-05
+
+PR #13 — fix issue #11 (editor opens blank for `?lang=<base>` when only a non-default dialect is enabled) + PR-12 close-out + precommit nits.
+
+### Fixed
+- **Editor opened blank when `?lang=<base>` mapped to a non-default dialect (Issue #11).** Two-layer bug: `Posts.resolve_language_to_dialect/1` mapped `"en"` to the hard-coded `DialectMapper` default (`"en-US"`) instead of an enabled dialect like `"en-GB"`, and `Editor.handle_uuid_post_params/3` then ran a raw `language not in post.available_languages` check which routed `"en"` against `["en-GB", "ru"]` into `handle_new_translation_params/6` (empties the form). Fix at both layers — neither alone is sufficient.
+- `post_rendering_helpers_test.exs:74` — stale `build_breadcrumbs/3` call site missed by the `7f547b5` (PR #12 cleanup) arity bump to `/4`. Now passes the `group_name` arg explicitly and asserts on the resulting label.
+
+### Changed
+- `Posts.resolve_language_to_dialect/1` — prefers an enabled dialect for the given base before falling back to `DialectMapper.base_to_dialect/1`. When several dialects share the base, prefers `LanguageHelpers.get_primary_language/0`, otherwise the first enabled dialect in declaration order. New private helper `enabled_dialect_for_base/2`.
+- `Editor.handle_uuid_post_params/3` and `Editor.handle_path_post_params/3` — route through new `new_translation_request?/2` helper that resolves the requested language against `post.available_languages` via `Web.Controller.Language.resolve_language_for_post/2` before deciding new-vs-existing translation.
+- `test_helper.exs` — swapped `Ecto.Migrator.run(TestRepo, [{0, PhoenixKit.Migration}], :up, ...)` for `PhoenixKit.Migration.ensure_current(TestRepo, log: false)` (core 1.7.105+ / phoenix_kit#515). The version-`0` pattern silently stopped re-applying once `0` was recorded in `schema_migrations`; `ensure_current/2` re-applies via fresh wall-clock versions on every boot.
+- `StaleFixerTest` switched from `async: true` → `async: false`. Every test in the file mutates the shared `content_language` setting (ETS-cached singleton); two parallel runs in the same VM clobbered each other and produced a 1-in-15 flake on `:96 url slug lookup repairs legacy base-language slugs`.
+- Bumped to `phoenix_kit ~> 1.7.105` (required by `Migration.ensure_current/2`) and `phoenix_kit_ai ~> 0.2.0`. The latter tightened return types of `AI.list_endpoints/1` and `AI.list_prompts/1`; `Editor.Translation.list_ai_endpoints/0` and `list_ai_prompts/0` dropped now-dead `_ -> []` fallbacks.
+
+### Docs
+- AGENTS.md gains a "Base→enabled-dialect resolution" Critical Conventions bullet documenting the resolver behavior, the editor-side contract, and the issue #11 reference.
+- `dev_docs/pull_requests/2026/12-smart-fallback-fix/FOLLOW_UP.md` records resolution of the four `CLAUDE_REVIEW.md` findings from PR #12 (3 fixed in `7f547b5`, 1 here) and closes the folder.
+- `dev_docs/pull_requests/2026/13-issue-11-resolver/CLAUDE_REVIEW.md` — post-merge review.
+
 ## 0.1.6 - 2026-05-02
 
 PR #12 — fix smart-fallback URL hijack + drop hand-rolled migrations + Phase 2 cleanup.
