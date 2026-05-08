@@ -49,37 +49,64 @@ defmodule PhoenixKitPublishing.RouterDispatch do
   alias PhoenixKit.Modules.Publishing.Groups
 
   @internal_prefix "__phoenix_kit_publishing_dispatch"
+  @localized_segment "localized"
+  @root_segment "root"
 
   @doc "Internal prefix segment used in path rewriting."
   @spec internal_prefix() :: String.t()
   def internal_prefix, do: @internal_prefix
 
   @doc """
+  Discriminator segment for URLs that have a leading locale (i.e. the
+  group slug is at `path_info[1]`). Phoenix routes inside this sub-scope
+  bind `:language` + `:group` per publishing's localized form.
+  """
+  @spec localized_segment() :: String.t()
+  def localized_segment, do: @localized_segment
+
+  @doc """
+  Discriminator segment for URLs that have NO leading locale (i.e. the
+  group slug is at `path_info[0]`). Phoenix routes inside this sub-scope
+  bind `:group` only per publishing's non-localized form.
+  """
+  @spec root_segment() :: String.t()
+  def root_segment, do: @root_segment
+
+  @doc """
   Decide whether `conn` is bound for publishing.
 
-  Returns `{:rewrite, conn}` if the URL maps to a known publishing group
-  (so the host router's `call/2` override should pass the rewritten conn
-  to `super/2` and let Phoenix dispatch via the internal-prefix route).
-  Returns `:pass` otherwise.
+  Returns `{:rewrite, conn}` with `conn.path_info` and `conn.request_path`
+  prepended with the internal prefix + a discriminator segment that
+  picks publishing's localized vs non-localized route shape:
 
-  Inspects at most the first two path segments. Order:
+    * If `path_info[1]` is a known group → rewrite under
+      `__phoenix_kit_publishing_dispatch/localized/...` so Phoenix matches
+      `/:language/:group(/*path)` (the URL has a leading locale).
+    * Else if `path_info[0]` is a known group → rewrite under
+      `__phoenix_kit_publishing_dispatch/root/...` so Phoenix matches
+      `/:group(/*path)` (no leading locale).
 
-    1. If `path_info[1]` is a known group → rewrite (localized form
-       `/:language/:group/...`).
-    2. Else if `path_info[0]` is a known group → rewrite (non-localized
-       form `/:group/...`).
-    3. Else `:pass`.
+  Returns `:pass` if neither resolves to a known group. The dual
+  discriminator is load-bearing — without it, both `/:language/:group`
+  and `/:group/*path` would match a 2-segment internal path, and
+  Phoenix's first-match-wins picks the localized form even when the
+  URL had no locale prefix. That sends the request to the controller
+  with `language=<group-slug>, group=<post-slug>` and the lookup fails.
 
-  This mirrors publishing's old route declaration order: localized scope
-  first, non-localized fallback. The DB lookup is small and indexed; a
-  future optimization would cache the slug set in `:persistent_term`.
+  The DB lookup is small and indexed; a future optimization would
+  cache the slug set in `:persistent_term`.
   """
   @spec maybe_rewrite(Plug.Conn.t()) :: {:rewrite, Plug.Conn.t()} | :pass
   def maybe_rewrite(%Plug.Conn{path_info: path_info} = conn) do
     cond do
-      candidate_at(path_info, 1) |> known_group?() -> {:rewrite, rewrite(conn)}
-      candidate_at(path_info, 0) |> known_group?() -> {:rewrite, rewrite(conn)}
-      true -> :pass
+      candidate_at(path_info, 1) |> known_group?() ->
+        {:rewrite, rewrite(conn, @localized_segment)}
+
+      candidate_at(path_info, 0) |> known_group?() ->
+        {:rewrite, rewrite(conn, @root_segment)}
+
+      true ->
+        :pass
     end
   end
 
@@ -140,12 +167,15 @@ defmodule PhoenixKitPublishing.RouterDispatch do
     :exit, _reason -> false
   end
 
-  @spec rewrite(Plug.Conn.t()) :: Plug.Conn.t()
-  defp rewrite(%Plug.Conn{path_info: path_info, request_path: request_path} = conn) do
+  @spec rewrite(Plug.Conn.t(), String.t()) :: Plug.Conn.t()
+  defp rewrite(
+         %Plug.Conn{path_info: path_info, request_path: request_path} = conn,
+         discriminator
+       ) do
     %{
       conn
-      | path_info: [@internal_prefix | path_info],
-        request_path: "/" <> @internal_prefix <> request_path,
+      | path_info: [@internal_prefix, discriminator | path_info],
+        request_path: "/" <> @internal_prefix <> "/" <> discriminator <> request_path,
         private:
           conn.private
           |> Map.put(:phoenix_kit_publishing_internal, true)
