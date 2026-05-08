@@ -16,61 +16,24 @@ defmodule PhoenixKitPublishing.Routes do
   end
 
   @doc """
-  Public blog/publishing catch-all routes.
+  Returns an empty AST.
 
-  Placed AFTER all other routes by phoenix_kit's `compile_external_public_routes`
-  to prevent the `/:group` catch-all from intercepting admin or other paths.
+  Publishing's public catch-all is no longer registered through this hook.
+  Dispatch happens via `PhoenixKitPublishing.RouterDispatch` — the host
+  router's `call/2` is overridden (by `phoenix_kit_routes/0`) to detect
+  publishing-bound URLs and rewrite them onto an internal prefix where
+  the catch-all lives. See `PhoenixKitPublishing.RouterDispatch` moduledoc
+  + `AGENTS.md` "Public dispatch — RouterDispatch" for the full mechanism.
 
-  Includes `:phoenix_kit_optional_scope` pipeline so `AdminEditHelper` can show
-  edit buttons for logged-in admins/owners on public pages.
+  This callback is kept (returning a no-op) for backwards compatibility
+  with `PhoenixKitWeb.Integration.compile_external_public_routes/1`, which
+  walks every route_module looking for the function. Removing the callback
+  entirely would require a coordinated bump of the `function_exported?/3`
+  guard in core.
   """
   @spec public_routes(String.t()) :: Macro.t()
-  def public_routes(url_prefix) do
+  def public_routes(_url_prefix) do
     quote do
-      blog_scope_multi =
-        case unquote(url_prefix) do
-          "/" -> "/:language"
-          prefix -> "#{prefix}/:language"
-        end
-
-      # Note: the previous `constraints: %{...}` map on these routes was
-      # always dead code — Phoenix.Router has no per-segment regex constraint
-      # mechanism. `:group` discrimination against admin/asset URLs is
-      # actually achieved by route declaration order (the admin scope is
-      # declared earlier in `phoenix_kit_routes()` and wins first-match).
-      # Locale-vs-group disambiguation happens at the controller layer in
-      # `Web.Controller.Language.detect_language_or_group/2`, which sees the
-      # raw params and rewrites `conn.params` when the first segment is
-      # actually a group slug, not a locale.
-      scope blog_scope_multi do
-        pipe_through [
-          :browser,
-          :phoenix_kit_auto_setup,
-          :phoenix_kit_locale_validation,
-          :phoenix_kit_optional_scope
-        ]
-
-        get "/:group", PhoenixKit.Modules.Publishing.Web.Controller, :show
-        get "/:group/*path", PhoenixKit.Modules.Publishing.Web.Controller, :show
-      end
-
-      blog_scope_non_localized =
-        case unquote(url_prefix) do
-          "/" -> "/"
-          prefix -> prefix
-        end
-
-      scope blog_scope_non_localized do
-        pipe_through [
-          :browser,
-          :phoenix_kit_auto_setup,
-          :phoenix_kit_locale_validation,
-          :phoenix_kit_optional_scope
-        ]
-
-        get "/:group", PhoenixKit.Modules.Publishing.Web.Controller, :show
-        get "/:group/*path", PhoenixKit.Modules.Publishing.Web.Controller, :show
-      end
     end
   end
 
