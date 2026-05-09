@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.1.8 - 2026-05-09
+
+PR #15 — host-integration hooks for the language switcher + post-merge boundary normalisation.
+
+### Added
+- **`:phoenix_kit_publishing_translations` conn assign** — the public API contract for host-app switchers. Set on listing and post responses (regardless of the in-page-switcher toggle) as a list of maps with exactly five fields: `%{code, name, flag, url, current}`. Lets host root layouts and custom switchers render publishing's per-translation URLs directly — important for groups with per-language URL slugs where a generic locale-rewrite produces wrong hrefs.
+- **`publishing_show_language_switcher` setting** (default `true`) — gates the in-page switcher on listing + post pages. Hosts that already render a switcher in their header flip it to `false` in `/admin/settings/publishing` to suppress duplicate UI. Per-translation URLs stay exposed regardless.
+- Settings UI gains an "In-Page Language Switcher" toggle mirroring the existing `publishing_default_language_no_prefix` shape.
+
+### Changed
+- `Web.Controller.assign_publishing_translations/2` normalises the public assign at the boundary, stripping internal-only fields (`display_code`, and on post routes `enabled`/`known`) so external consumers get a uniform 5-field shape on both listing and post routes. Internal `:translations` assign is unchanged.
+- `Web.HTML` listing and post templates gate the in-page switcher on `assigns[:show_language_switcher] != false` — defaults to rendering when the assign is absent, preserving historical behaviour for hosts that haven't threaded the assign through.
+- Bumped transitive deps in `mix.lock`: db_connection 2.10.0 → 2.10.1, decimal 2.3.0 → 3.1.0, ex_doc 0.40.1 → 0.40.2, leaf 0.2.12 → 0.2.13, makeup_erlang 1.0.3 → 1.1.0, mint 1.7.1 → 1.8.0.
+
+### Docs
+- AGENTS.md gains a "Language switcher integration" section documenting the three integration points (the toggle, the conn assign, and core's matching `<.language_switcher_dropdown>` `:per_translation_urls` attr) + a row in the Settings Keys table.
+- `dev_docs/pull_requests/2026/15-language-switcher-host-integration/CLAUDE_REVIEW.md` — post-merge review.
+
 ## 0.1.7 - 2026-05-05
 
 PR #13 — fix issue #11 (editor opens blank for `?lang=<base>` when only a non-default dialect is enabled) + PR-12 close-out + precommit nits.
