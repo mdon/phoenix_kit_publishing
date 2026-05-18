@@ -409,8 +409,10 @@ Per-translation URLs are exposed regardless of `publishing_show_language_switche
 Today's forwarding chain:
 
 1. Controller sets `conn.assigns[:phoenix_kit_publishing_translations]` (in `Web.Controller`).
-2. Publishing's three public render branches (`all_groups/1`, `index/1`, `show/1` in `Web.HTML`) pass it explicitly via `phoenix_kit_publishing_translations={assigns[:phoenix_kit_publishing_translations]}` to `<PhoenixKitWeb.Components.LayoutWrapper.app_layout>`.
-3. `LayoutWrapper.app_layout` (in phoenix_kit core) declares the attr and forwards it to the host's `Layouts.app/1`.
+2. Publishing's three public render branches (`all_groups/1`, `index/1`, `show/1` in `Web.HTML`) pass it via the module-agnostic `module_assigns={%{phoenix_kit_publishing_translations: assigns[:phoenix_kit_publishing_translations]}}` to `<PhoenixKitWeb.Components.LayoutWrapper.app_layout>`.
+3. `LayoutWrapper.app_layout` (in phoenix_kit core) declares the generic `:module_assigns` map attr and merges its keys into the top-level assigns before invoking the host's `Layouts.app/1`.
+
+Why the generic `:module_assigns` map instead of a specific attr per module: function-component attrs must be declared in advance, and we don't want phoenix_kit core to carry a hard-coded list of every external module's host-consumable keys. The single map attribute lets each module thread its own keys through without core touching the API.
 
 If the host consumes the assign from `root.html.heex`, the forwarding chain is irrelevant. If the host consumes it from `Layouts.app/1` (the typical custom-switcher placement), all three steps must hold. The boundary test in `test/phoenix_kit_publishing/web/controller/language_switcher_exposure_test.exs` ("host-integration boundary" describe) pins the full chain by rendering through the test `Layouts.app/1` and comparing `length(conn.assigns[...])` to the rendered nav's `data-count`.
 
