@@ -385,9 +385,14 @@ defmodule PhoenixKit.Modules.Publishing.Web.HTML do
 
     base_path = build_public_path(segments)
 
-    case params do
-      [] -> base_path
-      _ -> base_path <> "?" <> URI.encode_query(params)
+    # Match both `[]` and `%{}` as "no query string" — `Listing.render_group_listing/4`
+    # passes `Map.take(params, ["page"])` here, which is a Map. Encoding an empty
+    # Map produces `""`, but `base_path <> "?" <> ""` is `"foo?"` — a different
+    # URL than `foo` per HTTP. The canonical-URL comparison would then disagree
+    # with the request URL forever and the 301 redirect loops to itself.
+    case URI.encode_query(params) do
+      "" -> base_path
+      encoded -> base_path <> "?" <> encoded
     end
   end
 
