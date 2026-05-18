@@ -51,6 +51,32 @@ defmodule PhoenixKit.Modules.Publishing.Web.HTMLTest do
 
       assert PublishingHTML.group_listing_path("de-DE", "blog") =~ ~r{/de/blog$}
     end
+
+    test "empty list params returns path without trailing `?`" do
+      # Regression: the canonical-URL comparison fed back into the controller's
+      # 301 redirect. A trailing `?` made request_url ("/blog") != canonical_url
+      # ("/blog?") forever, looping the language switcher.
+      url = PublishingHTML.group_listing_path("de", "blog", [])
+      refute String.ends_with?(url, "?"), "url=#{url}"
+    end
+
+    test "empty MAP params (Map.take result) returns path without trailing `?`" do
+      # The real-world trigger. `Listing.render_group_listing/4` passes
+      # `Map.take(conn.params, ["page"])` which is `%{}` when no page param
+      # is present — not `[]`. The original `case params do [] -> ... end`
+      # didn't match `%{}` and fell into the encode branch, producing
+      # `"/blog?"` (since `URI.encode_query(%{}) == ""`).
+      url = PublishingHTML.group_listing_path("de", "blog", %{})
+      refute String.ends_with?(url, "?"), "url=#{url}"
+    end
+
+    test "non-empty params still get encoded" do
+      url = PublishingHTML.group_listing_path("de", "blog", page: 2)
+      assert url =~ "?page=2"
+
+      url_map = PublishingHTML.group_listing_path("de", "blog", %{"page" => 2})
+      assert url_map =~ "?page=2"
+    end
   end
 
   describe "build_post_url/4" do
