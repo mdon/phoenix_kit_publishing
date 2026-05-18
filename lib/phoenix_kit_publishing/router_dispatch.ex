@@ -97,15 +97,38 @@ defmodule PhoenixKitPublishing.RouterDispatch do
   cache the slug set in `:persistent_term`.
   """
   @spec maybe_rewrite(Plug.Conn.t()) :: {:rewrite, Plug.Conn.t()} | :pass
-  def maybe_rewrite(%Plug.Conn{path_info: path_info} = conn) do
-    cond do
-      candidate_at(path_info, 1) |> known_group?() ->
-        {:rewrite, rewrite(conn, @localized_segment)}
+  def maybe_rewrite(conn), do: maybe_rewrite(conn, "/")
 
-      candidate_at(path_info, 0) |> known_group?() ->
-        {:rewrite, rewrite(conn, @root_segment)}
+  @doc """
+  Same as `maybe_rewrite/1` but explicitly takes the workspace's
+  `url_prefix` so the dispatch keeps working when the host mounts
+  PhoenixKit under a non-root path (e.g. `/phoenix_kit`).
 
-      true ->
+  When `url_prefix == "/"` this behaves identically to the unscoped
+  form. Otherwise the prefix's path segments are stripped from
+  `path_info` before the group-candidate check, and re-prepended to
+  the rewritten path so it matches the internal scope's registered
+  routes (also nested under the prefix).
+  """
+  @spec maybe_rewrite(Plug.Conn.t(), String.t()) :: {:rewrite, Plug.Conn.t()} | :pass
+  def maybe_rewrite(%Plug.Conn{path_info: path_info} = conn, url_prefix)
+      when is_binary(url_prefix) do
+    prefix_segments = split_prefix(url_prefix)
+
+    case strip_prefix(path_info, prefix_segments) do
+      {:ok, rest} ->
+        cond do
+          candidate_at(rest, 1) |> known_group?() ->
+            {:rewrite, rewrite(conn, @localized_segment, prefix_segments, rest)}
+
+          candidate_at(rest, 0) |> known_group?() ->
+            {:rewrite, rewrite(conn, @root_segment, prefix_segments, rest)}
+
+          true ->
+            :pass
+        end
+
+      :mismatch ->
         :pass
     end
   end
@@ -167,15 +190,34 @@ defmodule PhoenixKitPublishing.RouterDispatch do
     :exit, _reason -> false
   end
 
-  @spec rewrite(Plug.Conn.t(), String.t()) :: Plug.Conn.t()
+  @spec rewrite(Plug.Conn.t(), String.t(), [String.t()], [String.t()]) :: Plug.Conn.t()
   defp rewrite(
          %Plug.Conn{path_info: path_info, request_path: request_path} = conn,
-         discriminator
+         discriminator,
+         prefix_segments,
+         rest
        ) do
+    new_path_info = prefix_segments ++ [@internal_prefix, discriminator | rest]
+
+    prefix_path =
+      case prefix_segments do
+        [] -> ""
+        segs -> "/" <> Enum.join(segs, "/")
+      end
+
+    rest_path =
+      case rest do
+        [] -> ""
+        segs -> "/" <> Enum.join(segs, "/")
+      end
+
+    new_request_path =
+      prefix_path <> "/" <> @internal_prefix <> "/" <> discriminator <> rest_path
+
     %{
       conn
-      | path_info: [@internal_prefix, discriminator | path_info],
-        request_path: "/" <> @internal_prefix <> "/" <> discriminator <> request_path,
+      | path_info: new_path_info,
+        request_path: new_request_path,
         private:
           conn.private
           |> Map.put(:phoenix_kit_publishing_internal, true)
@@ -183,4 +225,28 @@ defmodule PhoenixKitPublishing.RouterDispatch do
           |> Map.put(:phoenix_kit_publishing_original_path_info, path_info)
     }
   end
+
+  # Splits a url_prefix like "/" or "/phoenix_kit" into the matching
+  # path_info segments. "/" → []; "/phoenix_kit" → ["phoenix_kit"];
+  # "/foo/bar" → ["foo", "bar"].
+  defp split_prefix("/"), do: []
+  defp split_prefix(""), do: []
+
+  defp split_prefix(prefix) when is_binary(prefix) do
+    prefix
+    |> String.trim_leading("/")
+    |> String.trim_trailing("/")
+    |> String.split("/", trim: true)
+  end
+
+  # Drops the prefix segments from the head of path_info. Returns
+  # `{:ok, rest}` when path_info starts with the prefix, `:mismatch`
+  # otherwise (host path doesn't live under our prefix — pass through
+  # so non-publishing host routes still match).
+  defp strip_prefix(path_info, []) when is_list(path_info), do: {:ok, path_info}
+
+  defp strip_prefix([seg | rest_path], [seg | rest_prefix]),
+    do: strip_prefix(rest_path, rest_prefix)
+
+  defp strip_prefix(_path_info, _prefix), do: :mismatch
 end

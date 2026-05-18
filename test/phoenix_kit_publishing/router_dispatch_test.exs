@@ -321,6 +321,92 @@ defmodule PhoenixKitPublishing.RouterDispatchIntegrationTest do
     end
   end
 
+  describe "maybe_rewrite/2 — workspace mounted under a non-root url_prefix" do
+    # Regression: when the host mounts PhoenixKit at `/phoenix_kit` (the
+    # default), the dispatch saw `path_info = ["phoenix_kit", <slug>]`,
+    # mistook `phoenix_kit` for a language code (because `<slug>` is at
+    # index 1), and rewrote to `/__phoenix_kit_publishing_dispatch/localized/phoenix_kit/<slug>`.
+    # The registered internal route is `/phoenix_kit/__phoenix_kit_publishing_dispatch/...`,
+    # so the rewritten path didn't match and every public publishing
+    # URL 404'd.
+    test "strips the prefix before checking and re-prepends it on rewrite" do
+      {:ok, group} = Groups.add_group(unique_name())
+      slug = group["slug"]
+
+      conn = %Plug.Conn{
+        path_info: ["phoenix_kit", slug],
+        request_path: "/phoenix_kit/" <> slug,
+        private: %{}
+      }
+
+      assert {:rewrite, rewritten} = RouterDispatch.maybe_rewrite(conn, "/phoenix_kit")
+
+      assert rewritten.path_info == [
+               "phoenix_kit",
+               "__phoenix_kit_publishing_dispatch",
+               "root",
+               slug
+             ]
+
+      assert rewritten.request_path ==
+               "/phoenix_kit/__phoenix_kit_publishing_dispatch/root/" <> slug
+    end
+
+    test "localized form also preserves the prefix" do
+      {:ok, group} = Groups.add_group(unique_name())
+      slug = group["slug"]
+
+      conn = %Plug.Conn{
+        path_info: ["phoenix_kit", "en", slug],
+        request_path: "/phoenix_kit/en/" <> slug,
+        private: %{}
+      }
+
+      assert {:rewrite, rewritten} = RouterDispatch.maybe_rewrite(conn, "/phoenix_kit")
+
+      assert rewritten.path_info == [
+               "phoenix_kit",
+               "__phoenix_kit_publishing_dispatch",
+               "localized",
+               "en",
+               slug
+             ]
+
+      assert rewritten.request_path ==
+               "/phoenix_kit/__phoenix_kit_publishing_dispatch/localized/en/" <> slug
+    end
+
+    test "passes through when the path doesn't live under the prefix" do
+      # Host has non-publishing routes outside the workspace prefix —
+      # the dispatch must let those through so they reach the host
+      # router untouched.
+      conn = %Plug.Conn{
+        path_info: ["api", "v1", "ping"],
+        request_path: "/api/v1/ping",
+        private: %{}
+      }
+
+      assert RouterDispatch.maybe_rewrite(conn, "/phoenix_kit") == :pass
+    end
+
+    test "url_prefix `\"/\"` behaves identically to the arity-1 form" do
+      {:ok, group} = Groups.add_group(unique_name())
+      slug = group["slug"]
+
+      conn = %Plug.Conn{
+        path_info: [slug, "post"],
+        request_path: "/" <> slug <> "/post",
+        private: %{}
+      }
+
+      assert {:rewrite, with_prefix} = RouterDispatch.maybe_rewrite(conn, "/")
+      assert {:rewrite, without_prefix} = RouterDispatch.maybe_rewrite(conn)
+
+      assert with_prefix.path_info == without_prefix.path_info
+      assert with_prefix.request_path == without_prefix.request_path
+    end
+  end
+
   defp refute_group_named(slug) do
     case Groups.get_group(slug) do
       {:ok, _} -> flunk("Test fixture leak: a group named #{inspect(slug)} exists in the test DB")
