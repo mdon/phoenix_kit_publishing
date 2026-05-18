@@ -23,6 +23,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.HTML do
     page_title={@page_title}
     current_path={@conn.request_path}
     phoenix_kit_current_scope={assigns[:phoenix_kit_current_scope]}
+    phoenix_kit_publishing_translations={assigns[:phoenix_kit_publishing_translations]}
     >
     <div class="groups-overview-container max-w-6xl mx-auto px-6 py-8">
     <%!-- Page Header --%>
@@ -94,6 +95,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.HTML do
     page_title={@page_title}
     current_path={@conn.request_path}
     phoenix_kit_current_scope={assigns[:phoenix_kit_current_scope]}
+    phoenix_kit_publishing_translations={assigns[:phoenix_kit_publishing_translations]}
     >
     <div class="group-index-container max-w-6xl mx-auto px-6 py-8">
     <%!-- Breadcrumb Navigation --%>
@@ -249,6 +251,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.HTML do
     page_title={@page_title}
     current_path={@conn.request_path}
     phoenix_kit_current_scope={assigns[:phoenix_kit_current_scope]}
+    phoenix_kit_publishing_translations={assigns[:phoenix_kit_publishing_translations]}
     >
     <article class="post-container max-w-4xl mx-auto px-6 py-8">
     <%!-- Breadcrumb Navigation --%>
