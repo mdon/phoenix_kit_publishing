@@ -11,7 +11,6 @@ defmodule PhoenixKit.Modules.Publishing.StaleFixer do
 
   import Ecto.Query, only: [from: 2]
 
-  alias PhoenixKit.Modules.Languages.DialectMapper
   alias PhoenixKit.Modules.Publishing.ActivityLog
   alias PhoenixKit.Modules.Publishing.Constants
   alias PhoenixKit.Modules.Publishing.DBStorage
@@ -540,7 +539,11 @@ defmodule PhoenixKit.Modules.Publishing.StaleFixer do
       language in enabled_languages ->
         language
 
-      target = find_enabled_dialect_for_base(language, enabled_languages) ->
+      target =
+          LanguageHelpers.resolve_dialect_for_base(language, enabled_languages,
+            prefer: LanguageHelpers.get_primary_language(),
+            exclude: language
+          ) ->
         target
 
       true ->
@@ -549,21 +552,6 @@ defmodule PhoenixKit.Modules.Publishing.StaleFixer do
   end
 
   defp normalized_content_language(_), do: nil
-
-  defp find_enabled_dialect_for_base(base_language, enabled_languages) do
-    primary_language = LanguageHelpers.get_primary_language()
-
-    if primary_language != base_language and
-         primary_language in enabled_languages and
-         DialectMapper.extract_base(primary_language) == base_language do
-      primary_language
-    else
-      Enum.find(enabled_languages, fn enabled_language ->
-        enabled_language != base_language and
-          DialectMapper.extract_base(enabled_language) == base_language
-      end)
-    end
-  end
 
   defp base_language_code?(language), do: LanguageHelpers.base_language_code?(language)
 

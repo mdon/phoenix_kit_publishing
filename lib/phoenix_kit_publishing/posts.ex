@@ -744,27 +744,12 @@ defmodule PhoenixKit.Modules.Publishing.Posts do
         language
 
       DialectMapper.extract_base(language) == language ->
-        enabled_dialect_for_base(language, enabled) || DialectMapper.base_to_dialect(language)
+        LanguageHelpers.resolve_dialect_for_base(language, enabled,
+          prefer: LanguageHelpers.get_primary_language()
+        ) || DialectMapper.base_to_dialect(language)
 
       true ->
         language
-    end
-  end
-
-  # Picks an enabled dialect whose base matches `base`. When multiple dialects
-  # share the base, prefers `get_primary_language/0` if present, otherwise
-  # the first match in declaration order.
-  defp enabled_dialect_for_base(base, enabled) do
-    case Enum.filter(enabled, fn code -> DialectMapper.extract_base(code) == base end) do
-      [] ->
-        nil
-
-      [single] ->
-        single
-
-      multiple ->
-        primary = LanguageHelpers.get_primary_language()
-        if primary in multiple, do: primary, else: List.first(multiple)
     end
   end
 

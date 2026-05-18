@@ -258,13 +258,15 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller.Language do
 
   @doc """
   Find a dialect in enabled languages that matches the given base code.
-  """
-  def find_dialect_for_base(base_code, enabled_languages) do
-    base_lower = String.downcase(base_code)
 
-    Enum.find(enabled_languages, fn lang ->
-      DialectMapper.extract_base(lang) == base_lower
-    end)
+  First-match tie-break: when multiple candidates match the base, returns
+  the first in `enabled_languages` declaration order. For primary-language
+  preference, call `LanguageHelpers.resolve_dialect_for_base/3` with
+  `prefer: LanguageHelpers.get_primary_language()` directly.
+  """
+  @spec find_dialect_for_base(String.t(), [String.t()]) :: String.t() | nil
+  def find_dialect_for_base(base_code, enabled_languages) do
+    LanguageHelpers.resolve_dialect_for_base(base_code, enabled_languages)
   end
 
   @doc """

@@ -345,6 +345,62 @@ defmodule PhoenixKit.Modules.Publishing.LanguageHelpers do
   end
 
   @doc """
+  Finds a language in `candidates` whose dialect base matches `base_code`.
+
+  Consolidates three near-identical helpers that used to live in
+  `Posts`, `Web.Controller.Language`, and `StaleFixer` — each
+  reimplementing the same "find a dialect for this base code" logic
+  with slightly different tie-breaks and exclusion rules.
+
+  ## Options
+
+    * `:prefer` — when multiple candidates match the base, prefer this
+      specific code if it's among the matches. Useful for primary-language
+      preference; pass `LanguageHelpers.get_primary_language()` to get
+      the historical "primary wins" tie-break. **Note**: this option is
+      explicit (not an implicit DB call inside the function) so callers
+      decide when to incur the cached lookup.
+
+    * `:exclude` — code or list of codes to drop from the candidate set
+      before matching. Used by stale-language self-healing to require
+      a TRUE dialect (e.g. exclude `"en"` when searching for base `"en"`
+      so the result is always something like `"en-US"`).
+
+  Returns the chosen language code, or `nil` when no candidate matches.
+
+  ## Examples
+
+      iex> LanguageHelpers.resolve_dialect_for_base("en", ["en-US", "fr-FR"])
+      "en-US"
+
+      iex> LanguageHelpers.resolve_dialect_for_base("en", ["en", "en-US"], prefer: "en-US")
+      "en-US"
+
+      iex> LanguageHelpers.resolve_dialect_for_base("en", ["en", "en-US"], exclude: "en")
+      "en-US"
+
+      iex> LanguageHelpers.resolve_dialect_for_base("xx", ["en", "fr"])
+      nil
+  """
+  @spec resolve_dialect_for_base(String.t(), [String.t()], keyword()) :: String.t() | nil
+  def resolve_dialect_for_base(base_code, candidates, opts \\ []) when is_binary(base_code) do
+    prefer = Keyword.get(opts, :prefer)
+    exclude = opts |> Keyword.get(:exclude, []) |> List.wrap()
+    base_lower = String.downcase(base_code)
+
+    matches =
+      candidates
+      |> Enum.filter(&(DialectMapper.extract_base(&1) == base_lower))
+      |> Enum.reject(&(&1 in exclude))
+
+    cond do
+      matches == [] -> nil
+      prefer != nil and prefer in matches -> prefer
+      true -> List.first(matches)
+    end
+  end
+
+  @doc """
   Builds a single language entry map for a post.
   """
   @spec build_language_entry(String.t(), map(), [String.t()], String.t() | nil) :: map()
