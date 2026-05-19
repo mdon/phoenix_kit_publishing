@@ -47,9 +47,21 @@ The `order_by [desc: p.uuid]` tie-break leans on UUIDv7's monotonic timestamp en
 - **Narrowed `rescue`** — `Publishing.dashboard_tabs`/`load_publishing_groups_for_tabs` now catch only `[Ecto.QueryError, DBConnection.ConnectionError, Postgrex.Error]`; `Preview` catches only `[Earmark.Error, Saxy.ParseError, RuntimeError]`. Genuine programmer errors bubble up again instead of being masked — a real improvement.
 - **`terminate/2`** added to `Index`, `PostShow`, `Settings` for subscribe/unsubscribe symmetry. **Nit:** `Web.Settings.terminate/2` is missing `@impl true` while `Index`/`PostShow` have it — inconsistent; add it for the compile-time check.
 
-## 5. Build observation — `module_assigns` attribute warnings
+## 5. Build observation — `mix precommit` warnings
 
-`mix compile --warnings-as-errors` fails on three warnings introduced by this PR's "Batch D" change:
+`mix precommit` (which runs `compile --force --warnings-as-errors`) surfaced two warning classes, both introduced by this PR — neither by the review fixes in §6.
+
+### 5a. `handle_event/3` clause grouping — FIXED
+
+```
+warning: clauses with the same name and arity should be grouped together,
+"def handle_event/3" was previously defined (editor.ex:497)
+  lib/phoenix_kit_publishing/web/editor.ex:674
+```
+
+Batch D / the audit sweep inserted the `clear_translation_unguarded/1` private helper *between* two `handle_event/3` clauses. Fixed in this pass — the helper was relocated below the last `handle_event` clause so the clauses are contiguous. See §6.
+
+### 5b. `module_assigns` undefined-attribute warnings — DEFERRED (waiting on phoenix_kit release)
 
 ```
 warning: undefined attribute "module_assigns" for component
@@ -57,7 +69,11 @@ PhoenixKitWeb.Components.LayoutWrapper.app_layout/1
   lib/phoenix_kit_publishing/web/html.ex:26, :98, :254
 ```
 
-The pinned `phoenix_kit` core dependency's `app_layout/1` does not declare a `module_assigns` attr. Plain `mix compile` passes (warnings only). Not a blocker, but if CI runs `--warnings-as-errors` this PR breaks it — either the core dep needs a version bump that declares the attr, or the attr passing needs adjusting. Recorded for follow-up; not introduced by the review fixes below.
+This is **not fixable in the publishing repo alone**. PR #16's Batch D commit (`f63311b`) message states it *"Pairs with phoenix_kit core's `LayoutWrapper.app_layout/1` API change (commit `b17b96b7` on phoenix_kit master)"* — it intentionally switched to a generic `:module_assigns` attr. The latest *published* hex release, `phoenix_kit 1.7.113`, does not carry `b17b96b7`: its `app_layout/1` declares a fixed attr list with no `module_assigns` and no `:rest, :global`, and the dep contains zero references to `module_assigns`.
+
+So PR #16 was developed against unreleased phoenix_kit. Against the published dependency these three warnings are unavoidable, and the feature itself (host-layout assign forwarding) is inert until core ships the API.
+
+**Decision (maintainer):** wait for the next `phoenix_kit` release that includes `b17b96b7`, then the warnings clear with no publishing-side change. Until then `mix precommit` fails on these three. Plain `mix compile` passes (warnings only).
 
 ---
 
@@ -102,7 +118,7 @@ Other `/simplify` findings were reviewed and **not** acted on:
 
 ## 7. Open follow-ups (non-blocking)
 
-1. **`module_assigns` attr warnings** (§5) — resolve before any `--warnings-as-errors` CI gate.
+1. **`module_assigns` attr warnings** (§5b) — blocked on a `phoenix_kit` release carrying core commit `b17b96b7`; `mix precommit` fails on these three until then (maintainer-accepted). The `handle_event/3` grouping warning (§5a) is already fixed.
 2. **`maybe_rewrite/2` host adoption** (§4) — non-root workspace-prefix routing is inert until the host app calls the `/2` arity; confirm the host side lands.
 3. **`Web.Settings.terminate/2` missing `@impl true`** (§4) — one-line consistency nit.
 4. **Read-path write in `find_by_url_slug/3`** (§2) — documented best-effort self-healing; flagged only so a future reader knows the lookup can mutate and will fail on a read-only connection.
