@@ -630,40 +630,14 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
 
       socket.assigns[:translation_locked?] ->
         {:noreply,
-         put_flash(socket, :error, gettext("This translation is currently locked by another editor"))}
+         put_flash(
+           socket,
+           :error,
+           gettext("This translation is currently locked by another editor")
+         )}
 
       true ->
         clear_translation_unguarded(socket)
-    end
-  end
-
-  defp clear_translation_unguarded(socket) do
-    group_slug = socket.assigns.group_slug
-    post = socket.assigns.post
-    language = socket.assigns.current_language
-    post_uuid = post[:uuid]
-
-    result =
-      Publishing.clear_translation(group_slug, post_uuid, language,
-        actor_uuid: Shared.actor_uuid_from_socket(socket)
-      )
-
-    case result do
-      :ok ->
-        primary_lang = LanguageHelpers.get_primary_language()
-        url = Helpers.build_edit_url(group_slug, post, lang: primary_lang)
-
-        {:noreply,
-         socket
-         |> put_flash(:info, gettext("Translation cleared"))
-         |> push_navigate(to: url)}
-
-      {:error, :last_language} ->
-        {:noreply,
-         put_flash(socket, :error, gettext("Cannot remove the last language from a post"))}
-
-      {:error, _reason} ->
-        {:noreply, put_flash(socket, :error, gettext("Failed to clear translation"))}
     end
   end
 
@@ -962,6 +936,36 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
 
   def handle_event("back_to_list", _params, socket) do
     handle_event("attempt_cancel", %{}, socket)
+  end
+
+  defp clear_translation_unguarded(socket) do
+    group_slug = socket.assigns.group_slug
+    post = socket.assigns.post
+    language = socket.assigns.current_language
+    post_uuid = post[:uuid]
+
+    result =
+      Publishing.clear_translation(group_slug, post_uuid, language,
+        actor_uuid: Shared.actor_uuid_from_socket(socket)
+      )
+
+    case result do
+      :ok ->
+        primary_lang = LanguageHelpers.get_primary_language()
+        url = Helpers.build_edit_url(group_slug, post, lang: primary_lang)
+
+        {:noreply,
+         socket
+         |> put_flash(:info, gettext("Translation cleared"))
+         |> push_navigate(to: url)}
+
+      {:error, :last_language} ->
+        {:noreply,
+         put_flash(socket, :error, gettext("Cannot remove the last language from a post"))}
+
+      {:error, _reason} ->
+        {:noreply, put_flash(socket, :error, gettext("Failed to clear translation"))}
+    end
   end
 
   defp do_toggle_version_access(socket, enabled) do
