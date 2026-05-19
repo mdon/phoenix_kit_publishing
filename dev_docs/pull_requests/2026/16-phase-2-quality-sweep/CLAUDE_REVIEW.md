@@ -69,7 +69,7 @@ Both fixes verified against the existing test suite shape; formatted with `mix f
 
 `lib/phoenix_kit_publishing/versions.ex`
 
-Added the same `SELECT … FOR UPDATE` lock that `do_publish_version/4` already takes, at the top of the `do_unpublish_post/3` transaction, with a comment explaining that publish and unpublish must take the *same* lock to be serialized against each other. `PublishingPost` and `from/2` were already aliased/imported in the module (used by the publish path).
+Added the same `SELECT … FOR UPDATE` lock that `do_publish_version/4` already takes, at the top of the `do_unpublish_post/3` transaction, so publish and unpublish serialize against each other on the same post row. `PublishingPost` and `from/2` were already aliased/imported in the module (used by the publish path). The lock query was subsequently extracted into a shared `lock_post!/2` helper — see "Cleanup" below.
 
 ### Finding 3 — `find_by_previous_url_slug/3` surfaced unpublished posts
 
@@ -81,6 +81,22 @@ All six existing `find_by_previous_url_slug/3` tests publish their post before l
 `test/phoenix_kit_publishing/integration/db_storage_url_slug_lookup_test.exs`, "returns nil for an unpublished post even if previous_url_slugs matches" — that creates a post, sets `previous_url_slugs`, deliberately does **not** publish, and asserts `nil`.
 
 No test was added for Finding 1: the concurrency lock is not deterministically unit-testable, and the matching publish-side lock also ships without a test — consistent with the PR's own choice.
+
+### Cleanup — `lock_post!/2` helper extraction
+
+`lib/phoenix_kit_publishing/versions.ex`
+
+Applying the Finding 1 fix left the `SELECT … FOR UPDATE` block **byte-identical** in two places — `do_publish_version/4` and `do_unpublish_post/3`. A three-agent `/simplify` pass (reuse, quality, efficiency) flagged this:
+
+- **Reuse & Quality agents** both called for extraction. The key observation: the per-post serialization is only *correct while the two queries stay identical* — if a future edit changed one (different `where`, a `NOWAIT`/`SKIP LOCKED` clause, a different table) the two paths would silently stop serializing against each other. A shared helper makes that invariant **structural** rather than a property a reviewer has to re-verify by eyeballing two comment blocks.
+- **Efficiency agent** confirmed the lock cannot be folded into an adjacent query instead: `get_active_version/1` locks the *version* row (wrong row) and often issues zero queries (preloaded association); relying on `update_post/2`'s implicit row lock would run too late, leaving the `get_active_version → update_post` read-before-write window unserialized. A standalone upfront `FOR UPDATE` on the post is the minimum correct cost — one indexed PK lookup on a cold admin path.
+
+Resolution: extracted `defp lock_post!(repo, post_uuid)` next to the other `!`-suffixed transaction helpers (`archive_other_published_versions!/3`, `publish_and_activate!/3`). Both transactions now open with `lock_post!(repo, db_post.uuid)`, and the concurrency rationale lives in one doc-comment on the helper instead of two parallel blocks. Net −11 lines; compiles clean.
+
+Other `/simplify` findings were reviewed and **not** acted on:
+
+- `order_by: [desc: v.version_number], limit: 1` in `find_by_previous_url_slug/3` must **stay** — `previous_url_slugs` has no cross-post uniqueness, so two different posts in the same group + language can each contribute an active-version row; `limit: 1` is still load-bearing for that collision. The Finding 3 tightening only collapsed the *within-post* multi-version fan-out.
+- The agent noted `desc: v.version_number` is a semantically weak tiebreaker for *cross-post* ties (version numbers are post-local; `p.uuid` / UUIDv7 would be more defensible). True, but it's pre-existing PR code, deterministic, and out of scope for this review pass.
 
 ---
 
