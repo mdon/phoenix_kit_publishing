@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.1.11 - 2026-05-19
+
+PR #18 — delegate the `default_language_no_prefix` toggle to the site-wide core setting (paired with `phoenix_kit 1.7.115`).
+
+### Changed
+- `LanguageHelpers.default_language_no_prefix?/0` now delegates to `PhoenixKit.Modules.Languages.default_language_no_prefix?/0` instead of reading the legacy `publishing_default_language_no_prefix` setting key directly. All consumers (the six `Web.HTML` URL builders, the canonical-redirect controller, and the `Publishing.default_language_no_prefix?/0` / `use_language_prefix?/1` facade) keep the same signature and behavior.
+- `/admin/settings/publishing` — the "Default Language Without Prefix" toggle is replaced with a read-only status row and a "Manage" link to `/admin/settings/languages`, which now owns the setting. Removes the dual-write risk where the publishing-side write could desync from the core-side read mid-deploy.
+- Bumped `phoenix_kit` to `1.7.115`, which ships `Modules.Languages.default_language_no_prefix?/0` and the `Languages.migrate_legacy/0` backfill (run by `ModuleRegistry` at boot) that copies the legacy `publishing_default_language_no_prefix` value into the new core key, so existing sites keep their explicit choice without admin action.
+
+### Removed
+- `@default_language_no_prefix_key` constant and the `toggle_default_language_no_prefix` LiveView event on `Web.Settings` — the setting is no longer publishing-owned.
+
 ## 0.1.10 - 2026-05-19
 
 Maintenance release — LiveView callback annotations and dependency bumps.
