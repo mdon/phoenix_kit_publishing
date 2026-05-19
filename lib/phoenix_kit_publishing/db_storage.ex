@@ -695,10 +695,15 @@ defmodule PhoenixKit.Modules.Publishing.DBStorage do
     |> repo().one()
   end
 
-  # Any-version custom-slug match. Includes drafts (active OR latest).
+  # Any-version custom-slug match. Truly any version — includes draft
+  # versions on published posts too (e.g. v2 being authored while v1 is
+  # live). Without this, `SlugHelpers.url_slug_exists?/4` would miss
+  # in-progress drafts on published posts, letting two authors take the
+  # same `url_slug` simultaneously.
+  #
   # `order_by` chain: version DESC picks the most-recent version within
   # one post; `p.uuid DESC` (UUIDv7 monotonic) is the secondary key for
-  # when two DIFFERENT draft posts share the same slug + language +
+  # when two DIFFERENT posts share the same slug + language +
   # version_number — without it, Postgres' chosen post is undefined.
   defp any_version_by_custom_url_slug(group_slug, language, url_slug) do
     from(c in PublishingContent,
@@ -707,8 +712,7 @@ defmodule PhoenixKit.Modules.Publishing.DBStorage do
       join: g in assoc(p, :group),
       where:
         g.slug == ^group_slug and c.language == ^language and c.url_slug == ^url_slug and
-          is_nil(p.trashed_at) and
-          (v.uuid == p.active_version_uuid or is_nil(p.active_version_uuid)),
+          is_nil(p.trashed_at),
       order_by: [desc: v.version_number, desc: p.uuid],
       limit: 1,
       preload: [version: {v, post: {p, group: g}}]
@@ -723,9 +727,7 @@ defmodule PhoenixKit.Modules.Publishing.DBStorage do
       join: g in assoc(p, :group),
       where:
         g.slug == ^group_slug and c.language == ^language and p.slug == ^url_slug and
-          is_nil(p.trashed_at) and
-          (v.uuid == p.active_version_uuid or is_nil(p.active_version_uuid)) and
-          (is_nil(c.url_slug) or c.url_slug == ""),
+          is_nil(p.trashed_at) and (is_nil(c.url_slug) or c.url_slug == ""),
       order_by: [desc: v.version_number, desc: p.uuid],
       limit: 1,
       preload: [version: {v, post: {p, group: g}}]
