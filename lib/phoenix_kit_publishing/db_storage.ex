@@ -606,12 +606,19 @@ defmodule PhoenixKit.Modules.Publishing.DBStorage do
   share the same custom `url_slug` (the DB has no unique index on content
   url_slug across posts; the per-post `(group_uuid, slug)` index only
   prevents post-slug collisions), the query is allowed to return multiple
-  rows. The newest post wins (`order_by p.inserted_at DESC`); every loser's
-  `url_slug` is auto-renamed with a `-2`, `-3`, … suffix so the next
-  request resolves cleanly without crashing on `Ecto.MultipleResultsError`.
-  This is a self-healing safety net for collisions that get past the
+  rows. The newest post wins (`order_by [desc: p.uuid]`, exploiting
+  UUIDv7's monotonic timestamp encoding — see schema docs for
+  `PublishingPost`); every loser's `url_slug` is auto-renamed with a
+  `-2`, `-3`, … suffix so the next request resolves cleanly without
+  crashing on `Ecto.MultipleResultsError`. This is a **best-effort**
+  self-healing safety net for collisions that get past the
   application-level uniqueness check in
-  `PhoenixKit.Modules.Publishing.SlugHelpers`.
+  `PhoenixKit.Modules.Publishing.SlugHelpers`, not a transactional
+  correctness mechanism — concurrent requests racing on the same
+  collision could each see the un-renamed state; one will eventually
+  win the rename, the rest log warnings. If you see this fire in
+  production it's a signal the upstream uniqueness check was
+  skipped or raced; investigate the create-time path.
   """
   @spec find_by_url_slug(String.t(), String.t(), String.t()) :: PublishingContent.t() | nil
   def find_by_url_slug(group_slug, language, url_slug) do
@@ -689,8 +696,10 @@ defmodule PhoenixKit.Modules.Publishing.DBStorage do
   end
 
   # Any-version custom-slug match. Includes drafts (active OR latest).
-  # Picks one row deterministically via version_number DESC + limit 1
-  # so multi-version drafts don't crash; no auto-rename.
+  # `order_by` chain: version DESC picks the most-recent version within
+  # one post; `p.uuid DESC` (UUIDv7 monotonic) is the secondary key for
+  # when two DIFFERENT draft posts share the same slug + language +
+  # version_number — without it, Postgres' chosen post is undefined.
   defp any_version_by_custom_url_slug(group_slug, language, url_slug) do
     from(c in PublishingContent,
       join: v in assoc(c, :version),
@@ -700,7 +709,7 @@ defmodule PhoenixKit.Modules.Publishing.DBStorage do
         g.slug == ^group_slug and c.language == ^language and c.url_slug == ^url_slug and
           is_nil(p.trashed_at) and
           (v.uuid == p.active_version_uuid or is_nil(p.active_version_uuid)),
-      order_by: [desc: v.version_number],
+      order_by: [desc: v.version_number, desc: p.uuid],
       limit: 1,
       preload: [version: {v, post: {p, group: g}}]
     )
@@ -717,7 +726,7 @@ defmodule PhoenixKit.Modules.Publishing.DBStorage do
           is_nil(p.trashed_at) and
           (v.uuid == p.active_version_uuid or is_nil(p.active_version_uuid)) and
           (is_nil(c.url_slug) or c.url_slug == ""),
-      order_by: [desc: v.version_number],
+      order_by: [desc: v.version_number, desc: p.uuid],
       limit: 1,
       preload: [version: {v, post: {p, group: g}}]
     )
@@ -726,30 +735,86 @@ defmodule PhoenixKit.Modules.Publishing.DBStorage do
 
   # Tie-break: when public lookup hits multiple posts with the same custom
   # url_slug, rename the loser's content `url_slug` to add a `-N` suffix.
-  # Idempotent: if `<slug>-2` is itself already taken on a future tie, the
-  # caller increments N. Logged as a warning since it's a data-cleanliness
-  # signal — the application-level uniqueness check in `SlugHelpers` should
-  # normally prevent this, so seeing this fire indicates the upstream check
-  # was skipped or raced.
-  defp auto_resolve_url_slug_collision(content, suffix_n) do
-    new_slug = "#{content.url_slug}-#{suffix_n}"
+  # Probes upward (`-2`, `-3`, …) until a slug is found that isn't already
+  # taken by another post's content in the same group + language — without
+  # the probe, blindly writing `<slug>-2` could collide AGAIN with an
+  # existing post that happens to own `<slug>-2`, just moving the problem.
+  #
+  # This is BEST-EFFORT self-healing, not a transactional correctness
+  # mechanism: two concurrent public requests racing on the same colliding
+  # slug could both attempt the rename and one will fail to find a free
+  # suffix in time. The collision is a data anomaly (the application-level
+  # uniqueness check in `SlugHelpers.url_slug_exists?` should normally
+  # prevent it); if seen in practice it's a signal something upstream let
+  # a duplicate through, not a workflow to design around. Failures are
+  # logged so they show up in production telemetry and can be repaired
+  # manually if the auto-rename never wins the race.
+  defp auto_resolve_url_slug_collision(content, start_n) do
+    base_slug = content.url_slug
+    group_slug = content.version.post.group.slug
 
-    case update_content(content, %{url_slug: new_slug}) do
-      {:ok, _updated} ->
-        Logger.warning(
-          "[Publishing] Auto-resolved url_slug collision: content #{content.uuid} renamed " <>
-            "from #{inspect(content.url_slug)} to #{inspect(new_slug)} (language=#{content.language})"
-        )
+    case find_free_suffix(base_slug, group_slug, content.language, content.uuid, start_n) do
+      {:ok, new_slug} ->
+        case update_content(content, %{url_slug: new_slug}) do
+          {:ok, _updated} ->
+            Logger.warning(
+              "[Publishing] Auto-resolved url_slug collision: content #{content.uuid} renamed " <>
+                "from #{inspect(base_slug)} to #{inspect(new_slug)} (language=#{content.language})"
+            )
 
-        :ok
+            :ok
 
-      {:error, changeset} ->
+          {:error, changeset} ->
+            Logger.warning(
+              "[Publishing] Auto-resolved url_slug collision FAILED for content #{content.uuid}: " <>
+                "#{inspect(changeset.errors)} (target=#{inspect(new_slug)})"
+            )
+
+            :error
+        end
+
+      :error ->
         Logger.warning(
           "[Publishing] Auto-resolved url_slug collision FAILED for content #{content.uuid}: " <>
-            "#{inspect(changeset.errors)} (target=#{inspect(new_slug)})"
+            "exhausted suffix probe (base=#{inspect(base_slug)}, language=#{content.language})"
         )
 
         :error
+    end
+  end
+
+  # Cap the probe so a runaway lookup doesn't iterate forever on a
+  # pathological dataset; in practice the first or second suffix wins.
+  @suffix_probe_limit 50
+
+  defp find_free_suffix(_base, _group, _lang, _exclude_uuid, n) when n > @suffix_probe_limit,
+    do: :error
+
+  defp find_free_suffix(base, group, lang, exclude_uuid, n) do
+    candidate = "#{base}-#{n}"
+
+    if slug_taken_by_other_content?(group, lang, candidate, exclude_uuid) do
+      find_free_suffix(base, group, lang, exclude_uuid, n + 1)
+    else
+      {:ok, candidate}
+    end
+  end
+
+  defp slug_taken_by_other_content?(group_slug, language, url_slug, exclude_uuid) do
+    from(c in PublishingContent,
+      join: v in assoc(c, :version),
+      join: p in assoc(v, :post),
+      join: g in assoc(p, :group),
+      where:
+        g.slug == ^group_slug and c.language == ^language and c.url_slug == ^url_slug and
+          is_nil(p.trashed_at) and c.uuid != ^exclude_uuid,
+      select: 1,
+      limit: 1
+    )
+    |> repo().one()
+    |> case do
+      nil -> false
+      _ -> true
     end
   end
 

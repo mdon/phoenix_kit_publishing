@@ -161,27 +161,19 @@ defmodule PhoenixKit.Modules.Publishing.SlugHelpers do
   end
 
   defp url_slug_exists?(group_slug, url_slug, language, exclude_post_slug) do
-    case ListingCache.read(group_slug) do
-      {:ok, posts} ->
-        Enum.any?(posts, fn post ->
-          post.slug != exclude_post_slug and
-            post.slug != url_slug and
-            Map.get(post.language_slugs || %{}, language) == url_slug
-        end)
+    # Always go to the DB (any-version variant) for uniqueness checks —
+    # `ListingCache` is built from active versions only, so a cache-hit
+    # path would silently miss draft-to-draft collisions and let two
+    # authors take the same `url_slug` simultaneously before either
+    # publishes. Uniqueness checks fire on create / save, which is
+    # infrequent enough that bypassing the cache is fine.
+    case DBStorage.find_by_url_slug_any_version(group_slug, language, url_slug) do
+      nil ->
+        false
 
-      {:error, _} ->
-        # Check via DBStorage. Use the any-version variant so collisions
-        # with unpublished drafts also block — otherwise two drafts could
-        # be authored with the same url_slug and only conflict at publish
-        # time.
-        case DBStorage.find_by_url_slug_any_version(group_slug, language, url_slug) do
-          nil ->
-            false
-
-          content ->
-            post_slug = content.version.post.slug
-            post_slug != exclude_post_slug and post_slug != url_slug
-        end
+      content ->
+        post_slug = content.version.post.slug
+        post_slug != exclude_post_slug and post_slug != url_slug
     end
   rescue
     _ -> false
