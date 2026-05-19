@@ -27,7 +27,7 @@ defmodule PhoenixKit.Modules.Publishing.LanguageHelpersTest do
         ]
       })
 
-    {:ok, _} = Settings.update_boolean_setting("publishing_default_language_no_prefix", false)
+    {:ok, _} = Settings.update_boolean_setting("default_language_no_prefix", false)
     :ok
   end
 
@@ -103,7 +103,7 @@ defmodule PhoenixKit.Modules.Publishing.LanguageHelpersTest do
     end
 
     test "reads the stored setting" do
-      {:ok, _} = Settings.update_boolean_setting("publishing_default_language_no_prefix", true)
+      {:ok, _} = Settings.update_boolean_setting("default_language_no_prefix", true)
       assert LanguageHelpers.default_language_no_prefix?()
     end
   end
@@ -114,12 +114,12 @@ defmodule PhoenixKit.Modules.Publishing.LanguageHelpersTest do
     end
 
     test "omits prefix for the default language when the setting is on" do
-      {:ok, _} = Settings.update_boolean_setting("publishing_default_language_no_prefix", true)
+      {:ok, _} = Settings.update_boolean_setting("default_language_no_prefix", true)
       refute LanguageHelpers.use_language_prefix?("en")
     end
 
     test "keeps prefix for non-default languages when the setting is on" do
-      {:ok, _} = Settings.update_boolean_setting("publishing_default_language_no_prefix", true)
+      {:ok, _} = Settings.update_boolean_setting("default_language_no_prefix", true)
       assert LanguageHelpers.use_language_prefix?("de")
     end
   end

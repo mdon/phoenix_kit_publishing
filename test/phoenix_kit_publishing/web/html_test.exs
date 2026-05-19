@@ -6,7 +6,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.HTMLTest do
 
   setup do
     {:ok, _} = Settings.update_boolean_setting("languages_enabled", true)
-    {:ok, _} = Settings.update_boolean_setting("publishing_default_language_no_prefix", false)
+    {:ok, _} = Settings.update_boolean_setting("default_language_no_prefix", false)
 
     {:ok, _} =
       Settings.update_json_setting("languages_config", %{
@@ -40,14 +40,14 @@ defmodule PhoenixKit.Modules.Publishing.Web.HTMLTest do
     end
 
     test "omits the prefix for the default language when configured" do
-      {:ok, _} = Settings.update_boolean_setting("publishing_default_language_no_prefix", true)
+      {:ok, _} = Settings.update_boolean_setting("default_language_no_prefix", true)
 
       assert PublishingHTML.group_listing_path("en-GB", "blog") =~ ~r{/blog$}
       refute PublishingHTML.group_listing_path("en-GB", "blog") =~ "/en/blog"
     end
 
     test "keeps prefixes for non-default languages when default is prefixless" do
-      {:ok, _} = Settings.update_boolean_setting("publishing_default_language_no_prefix", true)
+      {:ok, _} = Settings.update_boolean_setting("default_language_no_prefix", true)
 
       assert PublishingHTML.group_listing_path("de-DE", "blog") =~ ~r{/de/blog$}
     end
@@ -95,7 +95,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.HTMLTest do
     end
 
     test "omits the prefix for default-language post URLs when configured" do
-      {:ok, _} = Settings.update_boolean_setting("publishing_default_language_no_prefix", true)
+      {:ok, _} = Settings.update_boolean_setting("default_language_no_prefix", true)
       post = %{mode: :slug, slug: "my-post", metadata: %{}, language_slugs: %{}}
 
       assert PublishingHTML.build_post_url("blog", post, "en-GB") =~ ~r{/blog/my-post$}
@@ -112,7 +112,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.HTMLTest do
     end
 
     test "omits the prefix for default-language timestamp URLs when configured" do
-      {:ok, _} = Settings.update_boolean_setting("publishing_default_language_no_prefix", true)
+      {:ok, _} = Settings.update_boolean_setting("default_language_no_prefix", true)
 
       url = PublishingHTML.build_public_path_with_time("en-GB", "blog", "2026-04-23", "19:30")
 

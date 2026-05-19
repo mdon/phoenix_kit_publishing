@@ -10,8 +10,6 @@ defmodule PhoenixKit.Modules.Publishing.LanguageHelpers do
   alias PhoenixKit.Modules.Languages.DialectMapper
   alias PhoenixKit.Settings
 
-  @default_language_no_prefix_key "publishing_default_language_no_prefix"
-
   @doc """
   Returns all enabled language codes for multi-language support.
   Falls back to content language if Languages module is disabled.
@@ -58,11 +56,18 @@ defmodule PhoenixKit.Modules.Publishing.LanguageHelpers do
   end
 
   @doc """
-  Returns true when public URLs should omit the prefix for the default language.
+  Returns true when public URLs should omit the prefix for the default
+  language. Delegates to the site-wide
+  `PhoenixKit.Modules.Languages.default_language_no_prefix?/0` setting,
+  which lives on the core Languages admin page
+  (`/admin/settings/languages`) and is honored by every URL generator
+  in the workspace (core `Routes.path/1`/`admin_path/2`, the sitemap,
+  publishing's HTML builders, and the publishing canonical-redirect
+  controller).
   """
   @spec default_language_no_prefix?() :: boolean()
   def default_language_no_prefix? do
-    Settings.get_boolean_setting(@default_language_no_prefix_key, false)
+    Languages.default_language_no_prefix?()
   end
 
   @doc """
@@ -70,8 +75,9 @@ defmodule PhoenixKit.Modules.Publishing.LanguageHelpers do
 
   Prefixes are omitted when:
   - the site is effectively single-language, or
-  - the caller requested the default language and the
-    `publishing_default_language_no_prefix` setting is enabled.
+  - the caller requested the default language and the site-wide
+    `default_language_no_prefix` setting (on the Languages admin
+    page) is enabled.
   """
   @spec use_language_prefix?(String.t() | nil) :: boolean()
   def use_language_prefix?(language_code) do

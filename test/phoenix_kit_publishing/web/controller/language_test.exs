@@ -28,7 +28,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller.LanguageTest do
         ]
       })
 
-    {:ok, _} = Settings.update_boolean_setting("publishing_default_language_no_prefix", false)
+    {:ok, _} = Settings.update_boolean_setting("default_language_no_prefix", false)
     :ok
   end
 
@@ -43,7 +43,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller.LanguageTest do
 
   describe "prefixed_default_language_request?/2" do
     test "detects prefixed requests for the default language when enabled" do
-      {:ok, _} = Settings.update_boolean_setting("publishing_default_language_no_prefix", true)
+      {:ok, _} = Settings.update_boolean_setting("default_language_no_prefix", true)
 
       conn =
         Plug.Test.conn(:get, "/en/blog")
@@ -53,7 +53,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller.LanguageTest do
     end
 
     test "ignores non-default languages" do
-      {:ok, _} = Settings.update_boolean_setting("publishing_default_language_no_prefix", true)
+      {:ok, _} = Settings.update_boolean_setting("default_language_no_prefix", true)
 
       conn =
         Plug.Test.conn(:get, "/de/blog")

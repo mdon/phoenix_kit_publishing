@@ -12,8 +12,9 @@ defmodule PhoenixKit.Modules.Publishing.Web.Settings do
   alias PhoenixKit.Settings
   alias PhoenixKit.Utils.Routes
 
+  alias PhoenixKit.Modules.Publishing.LanguageHelpers
+
   # Settings keys
-  @default_language_no_prefix_key "publishing_default_language_no_prefix"
   @memory_cache_key "publishing_memory_cache_enabled"
   @render_cache_key "publishing_render_cache_enabled"
   @show_language_switcher_key "publishing_show_language_switcher"
@@ -44,10 +45,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Settings do
       |> assign(:project_title, Settings.get_project_title())
       |> assign(:module_enabled, Publishing.enabled?())
       |> assign(:cache_groups, cache_groups)
-      |> assign(
-        :default_language_no_prefix,
-        Settings.get_boolean_setting(@default_language_no_prefix_key, false)
-      )
+      |> assign(:default_language_no_prefix, LanguageHelpers.default_language_no_prefix?())
       |> assign(
         :show_language_switcher,
         Settings.get_boolean_setting(@show_language_switcher_key, true)
@@ -132,22 +130,6 @@ defmodule PhoenixKit.Modules.Publishing.Web.Settings do
      |> assign(:memory_cache_enabled, new_value)
      |> assign(:cache_status, build_cache_status(socket.assigns.cache_groups))
      |> put_flash(:info, memory_cache_toggle_message(new_value))}
-  end
-
-  def handle_event("toggle_default_language_no_prefix", _params, socket) do
-    new_value = !socket.assigns.default_language_no_prefix
-    Settings.update_boolean_setting(@default_language_no_prefix_key, new_value)
-
-    {:noreply,
-     socket
-     |> assign(:default_language_no_prefix, new_value)
-     |> put_flash(
-       :info,
-       if(new_value,
-         do: gettext("Default language public URLs now omit the locale prefix"),
-         else: gettext("Default language public URLs now include the locale prefix")
-       )
-     )}
   end
 
   def handle_event("toggle_show_language_switcher", _params, socket) do
@@ -347,16 +329,25 @@ defmodule PhoenixKit.Modules.Publishing.Web.Settings do
               <div>
                 <p class="font-medium">{gettext("Default Language Without Prefix")}</p>
                 <p class="text-xs text-base-content/60">
-                  {gettext("Use /group/post instead of /en/group/post for the default language")}
+                  <%= if @default_language_no_prefix do %>
+                    {gettext(
+                      "ON — primary language URLs are prefixless (e.g. /blog/post). Managed on the Languages page."
+                    )}
+                  <% else %>
+                    {gettext(
+                      "OFF — primary language URLs include the locale prefix (e.g. /en/blog/post). Managed on the Languages page."
+                    )}
+                  <% end %>
                 </p>
               </div>
             </div>
-            <input
-              type="checkbox"
-              class="toggle toggle-primary"
-              checked={@default_language_no_prefix}
-              phx-click="toggle_default_language_no_prefix"
-            />
+            <.link
+              navigate={Routes.path("/admin/settings/languages")}
+              class="btn btn-sm btn-ghost gap-1"
+            >
+              {gettext("Manage")}
+              <.icon name="hero-arrow-top-right-on-square" class="w-3 h-3" />
+            </.link>
           </div>
 
           <div class="flex items-center justify-between p-4 bg-base-200 rounded-lg">

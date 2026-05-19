@@ -136,7 +136,8 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller.LanguageSwitcherExposureT
       # the conn. Asserting both halves match is what distinguishes "the
       # assign survived the function-component boundary" from "we got a
       # silently-coincident empty render."
-      assert html =~ ~s(data-testid="host-publishing-translations" data-count="#{expected_count}"),
+      assert html =~
+               ~s(data-testid="host-publishing-translations" data-count="#{expected_count}"),
              "Layouts.app's `data-count` does not match `length(conn.assigns[:phoenix_kit_publishing_translations])` — the assign was dropped at the function-component layout boundary"
     end
 
@@ -152,7 +153,8 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller.LanguageSwitcherExposureT
       assert html =~ ~s(data-testid="host-publishing-translations"),
              "host Layouts.app didn't render — boundary marker missing"
 
-      assert html =~ ~s(data-testid="host-publishing-translations" data-count="#{expected_count}"),
+      assert html =~
+               ~s(data-testid="host-publishing-translations" data-count="#{expected_count}"),
              "post-page render dropped :phoenix_kit_publishing_translations at the function-component layout boundary"
     end
   end
