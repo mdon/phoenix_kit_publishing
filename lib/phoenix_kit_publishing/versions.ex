@@ -258,19 +258,7 @@ defmodule PhoenixKit.Modules.Publishing.Versions do
 
     tx_result =
       repo.transaction(fn ->
-        # Lock the post row for the duration of the transaction. Without
-        # `SELECT … FOR UPDATE` two concurrent publishes can both read the
-        # version list, both archive each other's "published" row, both
-        # activate, and end up with mismatched `active_version_uuid` or
-        # multiple `status == "published"` rows. The lock serializes
-        # publishes per-post; concurrent publishes of DIFFERENT posts are
-        # still parallel.
-        _locked_post =
-          from(p in PublishingPost,
-            where: p.uuid == ^db_post.uuid,
-            lock: "FOR UPDATE"
-          )
-          |> repo.one()
+        lock_post!(repo, db_post.uuid)
 
         versions = DBStorage.list_versions(db_post.uuid)
         target_version = Enum.find(versions, &(&1.version_number == version))
@@ -319,6 +307,19 @@ defmodule PhoenixKit.Modules.Publishing.Versions do
     end
   end
 
+  # Takes a `SELECT … FOR UPDATE` row lock on the post for the rest of the
+  # enclosing transaction. Publish and unpublish both mutate
+  # `active_version_uuid` and version statuses; serializing them on this
+  # single lock prevents a concurrent publish/unpublish — or two publishes —
+  # from interleaving into a stale `active_version_uuid` or multiple
+  # `status == "published"` rows. Operations on DIFFERENT posts stay
+  # parallel. Both `do_publish_version/4` and `do_unpublish_post/3` MUST
+  # acquire this same lock — the per-post serialization depends on it.
+  defp lock_post!(repo, post_uuid) do
+    from(p in PublishingPost, where: p.uuid == ^post_uuid, lock: "FOR UPDATE")
+    |> repo.one()
+  end
+
   defp archive_other_published_versions!(repo, versions, target_version_number) do
     for v <- versions,
         v.version_number != target_version_number,
@@ -361,19 +362,7 @@ defmodule PhoenixKit.Modules.Publishing.Versions do
 
     tx_result =
       repo.transaction(fn ->
-        # Lock the post row for the duration of the transaction, mirroring
-        # `do_publish_version/4`. Both paths mutate `active_version_uuid`
-        # and version statuses; without taking the SAME `FOR UPDATE` lock
-        # here, a concurrent publish (locked) and unpublish (unlocked)
-        # could still interleave and leave the post with a stale
-        # `active_version_uuid` or a "published" version that's no longer
-        # active. The lock serializes both operations per-post.
-        _locked_post =
-          from(p in PublishingPost,
-            where: p.uuid == ^db_post.uuid,
-            lock: "FOR UPDATE"
-          )
-          |> repo.one()
+        lock_post!(repo, db_post.uuid)
 
         # Find the currently active version
         active_version = DBStorage.get_active_version(db_post)
