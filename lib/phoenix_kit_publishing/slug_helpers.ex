@@ -170,8 +170,11 @@ defmodule PhoenixKit.Modules.Publishing.SlugHelpers do
         end)
 
       {:error, _} ->
-        # Check via DBStorage
-        case DBStorage.find_by_url_slug(group_slug, language, url_slug) do
+        # Check via DBStorage. Use the any-version variant so collisions
+        # with unpublished drafts also block — otherwise two drafts could
+        # be authored with the same url_slug and only conflict at publish
+        # time.
+        case DBStorage.find_by_url_slug_any_version(group_slug, language, url_slug) do
           nil ->
             false
 

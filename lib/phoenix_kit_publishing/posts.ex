@@ -66,7 +66,9 @@ defmodule PhoenixKit.Modules.Publishing.Posts do
   end
 
   @doc """
-  Finds a post by URL slug from the database.
+  Finds a published post by URL slug — the public routing path. Drafts
+  do NOT resolve through this lookup; use `find_by_url_slug_any_version/3`
+  for admin/self-healing flows that need to see drafts.
   """
   @spec find_by_url_slug(String.t(), String.t(), String.t()) ::
           {:ok, map()} | {:error, :not_found | :cache_miss}
@@ -76,6 +78,27 @@ defmodule PhoenixKit.Modules.Publishing.Posts do
            language,
            url_slug,
            &DBStorage.find_by_url_slug/3
+         ) do
+      nil -> {:error, :not_found}
+      content -> {:ok, db_content_to_post_map(content)}
+    end
+  end
+
+  @doc """
+  Finds a post by URL slug, INCLUDING unpublished drafts. Internal use only —
+  the stale-language self-healing flow (`StaleFixer`) and slug-uniqueness
+  collision checks (`SlugHelpers.url_slug_exists?`) need to surface drafts
+  so they can normalize / reject duplicates before publish. Never call this
+  from a public route handler.
+  """
+  @spec find_by_url_slug_any_version(String.t(), String.t(), String.t()) ::
+          {:ok, map()} | {:error, :not_found | :cache_miss}
+  def find_by_url_slug_any_version(group_slug, language, url_slug) do
+    case find_content_with_stale_retry(
+           group_slug,
+           language,
+           url_slug,
+           &DBStorage.find_by_url_slug_any_version/3
          ) do
       nil -> {:error, :not_found}
       content -> {:ok, db_content_to_post_map(content)}

@@ -17,6 +17,8 @@ defmodule PhoenixKit.Integration.Publishing.DBStorageUrlSlugLookupTest do
 
   use PhoenixKit.DataCase, async: false
 
+  import Ecto.Query, only: [from: 2]
+
   alias PhoenixKit.Modules.Publishing.DBStorage
   alias PhoenixKit.Modules.Publishing.Groups
   alias PhoenixKit.Modules.Publishing.Posts
@@ -238,11 +240,163 @@ defmodule PhoenixKit.Integration.Publishing.DBStorageUrlSlugLookupTest do
       assert DBStorage.find_by_url_slug(group["slug"], "en-US", "stale-slug") == nil
     end
 
-    test "unpublished post with many versions resolves to its latest draft" do
-      # The stale-language self-healing path exercises drafts. Posts whose
-      # `active_version_uuid` is nil must still be findable so that the
-      # repair flow can normalize their content. The query picks the LATEST
-      # version when no active one exists.
+    test "unpublished posts do NOT resolve through the public URL lookup" do
+      # Public URLs only reach published content. An unpublished post that
+      # was reachable in the pre-split version of this query is now
+      # invisible to public routing — drafts must use the `_any_version`
+      # variant (next describe block) intended for admin / self-healing
+      # paths. This test pins the split semantic.
+      {:ok, group} = Groups.add_group(unique_name(), mode: "slug")
+
+      {:ok, _post} =
+        Posts.create_post(group["slug"], %{
+          title: "Public Cant See Drafts",
+          slug: "public-cant-see-drafts"
+        })
+
+      # No `Versions.publish_version/3` call — active_version_uuid stays nil.
+      assert DBStorage.find_by_url_slug(group["slug"], "en-US", "public-cant-see-drafts") == nil
+    end
+  end
+
+  # ============================================================================
+  # find_by_url_slug — tie-breaker auto-rename
+  # ============================================================================
+
+  describe "find_by_url_slug/3 — tie-breaker auto-rename" do
+    test "renames the loser's url_slug with `-2` when two published posts collide" do
+      # Two distinct published posts in the same group share the same
+      # custom `url_slug` in the same language. Posts.SlugHelpers normally
+      # prevents this at create-time, but if a collision somehow lands in
+      # the DB (race condition, manual SQL, migration leftovers), the
+      # public lookup must:
+      #   * still return a deterministic single row
+      #   * silently rename the loser so the next request resolves cleanly
+      {:ok, group} = Groups.add_group(unique_name(), mode: "slug")
+
+      {:ok, older_post} =
+        Posts.create_post(group["slug"], %{title: "Older Collider", slug: "older-collider"})
+
+      [older_v] = DBStorage.list_versions(older_post.uuid)
+      [older_content] = DBStorage.list_contents(older_v.uuid)
+      {:ok, _} = DBStorage.update_content(older_content, %{url_slug: "duplicate-slug"})
+      :ok = Versions.publish_version(group["slug"], older_post.uuid, older_v.version_number)
+
+      # UUIDv7-based ordering is monotonic; the second-created post is
+      # guaranteed to sort after the first regardless of clock precision,
+      # so no `Process.sleep` is needed to keep the tie-break deterministic.
+      {:ok, newer_post} =
+        Posts.create_post(group["slug"], %{title: "Newer Collider", slug: "newer-collider"})
+
+      [newer_v] = DBStorage.list_versions(newer_post.uuid)
+      [newer_content] = DBStorage.list_contents(newer_v.uuid)
+      # Bypass SlugHelpers and force the duplicate directly.
+      {:ok, _} = DBStorage.update_content(newer_content, %{url_slug: "duplicate-slug"})
+      :ok = Versions.publish_version(group["slug"], newer_post.uuid, newer_v.version_number)
+
+      # First call: newer post wins (order_by p.inserted_at DESC), older
+      # loses → its url_slug becomes "duplicate-slug-2".
+      winner = DBStorage.find_by_url_slug(group["slug"], "en-US", "duplicate-slug")
+      assert winner != nil
+      assert winner.version.post.slug == "newer-collider"
+
+      # Loser's url_slug got renamed in place.
+      reloaded_older = DBStorage.list_contents(older_v.uuid) |> List.first()
+      assert reloaded_older.url_slug == "duplicate-slug-2"
+
+      # Subsequent lookup is clean — only one row matches "duplicate-slug".
+      assert winner_again =
+               DBStorage.find_by_url_slug(group["slug"], "en-US", "duplicate-slug")
+
+      assert winner_again.version.post.slug == "newer-collider"
+
+      # And the renamed slug now resolves to the loser (still published).
+      assert renamed =
+               DBStorage.find_by_url_slug(group["slug"], "en-US", "duplicate-slug-2")
+
+      assert renamed.version.post.slug == "older-collider"
+    end
+
+    test "increments suffix when three posts collide on the same slug" do
+      # Three-way collision. Winner stays as-is; loser #1 becomes `-2`;
+      # loser #2 becomes `-3`. Auto-rename's `Enum.with_index(losers, 2)`
+      # produces the suffix sequence.
+      {:ok, group} = Groups.add_group(unique_name(), mode: "slug")
+
+      [{p1, _, v1}, {p2, _, v2}, {p3, _, _v3}] =
+        for slug <- ["first", "second", "third"] do
+          {:ok, post} =
+            Posts.create_post(group["slug"], %{title: "Slug #{slug}", slug: "post-#{slug}"})
+
+          [version] = DBStorage.list_versions(post.uuid)
+          [content] = DBStorage.list_contents(version.uuid)
+          {:ok, _} = DBStorage.update_content(content, %{url_slug: "triple-collide"})
+          :ok = Versions.publish_version(group["slug"], post.uuid, version.version_number)
+          {post, content, version}
+        end
+
+      # `p3` is the newest (UUIDv7 monotonic) → wins.
+      winner = DBStorage.find_by_url_slug(group["slug"], "en-US", "triple-collide")
+      assert winner.version.post.uuid == p3.uuid
+
+      # The two older posts had their slugs renamed.
+      [renamed_c1] = DBStorage.list_contents(v1.uuid)
+      [renamed_c2] = DBStorage.list_contents(v2.uuid)
+
+      # Both got a suffix; the exact mapping (which got -2 vs -3) depends
+      # on `order_by p.inserted_at DESC` so `p2` (middle age) is `-2` and
+      # `p1` (oldest) is `-3`.
+      renamed_slugs = MapSet.new([renamed_c1.url_slug, renamed_c2.url_slug])
+      assert renamed_slugs == MapSet.new(["triple-collide-2", "triple-collide-3"])
+
+      # Both renamed slugs are now reachable individually, and the
+      # canonical slug only resolves to the winner.
+      assert DBStorage.find_by_url_slug(group["slug"], "en-US", "triple-collide-2") != nil
+      assert DBStorage.find_by_url_slug(group["slug"], "en-US", "triple-collide-3") != nil
+
+      again = DBStorage.find_by_url_slug(group["slug"], "en-US", "triple-collide")
+      assert again.version.post.uuid == p3.uuid
+    end
+  end
+
+  # ============================================================================
+  # find_by_url_slug_any_version — internal/self-healing lookup
+  # ============================================================================
+
+  describe "find_by_url_slug_any_version/3" do
+    test "resolves a published post the same way the public lookup does" do
+      {:ok, group} = Groups.add_group(unique_name(), mode: "slug")
+
+      {:ok, post} =
+        Posts.create_post(group["slug"], %{title: "Published Any", slug: "published-any"})
+
+      [version] = DBStorage.list_versions(post.uuid)
+      :ok = Versions.publish_version(group["slug"], post.uuid, version.version_number)
+
+      assert DBStorage.find_by_url_slug_any_version(group["slug"], "en-US", "published-any") !=
+               nil
+    end
+
+    test "resolves an unpublished post (drafts ARE findable through this variant)" do
+      {:ok, group} = Groups.add_group(unique_name(), mode: "slug")
+
+      {:ok, post} =
+        Posts.create_post(group["slug"], %{title: "Draft Any", slug: "draft-any"})
+
+      # Never published — active_version_uuid stays nil. Public lookup
+      # returns nil; `_any_version` surfaces the draft.
+      assert DBStorage.find_by_url_slug(group["slug"], "en-US", "draft-any") == nil
+
+      found = DBStorage.find_by_url_slug_any_version(group["slug"], "en-US", "draft-any")
+      assert found != nil
+      assert found.version.post.uuid == post.uuid
+    end
+
+    test "draft with many versions returns the latest version (no auto-rename)" do
+      # The draft-self-healing flow expects to find SOMETHING when a post
+      # has accumulated multiple drafts sharing slug/language. Unlike the
+      # public lookup, no auto-rename happens — drafts may legitimately
+      # share slugs while being authored.
       {:ok, group} = Groups.add_group(unique_name(), mode: "slug")
 
       {:ok, post} =
@@ -267,11 +421,53 @@ defmodule PhoenixKit.Integration.Publishing.DBStorageUrlSlugLookupTest do
           })
       end
 
-      # Never published — active_version_uuid stays nil.
-      found = DBStorage.find_by_url_slug(group["slug"], "en-US", "draft-multi")
+      found = DBStorage.find_by_url_slug_any_version(group["slug"], "en-US", "draft-multi")
       assert found != nil
-      # Resolution must pick the LATEST draft.
       assert found.version.version_number == 5
+
+      # All five draft versions still hold the original empty url_slug —
+      # nothing got renamed (auto-rename only applies to the public lookup).
+      for version <- DBStorage.list_versions(post.uuid) do
+        [content] = DBStorage.list_contents(version.uuid)
+        assert content.url_slug in [nil, ""]
+      end
+    end
+
+    test "two unpublished posts colliding on slug — returns one deterministically (no auto-rename)" do
+      # This is the gap Codex flagged: across-post collisions in the
+      # draft state. The `_any_version` variant does NOT auto-rename
+      # (drafts can legitimately share slugs while being authored), but
+      # it must still return a single row deterministically. The query's
+      # `order_by [desc: v.version_number] + limit: 1` picks one.
+      #
+      # The "loser" stays as-is — uniqueness is enforced when the user
+      # later tries to PUBLISH the colliding draft (via SlugHelpers'
+      # `url_slug_exists?` check, which now uses this any-version
+      # variant and so sees the collision).
+      {:ok, group} = Groups.add_group(unique_name(), mode: "slug")
+
+      for slug <- ["draft-a", "draft-b"] do
+        {:ok, post} =
+          Posts.create_post(group["slug"], %{title: "Draft #{slug}", slug: "post-#{slug}"})
+
+        [version] = DBStorage.list_versions(post.uuid)
+        [content] = DBStorage.list_contents(version.uuid)
+        {:ok, _} = DBStorage.update_content(content, %{url_slug: "draft-collide"})
+      end
+
+      # Doesn't crash; returns ONE of the two drafts deterministically.
+      found = DBStorage.find_by_url_slug_any_version(group["slug"], "en-US", "draft-collide")
+      assert found != nil
+      assert found.url_slug == "draft-collide"
+
+      # Neither was renamed — the collision is acceptable in draft state.
+      all_with_slug =
+        from(c in PhoenixKit.Modules.Publishing.PublishingContent,
+          where: c.url_slug == "draft-collide"
+        )
+        |> PhoenixKit.RepoHelper.repo().all()
+
+      assert length(all_with_slug) == 2
     end
   end
 

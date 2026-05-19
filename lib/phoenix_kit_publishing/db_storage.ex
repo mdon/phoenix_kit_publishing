@@ -596,28 +596,102 @@ defmodule PhoenixKit.Modules.Publishing.DBStorage do
     |> repo().all()
   end
 
-  @doc "Finds content by URL slug across all versions in a group. Excludes trashed posts."
+  @doc """
+  Public URL-slug lookup. Returns at most one published content row for the
+  given group + language + slug, or `nil`. Excludes trashed posts and
+  unpublished drafts (drafts are never reachable from a public URL — use
+  `find_by_url_slug_any_version/3` for the admin/self-healing path).
+
+  Tie-break: when two DIFFERENT published posts in the same group happen to
+  share the same custom `url_slug` (the DB has no unique index on content
+  url_slug across posts; the per-post `(group_uuid, slug)` index only
+  prevents post-slug collisions), the query is allowed to return multiple
+  rows. The newest post wins (`order_by p.inserted_at DESC`); every loser's
+  `url_slug` is auto-renamed with a `-2`, `-3`, … suffix so the next
+  request resolves cleanly without crashing on `Ecto.MultipleResultsError`.
+  This is a self-healing safety net for collisions that get past the
+  application-level uniqueness check in
+  `PhoenixKit.Modules.Publishing.SlugHelpers`.
+  """
   @spec find_by_url_slug(String.t(), String.t(), String.t()) :: PublishingContent.t() | nil
   def find_by_url_slug(group_slug, language, url_slug) do
-    find_by_custom_url_slug(group_slug, language, url_slug) ||
-      find_by_post_slug_fallback(group_slug, language, url_slug)
+    case all_published_by_custom_url_slug(group_slug, language, url_slug) do
+      [] ->
+        # Post-slug fallback is collision-free via `(group_uuid, slug)`
+        # UNIQUE index on posts → at most one row, no tie-break needed.
+        published_by_post_slug_fallback(group_slug, language, url_slug)
+
+      [single] ->
+        single
+
+      [winner | losers] ->
+        Enum.each(Enum.with_index(losers, 2), fn {loser, n} ->
+          auto_resolve_url_slug_collision(loser, n)
+        end)
+
+        winner
+    end
   end
 
-  # URL lookups must return at most one row even when a post has accumulated
-  # many versions sharing the same `url_slug` / language. The condition
-  # `v.uuid == p.active_version_uuid OR p.active_version_uuid IS NULL` picks:
-  #
-  #   - The active (published) version when the post has one — that's the
-  #     content a public URL should render.
-  #   - Any version when the post is unpublished (no active version yet),
-  #     ordered by version DESC + limited to 1 so we deterministically pick
-  #     the latest draft. This preserves the lookup path used by the
-  #     stale-language self-healing flow, which exercises draft posts.
-  #
-  # Without these guards a post with N versions sharing an empty `url_slug`
-  # crashed `repo().one()` with `Ecto.MultipleResultsError` (observed on a
-  # real post with 14 historical versions).
-  defp find_by_custom_url_slug(group_slug, language, url_slug) do
+  @doc """
+  Internal URL-slug lookup that DOES surface unpublished drafts. Used by
+  the stale-language self-healing flow (`StaleFixer`) and slug-uniqueness
+  checks (`SlugHelpers.url_slug_exists?`) that need to see every existing
+  slug, including those on posts that haven't been published yet.
+
+  Returns at most one content row. When the slug matches multiple
+  versions of the SAME post (the common case for posts that accumulated
+  drafts), picks the active version when one exists, otherwise the
+  latest draft by `version_number`. Does NOT auto-rename collisions —
+  drafts may legitimately share slugs while still being authored.
+  """
+  @spec find_by_url_slug_any_version(String.t(), String.t(), String.t()) ::
+          PublishingContent.t() | nil
+  def find_by_url_slug_any_version(group_slug, language, url_slug) do
+    any_version_by_custom_url_slug(group_slug, language, url_slug) ||
+      any_version_by_post_slug_fallback(group_slug, language, url_slug)
+  end
+
+  # Published-only custom-slug match — returns ALL matches so the caller
+  # can apply the tie-breaker. Ordering by `p.uuid DESC` exploits UUIDv7's
+  # monotonic timestamp encoding: the newest post sorts first without
+  # depending on `inserted_at` precision (clock-clustered creates within
+  # the same microsecond would otherwise have undefined order).
+  defp all_published_by_custom_url_slug(group_slug, language, url_slug) do
+    from(c in PublishingContent,
+      join: v in assoc(c, :version),
+      join: p in assoc(v, :post),
+      join: g in assoc(p, :group),
+      where:
+        g.slug == ^group_slug and c.language == ^language and c.url_slug == ^url_slug and
+          is_nil(p.trashed_at) and v.uuid == p.active_version_uuid,
+      order_by: [desc: p.uuid],
+      preload: [version: {v, post: {p, group: g}}]
+    )
+    |> repo().all()
+  end
+
+  # Published-only post-slug fallback (content has no url_slug, lookup
+  # falls back to the post's own slug). Posts have a `(group_uuid, slug)`
+  # UNIQUE index → at most one row.
+  defp published_by_post_slug_fallback(group_slug, language, url_slug) do
+    from(c in PublishingContent,
+      join: v in assoc(c, :version),
+      join: p in assoc(v, :post),
+      join: g in assoc(p, :group),
+      where:
+        g.slug == ^group_slug and c.language == ^language and p.slug == ^url_slug and
+          is_nil(p.trashed_at) and v.uuid == p.active_version_uuid and
+          (is_nil(c.url_slug) or c.url_slug == ""),
+      preload: [version: {v, post: {p, group: g}}]
+    )
+    |> repo().one()
+  end
+
+  # Any-version custom-slug match. Includes drafts (active OR latest).
+  # Picks one row deterministically via version_number DESC + limit 1
+  # so multi-version drafts don't crash; no auto-rename.
+  defp any_version_by_custom_url_slug(group_slug, language, url_slug) do
     from(c in PublishingContent,
       join: v in assoc(c, :version),
       join: p in assoc(v, :post),
@@ -633,7 +707,7 @@ defmodule PhoenixKit.Modules.Publishing.DBStorage do
     |> repo().one()
   end
 
-  defp find_by_post_slug_fallback(group_slug, language, url_slug) do
+  defp any_version_by_post_slug_fallback(group_slug, language, url_slug) do
     from(c in PublishingContent,
       join: v in assoc(c, :version),
       join: p in assoc(v, :post),
@@ -648,6 +722,35 @@ defmodule PhoenixKit.Modules.Publishing.DBStorage do
       preload: [version: {v, post: {p, group: g}}]
     )
     |> repo().one()
+  end
+
+  # Tie-break: when public lookup hits multiple posts with the same custom
+  # url_slug, rename the loser's content `url_slug` to add a `-N` suffix.
+  # Idempotent: if `<slug>-2` is itself already taken on a future tie, the
+  # caller increments N. Logged as a warning since it's a data-cleanliness
+  # signal — the application-level uniqueness check in `SlugHelpers` should
+  # normally prevent this, so seeing this fire indicates the upstream check
+  # was skipped or raced.
+  defp auto_resolve_url_slug_collision(content, suffix_n) do
+    new_slug = "#{content.url_slug}-#{suffix_n}"
+
+    case update_content(content, %{url_slug: new_slug}) do
+      {:ok, _updated} ->
+        Logger.warning(
+          "[Publishing] Auto-resolved url_slug collision: content #{content.uuid} renamed " <>
+            "from #{inspect(content.url_slug)} to #{inspect(new_slug)} (language=#{content.language})"
+        )
+
+        :ok
+
+      {:error, changeset} ->
+        Logger.warning(
+          "[Publishing] Auto-resolved url_slug collision FAILED for content #{content.uuid}: " <>
+            "#{inspect(changeset.errors)} (target=#{inspect(new_slug)})"
+        )
+
+        :error
+    end
   end
 
   @doc "Finds content by a previous URL slug (stored in data.previous_url_slugs JSONB array). Excludes trashed posts."
