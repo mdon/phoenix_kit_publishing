@@ -18,6 +18,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Settings do
   @render_cache_key "publishing_render_cache_enabled"
   @show_language_switcher_key "publishing_show_language_switcher"
 
+  @impl true
   def mount(_params, _session, socket) do
     # Subscribe to group changes for live updates. All DB-backed reads
     # live in `handle_params/3` (PR #9 follow-up — Phoenix iron law:
@@ -34,6 +35,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Settings do
     {:ok, socket}
   end
 
+  @impl true
   def handle_params(_params, _uri, socket) do
     cache_groups = db_groups_to_maps()
 
@@ -65,6 +67,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Settings do
     {:noreply, socket}
   end
 
+  @impl true
   def terminate(_reason, _socket) do
     # Phoenix.PubSub auto-cleans on process exit; explicit unsubscribe
     # keeps the subscribe / unsubscribe sites paired in code review.
@@ -72,6 +75,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Settings do
     :ok
   end
 
+  @impl true
   def handle_event("regenerate_cache", %{"slug" => slug}, socket) do
     case ListingCache.regenerate(slug) do
       :ok ->
@@ -220,6 +224,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Settings do
   # PubSub Handlers - Live updates when groups change elsewhere
   # ============================================================================
 
+  @impl true
   def handle_info({:group_created, _group}, socket) do
     {:noreply, refresh_groups(socket)}
   end
@@ -310,6 +315,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Settings do
     end)
   end
 
+  @impl true
   def render(assigns) do
     ~H"""
     <div class="container flex flex-col mx-auto px-4 py-6">
