@@ -68,18 +68,19 @@ defmodule PhoenixKit.Modules.Publishing.Web.SettingsLiveTest do
     assert html =~ ~s|phx-disable-with="Clearing…"|
   end
 
-  test "default-language-no-prefix toggle is wired up", %{conn: conn} do
-    {:ok, view, _html} =
+  test "default-language-no-prefix row is now a read-only status linking to Languages",
+       %{conn: conn} do
+    {:ok, _view, html} =
       conn
       |> put_test_scope(fake_scope())
       |> live("/admin/settings/publishing")
 
-    initial = Settings.get_boolean_setting("publishing_default_language_no_prefix", false)
-
-    render_click(view, "toggle_default_language_no_prefix")
-
-    final = Settings.get_boolean_setting("publishing_default_language_no_prefix", false)
-    assert final != initial
+    # The toggle moved to the site-wide Languages admin page; this
+    # settings page surfaces a read-only status note + Manage link.
+    refute html =~ ~s|phx-click="toggle_default_language_no_prefix"|
+    assert html =~ "Default Language Without Prefix"
+    assert html =~ ~s|/admin/settings/languages|
+    assert html =~ "Manage"
   end
 
   test "regenerate_cache fires the per-group cache regeneration", %{conn: conn} do
