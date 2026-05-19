@@ -3,8 +3,9 @@
 Triaged 2026-05-19 against the post-merge state.
 
 `CLAUDE_REVIEW.md` verdict was APPROVE. Two quality-blocking findings
-(1 and 3) plus a `/simplify` cleanup and a `mix precommit` warning were
-fixed in post-merge passes; the rest are non-blocking observations.
+(1 and 3), a `/simplify` cleanup, and the full `mix precommit` gate
+(including fallout from the `phoenix_kit 1.7.114` upgrade) were fixed
+in post-merge passes; the rest are non-blocking observations.
 
 ## Fixed (post-merge — 2026-05-19)
 
@@ -35,18 +36,34 @@ fixed in post-merge passes; the rest are non-blocking observations.
   (fails `--warnings-as-errors`). Relocated the helper below the last
   `handle_event` clause. Commit `3f4d377`.
 
-## Deferred (with rationale)
+- **`module_assigns` undefined-attribute warnings** (`html.ex` ×3) —
+  RESOLVED by the `phoenix_kit 1.7.114` upgrade. PR #16's Batch D
+  (`f63311b`) switched to a generic `:module_assigns` attr that
+  "pairs with phoenix_kit core commit `b17b96b7`"; `1.7.113` (then the
+  latest) didn't carry it. `1.7.114` now declares `attr :module_assigns,
+  :map` and flattens it into the host layout's assigns — the three
+  `compile --warnings-as-errors` warnings clear with no publishing-side
+  change. (Was previously deferred pending this release.)
 
-- **`module_assigns` undefined-attribute warnings** (`html.ex` ×3).
-  PR #16's Batch D (`f63311b`) deliberately switched to a generic
-  `:module_assigns` attr that "pairs with phoenix_kit core commit
-  `b17b96b7`". The latest *published* `phoenix_kit 1.7.113` does not
-  carry that commit — its `app_layout/1` declares a fixed attr list
-  with no `module_assigns`. Not fixable in the publishing repo alone.
-  **Maintainer decision: wait for the next `phoenix_kit` release** that
-  includes `b17b96b7`; the warnings then clear with no publishing-side
-  change. Until then `mix precommit` fails on these three (plain
-  `mix compile` passes — warnings only).
+- **`mix precommit` restoration after the `1.7.114` upgrade.** The
+  bump pulled a newer Elixir / credo / dialyzer, which surfaced latent
+  issues unrelated to the review findings:
+  - *format* — the newer formatter rewraps long function heads/calls;
+    `mix format` swept seven files (`posts.ex`, `listing.ex`,
+    `publishing.ex`, `listing_cache.ex`, `mapper.ex`, `mix.exs`, the
+    exposure test).
+  - *credo --strict* — `create_post_with_timestamp_retry/9` (added by
+    PR #16) tripped `FunctionArity` (max 8) and `CondStatements`. The
+    eight inputs are invariant across the retry recursion — only
+    `attempt` changes — so they were bundled into a single context
+    map (arity 9 → 2) and the one-condition `cond` became an `if`.
+  - *dialyzer* — two provably-dead `|| fallback` nil-branches that the
+    tighter upstream type specs exposed: `current_language || ""` in
+    `controller.ex` and `updated_post.language || …` in
+    `persistence.ex`. Both left sides are always `binary()`; the dead
+    fallbacks were dropped.
+  Commit `6590d39`. `mix precommit` (compile, deps, format, credo,
+  dialyzer) is fully green.
 
 ## Files touched
 
@@ -55,14 +72,19 @@ fixed in post-merge passes; the rest are non-blocking observations.
 | `lib/phoenix_kit_publishing/versions.ex` | Lock unpublish transaction; extract `lock_post!/2` shared by both publish + unpublish |
 | `lib/phoenix_kit_publishing/db_storage.ex` | `find_by_previous_url_slug/3` scoped to active version; `@doc` rewrite |
 | `lib/phoenix_kit_publishing/web/editor.ex` | Moved `clear_translation_unguarded/1` out of the `handle_event/3` clause group |
+| `lib/phoenix_kit_publishing/posts.ex` | `create_post_with_timestamp_retry` arity 9 → 2 (context map); `cond` → `if`; format |
+| `lib/phoenix_kit_publishing/web/controller.ex` | Dropped dead `current_language || ""` fallback |
+| `lib/phoenix_kit_publishing/web/editor/persistence.ex` | Dropped dead `updated_post.language || …` fallback |
+| `mix.exs`, `listing.ex`, `publishing.ex`, `listing_cache.ex`, `mapper.ex`, exposure test | `mix format` sweep (newer formatter) |
 | `test/phoenix_kit_publishing/integration/db_storage_url_slug_lookup_test.exs` | Regression test for unpublished-post previous-slug lookup |
 | `dev_docs/.../16-phase-2-quality-sweep/CLAUDE_REVIEW.md` | Review record |
 
 ## Verification
 
-- `mix compile` clean for all post-merge edits.
-- `mix precommit` — `handle_event/3` warning resolved; three
-  `module_assigns` warnings remain (deferred, see above).
+- `mix precommit` fully green after the `phoenix_kit 1.7.114` upgrade —
+  `compile --force --warnings-as-errors`, `deps.unlock --check-unused`,
+  `format --check-formatted`, `credo --strict` (no issues), `dialyzer`
+  (0 errors).
 - Test suite not executed in the review environment (no PostgreSQL);
   existing `find_by_previous_url_slug/3` tests all publish before
   lookup, so the Finding 3 tightening keeps them green. The PR's own
@@ -70,9 +92,6 @@ fixed in post-merge passes; the rest are non-blocking observations.
 
 ## Open
 
-- **`module_assigns` warnings** — blocked on a `phoenix_kit` release
-  carrying core commit `b17b96b7`. Re-run `mix precommit` after the
-  next dependency bump; no code change expected.
 - **`maybe_rewrite/2` host adoption** — non-root workspace-prefix
   routing is inert until the host app calls the new `/2` arity.
 - **`Web.Settings.terminate/2` missing `@impl true`** — one-line

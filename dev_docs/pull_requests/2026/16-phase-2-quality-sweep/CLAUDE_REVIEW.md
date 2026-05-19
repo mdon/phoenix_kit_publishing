@@ -61,7 +61,7 @@ warning: clauses with the same name and arity should be grouped together,
 
 Batch D / the audit sweep inserted the `clear_translation_unguarded/1` private helper *between* two `handle_event/3` clauses. Fixed in this pass — the helper was relocated below the last `handle_event` clause so the clauses are contiguous. See §6.
 
-### 5b. `module_assigns` undefined-attribute warnings — DEFERRED (waiting on phoenix_kit release)
+### 5b. `module_assigns` undefined-attribute warnings — RESOLVED by phoenix_kit 1.7.114
 
 ```
 warning: undefined attribute "module_assigns" for component
@@ -69,11 +69,11 @@ PhoenixKitWeb.Components.LayoutWrapper.app_layout/1
   lib/phoenix_kit_publishing/web/html.ex:26, :98, :254
 ```
 
-This is **not fixable in the publishing repo alone**. PR #16's Batch D commit (`f63311b`) message states it *"Pairs with phoenix_kit core's `LayoutWrapper.app_layout/1` API change (commit `b17b96b7` on phoenix_kit master)"* — it intentionally switched to a generic `:module_assigns` attr. The latest *published* hex release, `phoenix_kit 1.7.113`, does not carry `b17b96b7`: its `app_layout/1` declares a fixed attr list with no `module_assigns` and no `:rest, :global`, and the dep contains zero references to `module_assigns`.
+PR #16's Batch D commit (`f63311b`) message states it *"Pairs with phoenix_kit core's `LayoutWrapper.app_layout/1` API change (commit `b17b96b7` on phoenix_kit master)"* — it intentionally switched to a generic `:module_assigns` attr. The then-latest published release, `phoenix_kit 1.7.113`, did not carry `b17b96b7`, so the attr was undeclared and the three warnings were unavoidable against the published dependency.
 
-So PR #16 was developed against unreleased phoenix_kit. Against the published dependency these three warnings are unavoidable, and the feature itself (host-layout assign forwarding) is inert until core ships the API.
+The `phoenix_kit 1.7.114` upgrade carries `b17b96b7`: `app_layout/1` now declares `attr :module_assigns, :map` and flattens its keys into the host layout's top-level assigns. The three warnings are gone — `mix compile --force --warnings-as-errors` passes with no publishing-side change.
 
-**Decision (maintainer):** wait for the next `phoenix_kit` release that includes `b17b96b7`, then the warnings clear with no publishing-side change. Until then `mix precommit` fails on these three. Plain `mix compile` passes (warnings only).
+The upgrade did surface separate, latent `mix precommit` issues (format / credo / dialyzer) — those were fixed; see `FOLLOW_UP.md`.
 
 ---
 
@@ -118,7 +118,7 @@ Other `/simplify` findings were reviewed and **not** acted on:
 
 ## 7. Open follow-ups (non-blocking)
 
-1. **`module_assigns` attr warnings** (§5b) — blocked on a `phoenix_kit` release carrying core commit `b17b96b7`; `mix precommit` fails on these three until then (maintainer-accepted). The `handle_event/3` grouping warning (§5a) is already fixed.
+1. **`module_assigns` attr warnings** (§5b) — RESOLVED by the `phoenix_kit 1.7.114` upgrade; both these and the `handle_event/3` grouping warning (§5a) are fixed, and `mix precommit` is fully green (see `FOLLOW_UP.md`).
 2. **`maybe_rewrite/2` host adoption** (§4) — non-root workspace-prefix routing is inert until the host app calls the `/2` arity; confirm the host side lands.
 3. **`Web.Settings.terminate/2` missing `@impl true`** (§4) — one-line consistency nit.
 4. **Read-path write in `find_by_url_slug/3`** (§2) — documented best-effort self-healing; flagged only so a future reader knows the lookup can mutate and will fail on a read-only connection.
