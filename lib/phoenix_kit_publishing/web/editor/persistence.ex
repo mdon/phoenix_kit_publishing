@@ -595,8 +595,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor.Persistence do
         alias PhoenixKit.Modules.Publishing.Web.Editor.Forms
         form = Forms.post_form(updated_post)
 
-        language = updated_post.language || socket.assigns[:current_language]
-        public_url = Helpers.build_public_url(updated_post, language)
+        public_url = Helpers.build_public_url(updated_post, updated_post.language)
 
         socket =
           socket

@@ -147,9 +147,7 @@ defmodule PhoenixKit.Modules.Publishing.ListingCache do
     # on top of the memory leak.
     case DBStorage.get_group_by_slug(group_slug) do
       nil ->
-        Logger.debug(
-          "[ListingCache] Refusing to cache unknown group #{inspect(group_slug)}"
-        )
+        Logger.debug("[ListingCache] Refusing to cache unknown group #{inspect(group_slug)}")
 
         {:error, :group_not_found}
 

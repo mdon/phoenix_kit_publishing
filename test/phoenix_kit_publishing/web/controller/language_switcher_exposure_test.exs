@@ -46,7 +46,10 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller.LanguageSwitcherExposureT
 
     on_exit(fn ->
       {:ok, _} = Settings.update_boolean_setting("publishing_enabled", prior_publishing_enabled)
-      {:ok, _} = Settings.update_boolean_setting("publishing_public_enabled", prior_publishing_public)
+
+      {:ok, _} =
+        Settings.update_boolean_setting("publishing_public_enabled", prior_publishing_public)
+
       {:ok, _} = Settings.update_boolean_setting("languages_enabled", prior_languages_enabled)
       {:ok, _} = Settings.update_setting("content_language", prior_content_language)
       {:ok, _} = Settings.update_boolean_setting(@show_switcher_key, prior_show_switcher)

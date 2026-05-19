@@ -543,16 +543,16 @@ defmodule PhoenixKit.Modules.Publishing.Posts do
       repo = PhoenixKit.RepoHelper.repo()
 
       tx_result =
-        create_post_with_timestamp_retry(
-          repo,
-          post_attrs,
-          mode,
-          group_slug,
-          opts,
-          primary_language,
-          created_by_uuid,
-          post_slug
-        )
+        create_post_with_timestamp_retry(%{
+          repo: repo,
+          post_attrs: post_attrs,
+          mode: mode,
+          group_slug: group_slug,
+          opts: opts,
+          primary_language: primary_language,
+          created_by_uuid: created_by_uuid,
+          post_slug: post_slug
+        })
 
       with {:ok, db_post} <- tx_result,
            {:ok, post} <- read_back_created_post(group_slug, db_post, mode, primary_language) do
@@ -578,40 +578,43 @@ defmodule PhoenixKit.Modules.Publishing.Posts do
   # `SlugHelpers.generate_unique_slug/3` upstream check.
   @max_timestamp_retries 5
 
-  defp create_post_with_timestamp_retry(
-         repo,
-         post_attrs,
-         mode,
-         group_slug,
-         opts,
-         primary_language,
-         created_by_uuid,
-         post_slug,
-         attempt \\ 0
-       )
+  # `args` bundles the eight invariant inputs (repo, post_attrs, mode,
+  # group_slug, opts, primary_language, created_by_uuid, post_slug) —
+  # only `attempt` changes across the recursion, so they travel as one
+  # context map rather than nine positional params.
+  defp create_post_with_timestamp_retry(args, attempt \\ 0)
 
-  defp create_post_with_timestamp_retry(_repo, _post_attrs, _mode, _group_slug, _opts, _pl, _cbu, _ps, attempt)
+  defp create_post_with_timestamp_retry(_args, attempt)
        when attempt >= @max_timestamp_retries do
     {:error, :timestamp_collision_unresolvable}
   end
 
-  defp create_post_with_timestamp_retry(repo, post_attrs, mode, group_slug, opts, pl, cbu, ps, attempt) do
+  defp create_post_with_timestamp_retry(args, attempt) do
+    %{
+      repo: repo,
+      post_attrs: post_attrs,
+      mode: mode,
+      group_slug: group_slug,
+      opts: opts,
+      primary_language: pl,
+      created_by_uuid: cbu,
+      post_slug: ps
+    } = args
+
     result =
       repo.transaction(fn ->
         create_post_in_transaction(repo, post_attrs, mode, group_slug, opts, pl, cbu, ps)
       end)
 
-    cond do
-      mode == "timestamp" and timestamp_collision?(result) ->
-        Logger.warning(
-          "[Publishing] Timestamp collision detected, retrying " <>
-            "(attempt #{attempt + 1}/#{@max_timestamp_retries})"
-        )
+    if mode == "timestamp" and timestamp_collision?(result) do
+      Logger.warning(
+        "[Publishing] Timestamp collision detected, retrying " <>
+          "(attempt #{attempt + 1}/#{@max_timestamp_retries})"
+      )
 
-        create_post_with_timestamp_retry(repo, post_attrs, mode, group_slug, opts, pl, cbu, ps, attempt + 1)
-
-      true ->
-        result
+      create_post_with_timestamp_retry(args, attempt + 1)
+    else
+      result
     end
   end
 

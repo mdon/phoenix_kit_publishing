@@ -255,5 +255,4 @@ defmodule PhoenixKit.Modules.Publishing.DBStorage.Mapper do
   defp safe_mode_atom("timestamp"), do: :timestamp
   defp safe_mode_atom("slug"), do: :slug
   defp safe_mode_atom(_), do: :timestamp
-
 end

@@ -351,9 +351,7 @@ defmodule PhoenixKit.Modules.Publishing do
     end
   rescue
     e in [Ecto.QueryError, DBConnection.ConnectionError, Postgrex.Error] ->
-      Logger.warning(
-        "[Publishing] load_publishing_groups_for_tabs DB failure: #{inspect(e)}"
-      )
+      Logger.warning("[Publishing] load_publishing_groups_for_tabs DB failure: #{inspect(e)}")
 
       []
   end

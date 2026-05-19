@@ -419,7 +419,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller do
   # forward keeps the editor open in the language the user was reading.
   defp edit_post_admin_url(group_slug, post_uuid, current_language) do
     Routes.path(
-      "/admin/publishing/#{group_slug}/#{post_uuid}/edit?lang=#{URI.encode_www_form(current_language || "")}"
+      "/admin/publishing/#{group_slug}/#{post_uuid}/edit?lang=#{URI.encode_www_form(current_language)}"
     )
   end
 

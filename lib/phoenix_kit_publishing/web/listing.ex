@@ -903,7 +903,10 @@ defmodule PhoenixKit.Modules.Publishing.Web.Listing do
       :ok ->
         {:noreply,
          socket
-         |> put_flash(:info, gettext("Status updated to %{status}", status: status_label(new_status)))
+         |> put_flash(
+           :info,
+           gettext("Status updated to %{status}", status: status_label(new_status))
+         )
          |> reload_current_view()}
 
       {:error, _reason} ->
