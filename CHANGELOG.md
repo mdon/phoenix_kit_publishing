@@ -1,5 +1,36 @@
 # Changelog
 
+## 0.1.9 - 2026-05-19
+
+PR #16 — Phase 2 quality sweep (URL-slug correctness, DoS guards, race fixes, archive semantics, host boundaries) + post-merge review fixes + the `phoenix_kit 1.7.114` upgrade.
+
+### Fixed
+- **`Ecto.MultipleResultsError` on URL-slug post lookups.** Posts that accumulated several versions sharing identical content fields crashed `repo().one()`. URL-slug resolution is now scoped to the post's active version (public path) with a deterministic tie-break.
+- **Two DoS vectors closed.** (1) The PHK page-builder XML parser used `String.to_atom/1` on admin-supplied tag names — arbitrary tags could exhaust the finite BEAM atom table and crash the VM. It now uses `String.to_existing_atom/1`, routing unknown tags to `:unknown`. (2) `ListingCache` minted a never-GC'd `:persistent_term` entry for every unknown URL segment treated as a group slug; it now verifies the group exists before writing (each write also triggers a global GC pass — a flood of bad requests was a DoS on top of the leak).
+- **Language-switch redirect loop on a trailing `?`.** `build_public_path/2` encoded an empty query map to `"foo?"`, which never equals the canonical `"foo"`, so the 301 looped to itself. Empty params now produce no `?`.
+- **Public URLs broke under a non-root workspace prefix.** `RouterDispatch` gained `maybe_rewrite/2`, which strips/re-prepends the host's `url_prefix` so dispatch works when PhoenixKit is mounted under e.g. `/phoenix_kit`.
+- **Publish/unpublish races.** Both `do_publish_version/4` and `do_unpublish_post/3` now take a `SELECT … FOR UPDATE` lock on the post row (shared `lock_post!/2` helper) so concurrent publishes/unpublishes can't interleave into a stale `active_version_uuid`. Timestamp-mode `create_post` retries the whole transaction on a `(group_uuid, post_date, post_time)` unique-constraint violation instead of failing.
+- **`find_by_previous_url_slug/3` surfaced unpublished posts** — a public 301 redirect could resolve onto a never-published post that then 404s. Now scoped to the active version only.
+- **`clear_translation` editor event was unguarded** — a spectator/locked-out viewer could hard-delete a translation row by sending the event directly over the socket. Now gated like every other destructive editor event.
+
+### Added
+- **`find_by_url_slug_any_version/3`** (`Posts` / `DBStorage`) — internal lookup that surfaces unpublished drafts, for the stale-language self-healing flow and slug-uniqueness checks. The public `find_by_url_slug/3` stays published-only.
+- **`unpublish_post` `:target_status` option** — the "Archived" UI action now persists `status: "archived"` on the version row instead of silently reverting to `"draft"`.
+- `terminate/2` on the `Index`, `PostShow`, and `Settings` LiveViews for subscribe/unsubscribe symmetry.
+- i18n sweep — previously-hardcoded UI strings on the public listing/post pages and editor now flow through `gettext`/`ngettext`.
+
+### Changed
+- **URL-slug lookup split** into a public, published-only path and an internal any-version path; collisions on the public path self-heal by auto-suffixing the loser's `url_slug`.
+- **base→dialect resolution consolidated** — three near-identical helpers in `Posts`, `Web.Controller.Language`, and `StaleFixer` collapse into `LanguageHelpers.resolve_dialect_for_base/3` with explicit `:prefer` / `:exclude` options.
+- The admin "Edit Post" link now carries the current public-side language via `?lang=` so the editor opens in the language the reader was viewing.
+- Narrowed `rescue` clauses in `Publishing.dashboard_tabs`, `load_publishing_groups_for_tabs`, and `Web.Preview` to catch only expected DB/render exceptions — genuine programmer errors bubble up again instead of being masked.
+- `clear_translation/4` writes an `ActivityLog` audit entry, matching `delete_language`.
+- Bumped `phoenix_kit` to `~> 1.7.114`, which adds the generic `:module_assigns` attr on `LayoutWrapper.app_layout/1`; `Web.HTML` forwards `phoenix_kit_publishing_translations` and `og` to the host layout through it.
+- `create_post_with_timestamp_retry` takes a single context map instead of nine positional arguments.
+
+### Docs
+- `dev_docs/pull_requests/2026/16-phase-2-quality-sweep/` — `CLAUDE_REVIEW.md` (post-merge review) and `FOLLOW_UP.md` (findings triage + `mix precommit` restoration after the upgrade).
+
 ## 0.1.8 - 2026-05-09
 
 PR #15 — host-integration hooks for the language switcher + post-merge boundary normalisation.
