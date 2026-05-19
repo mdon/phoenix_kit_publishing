@@ -66,7 +66,9 @@ defmodule PhoenixKit.Modules.Publishing.Posts do
   end
 
   @doc """
-  Finds a post by URL slug from the database.
+  Finds a published post by URL slug — the public routing path. Drafts
+  do NOT resolve through this lookup; use `find_by_url_slug_any_version/3`
+  for admin/self-healing flows that need to see drafts.
   """
   @spec find_by_url_slug(String.t(), String.t(), String.t()) ::
           {:ok, map()} | {:error, :not_found | :cache_miss}
@@ -76,6 +78,27 @@ defmodule PhoenixKit.Modules.Publishing.Posts do
            language,
            url_slug,
            &DBStorage.find_by_url_slug/3
+         ) do
+      nil -> {:error, :not_found}
+      content -> {:ok, db_content_to_post_map(content)}
+    end
+  end
+
+  @doc """
+  Finds a post by URL slug, INCLUDING unpublished drafts. Internal use only —
+  the stale-language self-healing flow (`StaleFixer`) and slug-uniqueness
+  collision checks (`SlugHelpers.url_slug_exists?`) need to surface drafts
+  so they can normalize / reject duplicates before publish. Never call this
+  from a public route handler.
+  """
+  @spec find_by_url_slug_any_version(String.t(), String.t(), String.t()) ::
+          {:ok, map()} | {:error, :not_found | :cache_miss}
+  def find_by_url_slug_any_version(group_slug, language, url_slug) do
+    case find_content_with_stale_retry(
+           group_slug,
+           language,
+           url_slug,
+           &DBStorage.find_by_url_slug_any_version/3
          ) do
       nil -> {:error, :not_found}
       content -> {:ok, db_content_to_post_map(content)}
@@ -520,18 +543,16 @@ defmodule PhoenixKit.Modules.Publishing.Posts do
       repo = PhoenixKit.RepoHelper.repo()
 
       tx_result =
-        repo.transaction(fn ->
-          create_post_in_transaction(
-            repo,
-            post_attrs,
-            mode,
-            group_slug,
-            opts,
-            primary_language,
-            created_by_uuid,
-            post_slug
-          )
-        end)
+        create_post_with_timestamp_retry(
+          repo,
+          post_attrs,
+          mode,
+          group_slug,
+          opts,
+          primary_language,
+          created_by_uuid,
+          post_slug
+        )
 
       with {:ok, db_post} <- tx_result,
            {:ok, post} <- read_back_created_post(group_slug, db_post, mode, primary_language) do
@@ -541,6 +562,75 @@ defmodule PhoenixKit.Modules.Publishing.Posts do
       end
     end
   end
+
+  # Timestamp-mode posts have a UNIQUE INDEX on `(group_uuid, post_date,
+  # post_time)`. `resolve_timestamp_in_transaction/3` searches for the
+  # first free minute by reading `get_post_by_datetime/3` then inserting
+  # — but the read-then-insert is not atomic. Two concurrent
+  # `create_post` calls in the same minute both see "free", both try to
+  # insert, one fails with a unique-constraint violation.
+  #
+  # We retry the WHOLE transaction (not just the insert) on a
+  # constraint violation so the new attempt re-runs the timestamp
+  # scan and picks the next free minute. `@max_timestamp_retries`
+  # bounds the loop; slug-mode posts never hit this path because
+  # their unique key is `(group_uuid, slug)` which is enforced by the
+  # `SlugHelpers.generate_unique_slug/3` upstream check.
+  @max_timestamp_retries 5
+
+  defp create_post_with_timestamp_retry(
+         repo,
+         post_attrs,
+         mode,
+         group_slug,
+         opts,
+         primary_language,
+         created_by_uuid,
+         post_slug,
+         attempt \\ 0
+       )
+
+  defp create_post_with_timestamp_retry(_repo, _post_attrs, _mode, _group_slug, _opts, _pl, _cbu, _ps, attempt)
+       when attempt >= @max_timestamp_retries do
+    {:error, :timestamp_collision_unresolvable}
+  end
+
+  defp create_post_with_timestamp_retry(repo, post_attrs, mode, group_slug, opts, pl, cbu, ps, attempt) do
+    result =
+      repo.transaction(fn ->
+        create_post_in_transaction(repo, post_attrs, mode, group_slug, opts, pl, cbu, ps)
+      end)
+
+    cond do
+      mode == "timestamp" and timestamp_collision?(result) ->
+        Logger.warning(
+          "[Publishing] Timestamp collision detected, retrying " <>
+            "(attempt #{attempt + 1}/#{@max_timestamp_retries})"
+        )
+
+        create_post_with_timestamp_retry(repo, post_attrs, mode, group_slug, opts, pl, cbu, ps, attempt + 1)
+
+      true ->
+        result
+    end
+  end
+
+  # The `(group_uuid, post_date, post_time)` unique-constraint
+  # violation lands here as a changeset error after `repo.rollback`.
+  # Both the field-level and constraint-name keys are checked because
+  # Ecto puts the error under whichever field is declared in the
+  # `unique_constraint/3` call (currently `:post_time`).
+  defp timestamp_collision?({:error, %Ecto.Changeset{errors: errors}}) do
+    Enum.any?(errors, fn
+      {field, {_msg, opts}} when field in [:post_time, :post_date] ->
+        opts[:constraint] == :unique
+
+      _ ->
+        false
+    end)
+  end
+
+  defp timestamp_collision?(_other), do: false
 
   defp create_post_in_transaction(
          repo,
@@ -744,27 +834,12 @@ defmodule PhoenixKit.Modules.Publishing.Posts do
         language
 
       DialectMapper.extract_base(language) == language ->
-        enabled_dialect_for_base(language, enabled) || DialectMapper.base_to_dialect(language)
+        LanguageHelpers.resolve_dialect_for_base(language, enabled,
+          prefer: LanguageHelpers.get_primary_language()
+        ) || DialectMapper.base_to_dialect(language)
 
       true ->
         language
-    end
-  end
-
-  # Picks an enabled dialect whose base matches `base`. When multiple dialects
-  # share the base, prefers `get_primary_language/0` if present, otherwise
-  # the first match in declaration order.
-  defp enabled_dialect_for_base(base, enabled) do
-    case Enum.filter(enabled, fn code -> DialectMapper.extract_base(code) == base end) do
-      [] ->
-        nil
-
-      [single] ->
-        single
-
-      multiple ->
-        primary = LanguageHelpers.get_primary_language()
-        if primary in multiple, do: primary, else: List.first(multiple)
     end
   end
 

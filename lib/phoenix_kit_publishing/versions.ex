@@ -7,12 +7,14 @@ defmodule PhoenixKit.Modules.Publishing.Versions do
   """
 
   require Logger
+  import Ecto.Query, only: [from: 2]
 
   alias PhoenixKit.Modules.Publishing.ActivityLog
   alias PhoenixKit.Modules.Publishing.Constants
   alias PhoenixKit.Modules.Publishing.DBStorage
   alias PhoenixKit.Modules.Publishing.LanguageHelpers
   alias PhoenixKit.Modules.Publishing.ListingCache
+  alias PhoenixKit.Modules.Publishing.PublishingPost
   alias PhoenixKit.Modules.Publishing.PubSub, as: PublishingPubSub
   alias PhoenixKit.Modules.Publishing.Shared
   alias PhoenixKit.Utils.Date, as: UtilsDate
@@ -79,7 +81,20 @@ defmodule PhoenixKit.Modules.Publishing.Versions do
       "draft"
   end
 
-  # Version metadata lookup (DB-based)
+  @doc """
+  Returns a `%{status, title, url_slug, version}` map for the given
+  group/post/version/language tuple, or `nil` when any link in the
+  chain (post → version → per-language content) is missing.
+
+  Used by the editor and listing views to surface the version's
+  title and URL slug for a specific language without having to load
+  the full version + content rows.
+
+  Returns `nil` (not an `{:error, _}` tuple) on DB exceptions — the
+  caller treats absent metadata the same as a missing version, and
+  the exception is logged for diagnostics.
+  """
+  @spec get_version_metadata(String.t(), String.t(), integer(), String.t()) :: map() | nil
   def get_version_metadata(group_slug, post_slug, version_number, language) do
     with db_post when not is_nil(db_post) <- DBStorage.get_post(group_slug, post_slug),
          db_version when not is_nil(db_version) <-
@@ -184,15 +199,25 @@ defmodule PhoenixKit.Modules.Publishing.Versions do
   Unpublishes a post by clearing its active version.
 
   - Clears `post.active_version_uuid`
-  - Sets the previously-active version status to "draft"
+  - Sets the previously-active version status to `:target_status` opt
+    (default `"draft"`; pass `"archived"` to archive instead). The UI's
+    "archived" status flows through here so the version's row should
+    actually carry `"archived"`, otherwise the UI label and the DB state
+    diverge (the admin listing shows "Archived" but the underlying
+    version is `"draft"`).
 
   ## Options
 
   - `:source_id` - ID of the source to include in broadcasts
+  - `:target_status` - final status for the previously-active version
+    (`"draft"` or `"archived"`; default `"draft"`)
 
   ## Examples
 
       iex> Publishing.Versions.unpublish_post("blog", post_uuid)
+      :ok
+
+      iex> Publishing.Versions.unpublish_post("blog", post_uuid, target_status: "archived")
       :ok
 
       iex> Publishing.Versions.unpublish_post("blog", "nonexistent")
@@ -233,6 +258,20 @@ defmodule PhoenixKit.Modules.Publishing.Versions do
 
     tx_result =
       repo.transaction(fn ->
+        # Lock the post row for the duration of the transaction. Without
+        # `SELECT … FOR UPDATE` two concurrent publishes can both read the
+        # version list, both archive each other's "published" row, both
+        # activate, and end up with mismatched `active_version_uuid` or
+        # multiple `status == "published"` rows. The lock serializes
+        # publishes per-post; concurrent publishes of DIFFERENT posts are
+        # still parallel.
+        _locked_post =
+          from(p in PublishingPost,
+            where: p.uuid == ^db_post.uuid,
+            lock: "FOR UPDATE"
+          )
+          |> repo.one()
+
         versions = DBStorage.list_versions(db_post.uuid)
         target_version = Enum.find(versions, &(&1.version_number == version))
 
@@ -318,6 +357,7 @@ defmodule PhoenixKit.Modules.Publishing.Versions do
 
   defp do_unpublish_post(group_slug, db_post, opts) do
     repo = PhoenixKit.RepoHelper.repo()
+    target_status = Keyword.get(opts, :target_status, "draft")
 
     tx_result =
       repo.transaction(fn ->
@@ -330,7 +370,7 @@ defmodule PhoenixKit.Modules.Publishing.Versions do
           {:error, reason} -> repo.rollback(reason)
         end
 
-        revert_active_version_to_draft(repo, active_version)
+        set_active_version_status(repo, active_version, target_status)
       end)
 
     case tx_result do
@@ -573,10 +613,10 @@ defmodule PhoenixKit.Modules.Publishing.Versions do
     end
   end
 
-  defp revert_active_version_to_draft(_repo, nil), do: :ok
+  defp set_active_version_status(_repo, nil, _target_status), do: :ok
 
-  defp revert_active_version_to_draft(repo, active_version) do
-    case DBStorage.update_version(active_version, %{status: "draft"}) do
+  defp set_active_version_status(repo, active_version, target_status) do
+    case DBStorage.update_version(active_version, %{status: target_status}) do
       {:ok, _} -> :ok
       {:error, reason} -> repo.rollback(reason)
     end

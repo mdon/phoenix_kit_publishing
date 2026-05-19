@@ -91,13 +91,16 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller.RichFixturesTest do
     end
   end
 
-  # NOTE: multi-version-on-same-url_slug scenarios are excluded — the
-  # publishing module's `find_by_url_slug` query doesn't filter to the
-  # active content row, so multiple draft/published versions sharing a
-  # url_slug return MultipleResultsError. That's a real production
-  # constraint (the Editor LV creates v2 drafts with a fresh url_slug
-  # via collect_legacy_content_promotions); it just doesn't show up in
-  # raw `Versions.create_new_version` calls used here.
+  # Historical NOTE (kept for context): multi-version-on-same-url_slug
+  # scenarios were excluded here because `DBStorage.find_by_url_slug/3`
+  # used to crash with `Ecto.MultipleResultsError` when a post's draft
+  # versions shared an empty url_slug. That regression is fixed
+  # (commit `cee15cc` scoped the query to the active version, plus
+  # `cba14d2` added the public/any-version split + tie-breaker
+  # auto-rename). Dedicated coverage for the multi-version shape now
+  # lives in
+  # `test/phoenix_kit_publishing/integration/db_storage_url_slug_lookup_test.exs`,
+  # so this file doesn't need to exercise that scenario directly.
 
   describe "timestamp-mode posts — date URL branches" do
     setup do

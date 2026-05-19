@@ -14,6 +14,7 @@ defmodule PhoenixKit.Modules.Publishing.DBStorage.Mapper do
   alias PhoenixKit.Modules.Publishing.PublishingContent
   alias PhoenixKit.Modules.Publishing.PublishingPost
   alias PhoenixKit.Modules.Publishing.PublishingVersion
+  alias PhoenixKit.Utils.Values
 
   @doc """
   Converts a full post read (post + version + content + all contents + all versions)
@@ -53,7 +54,7 @@ defmodule PhoenixKit.Modules.Publishing.DBStorage.Mapper do
       uuid: post.uuid,
       group: group_slug,
       slug: post.slug,
-      url_slug: presence(content.url_slug) || post.slug,
+      url_slug: Values.blank_to_nil(content.url_slug) || post.slug,
       date: post.post_date,
       time: post.post_time,
       mode: safe_mode_atom(post.mode),
@@ -108,7 +109,7 @@ defmodule PhoenixKit.Modules.Publishing.DBStorage.Mapper do
       uuid: post.uuid,
       group: group_slug,
       slug: post.slug,
-      url_slug: presence(primary_content && primary_content.url_slug) || post.slug,
+      url_slug: Values.blank_to_nil(primary_content && primary_content.url_slug) || post.slug,
       date: post.post_date,
       time: post.post_time,
       mode: safe_mode_atom(post.mode),
@@ -198,7 +199,7 @@ defmodule PhoenixKit.Modules.Publishing.DBStorage.Mapper do
 
   defp build_language_slugs(all_contents, default_slug) do
     Map.new(all_contents, fn c ->
-      {c.language, presence(c.url_slug) || default_slug}
+      {c.language, Values.blank_to_nil(c.url_slug) || default_slug}
     end)
   end
 
@@ -255,7 +256,4 @@ defmodule PhoenixKit.Modules.Publishing.DBStorage.Mapper do
   defp safe_mode_atom("slug"), do: :slug
   defp safe_mode_atom(_), do: :timestamp
 
-  defp presence(nil), do: nil
-  defp presence(""), do: nil
-  defp presence(value), do: value
 end

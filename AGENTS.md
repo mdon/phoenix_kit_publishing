@@ -161,7 +161,40 @@ Group (1) ──→ (many) Post (1) ──→ (many) Version (1) ──→ (many
 - **Public templates must forward `phoenix_kit_current_scope`** — every `<PhoenixKitWeb.Components.LayoutWrapper.app_layout>` call in `Web.HTML` needs `phoenix_kit_current_scope={assigns[:phoenix_kit_current_scope]}` so the parent app's header sees the authenticated user. Omitting it renders the page as logged-out even when the controller knows otherwise (see Issue #8)
 - **Public URL building** — always go through `PublishingHTML.group_listing_path/3` / `build_post_url/4` / `build_public_path_with_time/4`; never hand-roll prefix logic in admin templates (see Issue #7)
 - **Language normalization on read** — `Posts.read_post/4` and the slug finders retry through the legacy base language on `:not_found` and fix stale content in place via `StaleFixer`. Don't pre-check for staleness on the hot path — the retry-on-miss pattern keeps healthy reads at one query
-- **Base→enabled-dialect resolution** — `Posts.resolve_language_to_dialect/1` (private, used by every `read_post*` entry point) maps a base code (`"en"`) to whichever enabled dialect actually exists. When several dialects share the base, prefers `LanguageHelpers.get_primary_language/0`, otherwise the first match in `enabled_language_codes/0` declaration order; falls back to `DialectMapper.base_to_dialect/1` only when no enabled dialect matches the base. The Listing builds `?lang=<primary_base>` for the editor's default click-through, so this resolver is on the hot path for every "click a post title" navigation. **The Editor's UUID-mode and path-mode `handle_params` clauses must run `Web.Controller.Language.resolve_language_for_post/2` (via the local `new_translation_request?/2` helper) against `post.available_languages` before deciding new-vs-existing translation.** A naive `language not in post.available_languages` check on the raw URL param routes `?lang=en` against `["en-GB", "ru"]` into `handle_new_translation_params/6` — which empties the form (see Issue #11)
+- **Base→enabled-dialect resolution** — `Posts.resolve_language_to_dialect/1` (private, used by every `read_post*` entry point) maps a base code (`"en"`) to whichever enabled dialect actually exists. When several dialects share the base, prefers `LanguageHelpers.get_primary_language/0`, otherwise the first match in `enabled_language_codes/0` declaration order; falls back to `DialectMapper.base_to_dialect/1` only when no enabled dialect matches the base. The Listing builds `?lang=<primary_base>` for the editor's default click-through, so this resolver is on the hot path for every "click a post title" navigation. **The Editor's UUID-mode and path-mode `handle_params` clauses must run `Web.Controller.Language.resolve_language_for_post/2` (via the local `new_translation_request?/2` helper) against `post.available_languages` before deciding new-vs-existing translation.** A naive `language not in post.available_languages` check on the raw URL param routes `?lang=en` against `["en-GB", "ru"]` into `handle_new_translation_params/6` — which empties the form (see Issue #11).
+
+  Two-stage flow on a click into the editor:
+
+  ```
+  URL ?lang=<code>
+       │
+       ▼
+  new_translation_request?/2
+       │   uses Web.Controller.Language.resolve_language_for_post/2
+       │   against post.available_languages (Enum.find first match)
+       ▼
+  ┌──── resolved in available? ────┐
+  │ yes                         no │
+  ▼                                ▼
+  load existing translation     handle_new_translation_params/6
+       │                        (empty form)
+       ▼
+  Publishing.read_post_by_uuid(language, …)
+       │
+       ▼
+  Posts.resolve_language_to_dialect/1
+       │   against enabled_language_codes/0
+       │   (primary tie-break, then declaration order;
+       │    DialectMapper fallback if no enabled dialect)
+       ▼
+  read content for the resolved dialect
+  ```
+
+  The two stages answer the same "base → dialect" question with
+  subtly different tie-break rules and against different lists. A
+  future unification (`Languages.resolve_in/3` with a `:tie_break`
+  opt) would close that divergence — flag for the next refactor that
+  touches either layer.
 
 ## Routing: Single Page vs Multi-Page
 
@@ -369,6 +402,29 @@ Publishing renders an in-page language switcher on group-listing and post pages 
 
 Per-translation URLs are exposed regardless of `publishing_show_language_switcher`, so the host can render them whether the in-page switcher is on or off.
 
+### ⚠️ Function-component layouts ONLY see declared attrs
+
+`:phoenix_kit_publishing_translations` is set on `conn.assigns` by the controller. The assign reaches `root.html.heex` (a plain Phoenix template), but **NOT** inner function-component layouts (`<.app_layout>`, the host's `Layouts.app`) unless every wrapper component along the path declares the attr and forwards it explicitly. Phoenix 1.7+ function-components see only declared attrs, not surrounding `conn.assigns`.
+
+Today's forwarding chain:
+
+1. Controller sets `conn.assigns[:phoenix_kit_publishing_translations]` (in `Web.Controller`).
+2. Publishing's three public render branches (`all_groups/1`, `index/1`, `show/1` in `Web.HTML`) pass it via the module-agnostic `module_assigns={%{phoenix_kit_publishing_translations: assigns[:phoenix_kit_publishing_translations]}}` to `<PhoenixKitWeb.Components.LayoutWrapper.app_layout>`.
+3. `LayoutWrapper.app_layout` (in phoenix_kit core) declares the generic `:module_assigns` map attr and merges its keys into the top-level assigns before invoking the host's `Layouts.app/1`.
+
+Why the generic `:module_assigns` map instead of a specific attr per module: function-component attrs must be declared in advance, and we don't want phoenix_kit core to carry a hard-coded list of every external module's host-consumable keys. The single map attribute lets each module thread its own keys through without core touching the API.
+
+If the host consumes the assign from `root.html.heex`, the forwarding chain is irrelevant. If the host consumes it from `Layouts.app/1` (the typical custom-switcher placement), all three steps must hold. The boundary test in `test/phoenix_kit_publishing/web/controller/language_switcher_exposure_test.exs` ("host-integration boundary" describe) pins the full chain by rendering through the test `Layouts.app/1` and comparing `length(conn.assigns[...])` to the rendered nav's `data-count`.
+
+## OpenGraph metadata (`:og` conn assign)
+
+Publishing assigns a `:og` map on every public response for host root layouts to render `<meta property="og:...">` tags. Two shapes:
+
+- **Listing pages** — `%{title, url, locale, type: "website"}` (4 fields).
+- **Post pages** — `%{title, description, image, url, locale, type: "article"}` (6 fields). `description` and `image` may be `nil` when the post has no SEO metadata or featured image.
+
+`:og` lands on `conn.assigns` AND is forwarded through `LayoutWrapper.app_layout`'s `:module_assigns` map, so hosts can consume it from either `root.html.heex` (the conn assign) OR `Layouts.app/1` (the forwarded `@og` assign). The forwarding happens in publishing's three public render branches (`all_groups/1`, `index/1`, `show/1` in `Web.HTML`) the same way `:phoenix_kit_publishing_translations` does — see the function-component-layout callout above for the boundary mechanism.
+
 ## Testing
 
 Integration tests live in `test/phoenix_kit_publishing/integration/` and controller tests in `test/phoenix_kit_publishing/web/controller/`. Both need a PostgreSQL database — automatically excluded when unavailable.
@@ -477,3 +533,12 @@ Deliberate non-features — surfacing here so future contributors don't try to a
 - **No editor-side conflict resolution beyond owner/spectator locking.** Two admins editing the same post in different tabs see Presence-driven indicators and the spectator's writes are blocked at the form level. There is no merge-on-conflict UX.
 - **No client-side undo stack.** Versions are the undo mechanism — every save creates an audit trail in `phoenix_kit_publishing_versions`.
 - **No frontend bundle.** Tailwind/daisyUI classes are emitted by the renderer; the host app's `app.css` includes `@source` for `phoenix_kit_publishing` via the installer.
+
+## TODOs
+
+Workspace-tracked items surfaced by reviewers / triage agents that didn't make the immediate fix batch but are worth picking up. Each has a clear scope; ordered roughly by impact.
+
+- **Multi-tab sync flicker in `collaborative.ex:168`.** Same user with two tabs of the same post AND a concurrent spectator → both owner tabs respond to the spectator's initial sync; the spectator's view flickers once and settles. Owner tabs stay consistent and no data is lost — it's a UX glitch with narrow trigger conditions, but the fix (elect one tab as primary-sync-responder via socket_id ordering, route sync responses through it) is mechanical once the design call is made. Needs its own PR with a dedicated test that mounts two LV processes for the same user and asserts only one responds.
+- **Centralize the `"published"` status string** (~75 occurrences across `db_storage.ex`, `stale_fixer.ex`, `versions.ex`, controllers, LVs, …). Move to `Constants.status_published/0` or similar. Best done with `ast-grep` to catch every occurrence in one pass; the "missed one of 75 sites" risk is real if done by hand. Low practical urgency (the value hasn't changed and won't without a DB migration), but the moment it DOES need to change, having the constant in place saves the change from being a 75-site grep-and-pray.
+- **Preview-tab loading indicator** (`web/preview.ex`). Markdown rendering can be slow for large PHK XML; pushing a `phx-update="ignore"` skeleton or a `phx-disable-with`-style placeholder before `render_markdown_content/1` returns would smooth the perceived hang. Trivial once we have a benchmark showing it matters.
+- **Translation button immediate-disable** in the editor. `phx-disable-with` covers most cases; the residual risk is double-enqueue on very slow networks before the server's `ai_translation_status` assign comes back. A small JS hook that disables the button on click (before the round-trip) closes that gap.

@@ -117,8 +117,13 @@ defmodule PhoenixKit.Integration.Publishing.StaleFixerTest do
     assert legacy_content.language == "en"
     assert legacy_content.url_slug == "markdown-rendering-demo"
 
+    # The post is unpublished (no `Versions.publish_version/3` call), so
+    # the public `find_by_url_slug/3` won't surface it — by design. The
+    # stale-fixer self-healing flow uses the `_any_version` variant which
+    # includes drafts. (The healing logic that mutates the legacy `en`
+    # row into `en-US` is exercised at the DBStorage layer underneath.)
     assert {:ok, resolved_post} =
-             Posts.find_by_url_slug(group["slug"], "en-US", "markdown-rendering-demo")
+             Posts.find_by_url_slug_any_version(group["slug"], "en-US", "markdown-rendering-demo")
 
     assert resolved_post.language == "en-US"
 

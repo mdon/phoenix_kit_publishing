@@ -213,4 +213,68 @@ defmodule PhoenixKit.Modules.Publishing.LanguageHelpersTest do
       refute LanguageHelpers.base_language_code?(123)
     end
   end
+
+  describe "resolve_dialect_for_base/3" do
+    # Pure function — does not depend on the setup-block fixtures.
+
+    test "returns nil when no candidate's base matches" do
+      assert LanguageHelpers.resolve_dialect_for_base("xx", ["en", "fr"]) == nil
+      assert LanguageHelpers.resolve_dialect_for_base("xx", []) == nil
+    end
+
+    test "returns the single match (no tie-break needed)" do
+      assert LanguageHelpers.resolve_dialect_for_base("en", ["en-US", "fr-FR"]) == "en-US"
+    end
+
+    test "returns first match in candidate order when multiple share the base" do
+      assert LanguageHelpers.resolve_dialect_for_base("en", ["en-GB", "en-US"]) == "en-GB"
+      assert LanguageHelpers.resolve_dialect_for_base("en", ["en-US", "en-GB"]) == "en-US"
+    end
+
+    test "`:prefer` wins tie-break when prefer is among the matches" do
+      assert LanguageHelpers.resolve_dialect_for_base("en", ["en-GB", "en-US"], prefer: "en-US") ==
+               "en-US"
+    end
+
+    test "`:prefer` is ignored when not in candidates" do
+      # Falls back to first-match order
+      assert LanguageHelpers.resolve_dialect_for_base("en", ["en-GB", "en-US"], prefer: "fr-FR") ==
+               "en-GB"
+    end
+
+    test "`:prefer` is ignored when no candidate matches the base at all" do
+      assert LanguageHelpers.resolve_dialect_for_base("xx", ["en-GB"], prefer: "en-GB") == nil
+    end
+
+    test "`:exclude` drops a single code before matching" do
+      assert LanguageHelpers.resolve_dialect_for_base("en", ["en", "en-US"], exclude: "en") ==
+               "en-US"
+    end
+
+    test "`:exclude` drops a list of codes" do
+      assert LanguageHelpers.resolve_dialect_for_base("en", ["en", "en-GB", "en-US"],
+               exclude: ["en", "en-GB"]
+             ) == "en-US"
+    end
+
+    test "`:exclude` + `:prefer` — prefer wins iff still in matches after exclude" do
+      # `:prefer` is excluded, so falls back to first remaining match
+      assert LanguageHelpers.resolve_dialect_for_base("en", ["en", "en-US"],
+               prefer: "en",
+               exclude: "en"
+             ) == "en-US"
+
+      # `:prefer` is NOT excluded, still wins
+      assert LanguageHelpers.resolve_dialect_for_base("en", ["en", "en-US", "en-GB"],
+               prefer: "en-US",
+               exclude: "en"
+             ) == "en-US"
+    end
+
+    test "case-insensitive base matching" do
+      # Base codes are normalized to lowercase before comparison; candidates
+      # passing through `DialectMapper.extract_base` are already lowercase.
+      assert LanguageHelpers.resolve_dialect_for_base("EN", ["en-US"]) == "en-US"
+    end
+  end
 end
