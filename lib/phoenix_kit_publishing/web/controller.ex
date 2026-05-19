@@ -257,7 +257,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller do
         |> assign(:show_language_switcher, show_language_switcher?())
         |> assign(:og, build_og_data(conn, assigns.post, canonical_url, assigns.current_language))
         |> maybe_assign_admin_edit(
-          Routes.path("/admin/publishing/#{group_slug}/#{assigns.post.uuid}/edit"),
+          edit_post_admin_url(group_slug, assigns.post.uuid, assigns.current_language),
           "Edit Post"
         )
         |> render(:show)
@@ -322,7 +322,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller do
         |> assign(:show_language_switcher, show_language_switcher?())
         |> assign(:og, build_og_data(conn, assigns.post, canonical_url, assigns.current_language))
         |> maybe_assign_admin_edit(
-          Routes.path("/admin/publishing/#{group_slug}/#{assigns.post.uuid}/edit"),
+          edit_post_admin_url(group_slug, assigns.post.uuid, assigns.current_language),
           "Edit Post"
         )
         |> render(:show)
@@ -408,6 +408,19 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller do
     else
       conn
     end
+  end
+
+  # Build the admin Edit Post URL with the current public-side language
+  # pinned via the `?lang=` query string. Without this, clicking "Edit
+  # Post" from a non-default-language public page (e.g. `/sq/group/post`)
+  # would open the editor in the default language because the editor LV
+  # reads `params["lang"]` for its initial editing language and falls
+  # back to default when the param is absent. Carrying `current_language`
+  # forward keeps the editor open in the language the user was reading.
+  defp edit_post_admin_url(group_slug, post_uuid, current_language) do
+    Routes.path(
+      "/admin/publishing/#{group_slug}/#{post_uuid}/edit?lang=#{URI.encode_www_form(current_language || "")}"
+    )
   end
 
   # Expose publishing's per-translation URL list under a publishing-namespaced
