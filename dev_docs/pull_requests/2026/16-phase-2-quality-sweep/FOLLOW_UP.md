@@ -90,11 +90,38 @@ in post-merge passes; the rest are non-blocking observations.
   lookup, so the Finding 3 tightening keeps them green. The PR's own
   run reports `mix test` green.
 
+## Fixed (Batch 2 — 2026-05-19, Phase 1 quality sweep)
+
+- ~~**`Web.Settings` missing `@impl true` annotations.**~~ Fixed.
+  `lib/phoenix_kit_publishing/web/settings.ex` — added `@impl true` to
+  the first clause of each LiveView callback the module implements:
+  `mount/3`, `handle_params/3`, `terminate/2`, `handle_event/3`,
+  `handle_info/3`, and `render/1`. The original Phase 2 follow-up
+  flagged only `terminate/2`; the Phase 1 sweep confirmed every other
+  callback was unmarked too. `mix compile --warnings-as-errors` was
+  the gate — adding `@impl true` to the other five surfaced the
+  missing `@impl` on `render/1` (the compiler suppresses the warning
+  until at least one `@impl` annotation appears on the module, which
+  is why this wasn't flagged in earlier reviews). Pure annotation
+  change — no behavioural delta.
+
+## Deliberate non-fixes (recorded for traceability)
+
+- **`maybe_rewrite/2` host adoption** — Not a module fix. Non-root
+  workspace-prefix routing is inert until the host application
+  upgrades its router to call the new `/2` arity; the existing `/1`
+  arity continues to work for root-mounted hosts. Tracked in
+  AGENTS.md; surface to host owners when scheduling the upgrade.
+
+- **Read-path write in `find_by_url_slug/3`.** Deliberate best-effort
+  collision self-healing — the function calls
+  `auto_resolve_url_slug_collision/2` which writes through to clear
+  the conflict, but logs and continues on failure. On a read-only
+  replica connection this raises by design; the documented call site
+  is the primary DB. Replica safety would require a connection-aware
+  short-circuit, which is a larger architectural shift not in scope
+  for the sweep.
+
 ## Open
 
-- **`maybe_rewrite/2` host adoption** — non-root workspace-prefix
-  routing is inert until the host app calls the new `/2` arity.
-- **`Web.Settings.terminate/2` missing `@impl true`** — one-line
-  consistency nit vs. `Index`/`PostShow`.
-- **Read-path write in `find_by_url_slug/3`** — documented best-effort
-  collision self-healing; will raise on a read-only replica connection.
+None.
