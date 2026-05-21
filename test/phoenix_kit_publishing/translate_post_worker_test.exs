@@ -302,25 +302,26 @@ defmodule PhoenixKit.Modules.Publishing.TranslatePostWorkerTest do
       assert content =~ "Mixed case content"
     end
 
-    test "only TITLE present (no CONTENT, no SLUG) falls back to markdown salvage" do
+    test "only TITLE present (no CONTENT, no SLUG) falls back to markdown salvage with empty values" do
       # When parse_response/2 returns missing_fields for ["title",
       # "slug", "content"], we retry with ["title", "content"]. If
       # CONTENT is also missing, give up on structured parsing and
       # treat the response as bare markdown — preserves the old
       # regex chain's "TITLE-only → markdown fallback" behavior.
+      #
+      # The markdown salvage in `parse_markdown_response/1` greedily
+      # strips `---TITLE---.*$` (and the same for SLUG / CONTENT),
+      # which removes the title text too. Result is `{"", "", nil}`
+      # — both the old regex chain and the new core-helper flow
+      # produce the same empty-tuple outcome for a TITLE-only
+      # response. Document the contract explicitly so future
+      # regressions surface.
       response = """
       ---TITLE---
       Lonely Title
       """
 
-      assert {title, nil, _content} =
-               TranslatePostWorker.parse_translated_response(response)
-
-      # The markdown fallback may produce different title text since
-      # it doesn't know the `---TITLE---` marker is meaningful — it
-      # just sees the first non-marker line. Assert that we at least
-      # get a non-empty tuple back (worker won't crash).
-      assert is_binary(title)
+      assert {"", nil, ""} = TranslatePostWorker.parse_translated_response(response)
     end
   end
 
