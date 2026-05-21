@@ -67,7 +67,10 @@ defmodule PhoenixKitPublishing.MixProject do
   defp deps do
     [
       # PhoenixKit provides the Module behaviour, Settings API, and core infrastructure.
-      {:phoenix_kit, "~> 1.7"},
+      # 1.7.117 is the floor — that's where
+      # `PhoenixKit.Modules.AI.Translation.parse_response/2` shipped
+      # (core PR #557). `translate_post_worker.ex` delegates to it.
+      {:phoenix_kit, "~> 1.7.117"},
       {:phoenix_kit_ai, "~> 0.1"},
 
       # LiveView for admin pages

@@ -261,6 +261,67 @@ defmodule PhoenixKit.Modules.Publishing.TranslatePostWorkerTest do
       assert {"Test", "bad-slug-format", "Body"} =
                TranslatePostWorker.parse_translated_response(response)
     end
+
+    test "parses markers in any order (improvement over old regex)" do
+      # Documents the deliberate behavior change vs. the previous regex
+      # chain: `parse_translated_response/1` now delegates to
+      # `PhoenixKit.Modules.AI.Translation.parse_response/2`, which
+      # extracts each marker independently and is order-independent.
+      # The old `Regex.run/2` chain required strict TITLE→SLUG→CONTENT
+      # ordering and would have fallen back to markdown salvage here.
+      response = """
+      ---SLUG---
+      reordered-slug
+      ---CONTENT---
+      Body in middle position
+      ---TITLE---
+      Title at the end
+      """
+
+      assert {"Title at the end", "reordered-slug", content} =
+               TranslatePostWorker.parse_translated_response(response)
+
+      assert content =~ "Body in middle position"
+    end
+
+    test "case-insensitive marker matching (lowercased markers parse)" do
+      # `Translation.parse_response/2` honors the documented
+      # case-insensitive contract — a model emitting `---title---`
+      # (lowercase) is now parsed successfully. Old regex required
+      # uppercase markers and would have failed back to markdown.
+      response = """
+      ---title---
+      Mixed Case Title
+      ---content---
+      Mixed case content
+      """
+
+      assert {"Mixed Case Title", nil, content} =
+               TranslatePostWorker.parse_translated_response(response)
+
+      assert content =~ "Mixed case content"
+    end
+
+    test "only TITLE present (no CONTENT, no SLUG) falls back to markdown salvage" do
+      # When parse_response/2 returns missing_fields for ["title",
+      # "slug", "content"], we retry with ["title", "content"]. If
+      # CONTENT is also missing, give up on structured parsing and
+      # treat the response as bare markdown — preserves the old
+      # regex chain's "TITLE-only → markdown fallback" behavior.
+      response = """
+      ---TITLE---
+      Lonely Title
+      """
+
+      assert {title, nil, _content} =
+               TranslatePostWorker.parse_translated_response(response)
+
+      # The markdown fallback may produce different title text since
+      # it doesn't know the `---TITLE---` marker is meaningful — it
+      # just sees the first non-marker line. Assert that we at least
+      # get a non-empty tuple back (worker won't crash).
+      assert is_binary(title)
+    end
   end
 
   # ============================================================================

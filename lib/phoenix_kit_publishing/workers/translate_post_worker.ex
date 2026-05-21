@@ -68,6 +68,7 @@ defmodule PhoenixKit.Modules.Publishing.Workers.TranslatePostWorker do
 
   require Logger
 
+  alias PhoenixKit.Modules.AI.Translation
   alias PhoenixKit.Modules.Publishing
   alias PhoenixKit.Modules.Publishing.Constants
   alias PhoenixKit.Modules.Publishing.Errors
@@ -384,32 +385,78 @@ defmodule PhoenixKit.Modules.Publishing.Workers.TranslatePostWorker do
   end
 
   @doc false
-  # Public for testing — parse the AI translation response into
-  # {title, slug, content}. Handles three formats: structured with slug,
-  # structured without slug, and bare markdown.
+  # Parse the AI translation response into `{title, slug, content}`.
+  #
+  # The happy path delegates to `PhoenixKit.Modules.AI.Translation.parse_response/2`
+  # — the canonical, case-insensitive `---FIELD---` parser shared with
+  # the projects-side translator. If the AI returned at least one
+  # marker the core parser handles all three field combinations
+  # (title+slug+content, title+content, title only) uniformly via its
+  # `missing_fields` error tuple.
+  #
+  # Two locally-handled fallbacks remain:
+  #
+  #   1. `{:parse_error, {:missing_fields, [...]}}` → response has at
+  #      least one marker but not all three. Retry against
+  #      `["title", "content"]` to match the older two-field prompt
+  #      shape. If THAT also misses fields (e.g. only `---SLUG---`),
+  #      give up on structured parsing and fall back to markdown
+  #      salvage. Slug is dropped on this path — publishing's storage
+  #      permits nil slugs.
+  #   2. `{:parse_error, :no_markers}` → model dropped the structured
+  #      shape entirely. Fall back to `parse_markdown_response/1` so
+  #      we still salvage a translation (first `# heading` becomes
+  #      the title, rest becomes content, slug nil).
+  #
+  # Both fallbacks pre-date the core helper and are kept to preserve
+  # exact behavior for models that don't follow the prompt verbatim.
+  #
+  # NOTE: a deliberate behavior change vs. the previous regex chain —
+  # `parse_response/2` is **order-independent**, so a response with
+  # e.g. `---SLUG---` before `---TITLE---` now parses successfully.
+  # The old regex required strict `TITLE → SLUG → CONTENT` order and
+  # would have fallen back to markdown for re-ordered responses.
+  # This is an improvement; regression test
+  # `"parses markers in any order"` documents the new contract.
   def parse_translated_response(response) do
-    # Try to parse the structured format with slug
-    case Regex.run(
-           ~r/---TITLE---\s*\n(.+?)\n---SLUG---\s*\n(.+?)\n---CONTENT---\s*\n(.+)/s,
-           response
-         ) do
-      [_, title, slug, content] ->
-        # Found full structured format with slug
-        {String.trim(title), sanitize_slug(slug), String.trim(content)}
+    case Translation.parse_response(response, ["title", "slug", "content"]) do
+      {:ok, fields} ->
+        {extract_field(fields, "title"), sanitize_slug_if_present(fields["slug"]),
+         extract_field(fields, "content")}
 
-      nil ->
-        # Try format without slug
-        case Regex.run(~r/---TITLE---\s*\n(.+?)\n---CONTENT---\s*\n(.+)/s, response) do
-          [_, title, content] ->
-            {String.trim(title), nil, String.trim(content)}
+      {:error, {:parse_error, {:missing_fields, _missing}}} ->
+        parse_partial_response(response)
 
-          nil ->
-            # No structured format found - try to extract from markdown
-            {title, content} = parse_markdown_response(response)
-            {title, nil, content}
-        end
+      {:error, {:parse_error, :no_markers}} ->
+        {title, content} = parse_markdown_response(response)
+        {title, nil, content}
     end
   end
+
+  # Re-attempt parsing against title+content only (no slug). Matches
+  # the format used by older prompts that don't ask for a slug. Falls
+  # to markdown salvage on any further parse error so the worker
+  # never loses translated content silently.
+  defp parse_partial_response(response) do
+    case Translation.parse_response(response, ["title", "content"]) do
+      {:ok, fields} ->
+        {extract_field(fields, "title"), nil, extract_field(fields, "content")}
+
+      {:error, _} ->
+        {title, content} = parse_markdown_response(response)
+        {title, nil, content}
+    end
+  end
+
+  defp extract_field(fields, key) do
+    case Map.get(fields, key) do
+      v when is_binary(v) -> String.trim(v)
+      _ -> ""
+    end
+  end
+
+  defp sanitize_slug_if_present(nil), do: nil
+  defp sanitize_slug_if_present(slug), do: sanitize_slug(slug)
 
   @doc false
   # Public for testing — sanitize and validate the AI-returned slug.
