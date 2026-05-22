@@ -326,6 +326,9 @@ defmodule PhoenixKit.Modules.Publishing.TranslatePostWorkerTest do
           assert {"", nil, ""} = TranslatePostWorker.parse_translated_response(["a", "b"])
           assert {"", nil, ""} = TranslatePostWorker.parse_translated_response({:tuple, 2})
           assert {"", nil, ""} = TranslatePostWorker.parse_translated_response(self())
+          # Non-byte-aligned bitstring: `is_binary/1` is false, so it
+          # reaches the fallback rather than the binary parse path.
+          assert {"", nil, ""} = TranslatePostWorker.parse_translated_response(<<1::3>>)
         end)
 
       assert log =~ "parse_translated_response/1 fallback fired"
@@ -337,6 +340,7 @@ defmodule PhoenixKit.Modules.Publishing.TranslatePostWorkerTest do
       assert log =~ "type=list(len=2)"
       assert log =~ "type=tuple(size=2)"
       assert log =~ "type=pid"
+      assert log =~ "type=bitstring"
       # Map / list / tuple contents must NEVER appear in the log:
       refute log =~ "\"k\" => \"v\""
       refute log =~ ":tuple"

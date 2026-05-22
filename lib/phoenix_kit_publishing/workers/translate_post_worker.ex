@@ -460,7 +460,7 @@ defmodule PhoenixKit.Modules.Publishing.Workers.TranslatePostWorker do
   # the value itself. Structs identify by module name; primitives
   # report their type only.
   defp describe_type(%mod{}), do: "struct:#{inspect(mod)}"
-  defp describe_type(v) when is_nil(v), do: "nil"
+  defp describe_type(nil), do: "nil"
   defp describe_type(v) when is_atom(v), do: "atom"
   defp describe_type(v) when is_integer(v), do: "integer"
   defp describe_type(v) when is_float(v), do: "float"
@@ -469,6 +469,9 @@ defmodule PhoenixKit.Modules.Publishing.Workers.TranslatePostWorker do
   defp describe_type(v) when is_pid(v), do: "pid"
   defp describe_type(v) when is_reference(v), do: "reference"
   defp describe_type(v) when is_function(v), do: "function"
+  # `is_binary/1` is handled by the public clause above; only a
+  # non-byte-aligned bitstring (e.g. `<<1::3>>`) can reach here.
+  defp describe_type(v) when is_bitstring(v), do: "bitstring"
 
   # `length/1` only works on proper lists — calling it on an improper
   # list like `[:a | :b]` raises `ArgumentError`. The describe path
