@@ -302,6 +302,77 @@ defmodule PhoenixKit.Modules.Publishing.TranslatePostWorkerTest do
       assert content =~ "Mixed case content"
     end
 
+    test "non-binary input fails closed with empty tuple + warning log (defensive)" do
+      # `parse_translated_response/1` is `def` (public for testing).
+      # `Translation.parse_response/2` guards on `is_binary/1`, so
+      # passing nil / atom / number would crash with FunctionClauseError.
+      # Defensive fallback returns the empty-tuple shape so a test or
+      # external caller can hand us anything without crashing the worker.
+      #
+      # The fallback ALSO emits a `Logger.warning` — if this clause
+      # ever fires in production it would persist a blank translation
+      # row, so ops needs the visible signal. The log carries the
+      # input's TYPE only (never the value itself, to avoid leaking
+      # PII / API keys in pathological inputs). Test config sets
+      # `config :logger, level: :warning`, so `Logger.warning` is
+      # not filtered — no need to bump the level per-test.
+      log =
+        ExUnit.CaptureLog.capture_log(fn ->
+          assert {"", nil, ""} = TranslatePostWorker.parse_translated_response(nil)
+          assert {"", nil, ""} = TranslatePostWorker.parse_translated_response(:atom)
+          assert {"", nil, ""} = TranslatePostWorker.parse_translated_response(123)
+          assert {"", nil, ""} = TranslatePostWorker.parse_translated_response(1.5)
+          assert {"", nil, ""} = TranslatePostWorker.parse_translated_response(%{"k" => "v"})
+          assert {"", nil, ""} = TranslatePostWorker.parse_translated_response(["a", "b"])
+          assert {"", nil, ""} = TranslatePostWorker.parse_translated_response({:tuple, 2})
+          assert {"", nil, ""} = TranslatePostWorker.parse_translated_response(self())
+        end)
+
+      assert log =~ "parse_translated_response/1 fallback fired"
+      assert log =~ "type=nil"
+      assert log =~ "type=atom"
+      assert log =~ "type=integer"
+      assert log =~ "type=float"
+      assert log =~ "type=map(size=1)"
+      assert log =~ "type=list(len=2)"
+      assert log =~ "type=tuple(size=2)"
+      assert log =~ "type=pid"
+      # Map / list / tuple contents must NEVER appear in the log:
+      refute log =~ "\"k\" => \"v\""
+      refute log =~ ":tuple"
+      refute log =~ "\"a\""
+    end
+
+    test "improper list input doesn't crash the descriptor" do
+      # `length/1` raises `ArgumentError` on improper lists. The
+      # `proper_list?/1` guard in `describe_type/1` keeps the
+      # defensive path itself defensive — falling through to
+      # `list(improper)` instead of letting the helper crash and
+      # propagate a worker error.
+      log =
+        ExUnit.CaptureLog.capture_log(fn ->
+          assert {"", nil, ""} =
+                   TranslatePostWorker.parse_translated_response([:a | :b])
+        end)
+
+      assert log =~ "type=list(improper)"
+    end
+
+    test "struct input is described by module name, not field values" do
+      # Real risk: a `%Plug.Conn{}` or `%MyApp.User{}` accidentally
+      # threaded through carries gobs of PII. The descriptor must
+      # surface ONLY the module name.
+      log =
+        ExUnit.CaptureLog.capture_log(fn ->
+          assert {"", nil, ""} =
+                   TranslatePostWorker.parse_translated_response(%URI{scheme: "https"})
+        end)
+
+      assert log =~ "type=struct:URI"
+      # URI's struct values must not appear:
+      refute log =~ "https"
+    end
+
     test "only TITLE present (no CONTENT, no SLUG) falls back to markdown salvage with empty values" do
       # When parse_response/2 returns missing_fields for ["title",
       # "slug", "content"], we retry with ["title", "content"]. If
