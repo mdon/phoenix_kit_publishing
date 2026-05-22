@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.1.13 - 2026-05-22
+
+PR #20 — restore a defensive non-binary fallback in `TranslatePostWorker.parse_translated_response/1`, plus a follow-up that tightens the log-safe type descriptor.
+
+### Fixed
+- `TranslatePostWorker.parse_translated_response/1` no longer raises `FunctionClauseError` on non-binary input. After PR #19 delegated parsing to core's `Translation.parse_response/2` (guarded by `is_binary/1`), the `def`-public function could crash when handed `nil` / atom / number / map by a test or external caller — and `AI.extract_content/1` can itself surface `{:ok, nil}` when a provider returns a null `content`. A guarded `when is_binary(response)` clause now owns the parse path; a catch-all clause fails closed with the empty-tuple shape `{"", nil, ""}` and emits a `Logger.warning` so a production occurrence (which would persist a blank translation row) is operator-visible.
+- The `describe_type/1` log helper reports only a value's type/shape — never its contents — to avoid leaking PII / API keys from pathological inputs, and uses a `proper_list?/1` guard so it doesn't itself crash on improper lists (`length/1` raises `ArgumentError` on `[:a | :b]`).
+
+### Changed
+- `describe_type/1` now uses a literal `nil` head instead of an `is_nil/1` guard, and gained an `is_bitstring/1` clause so a non-byte-aligned bitstring (e.g. `<<1::3>>`, which is not an `is_binary/1` match) logs as `bitstring` rather than `unknown`.
+- Locked transitive dependencies: `etcher 0.4.8`, `fresco 0.5.5`, `ex_doc 0.40.3`.
+
 ## 0.1.12 - 2026-05-21
 
 PR #19 — unify the translation-response parser with core (paired with `phoenix_kit 1.7.117`).
