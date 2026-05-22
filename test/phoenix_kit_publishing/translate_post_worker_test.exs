@@ -321,16 +321,56 @@ defmodule PhoenixKit.Modules.Publishing.TranslatePostWorkerTest do
           assert {"", nil, ""} = TranslatePostWorker.parse_translated_response(nil)
           assert {"", nil, ""} = TranslatePostWorker.parse_translated_response(:atom)
           assert {"", nil, ""} = TranslatePostWorker.parse_translated_response(123)
+          assert {"", nil, ""} = TranslatePostWorker.parse_translated_response(1.5)
           assert {"", nil, ""} = TranslatePostWorker.parse_translated_response(%{"k" => "v"})
+          assert {"", nil, ""} = TranslatePostWorker.parse_translated_response(["a", "b"])
+          assert {"", nil, ""} = TranslatePostWorker.parse_translated_response({:tuple, 2})
+          assert {"", nil, ""} = TranslatePostWorker.parse_translated_response(self())
         end)
 
       assert log =~ "parse_translated_response/1 fallback fired"
       assert log =~ "type=nil"
       assert log =~ "type=atom"
       assert log =~ "type=integer"
+      assert log =~ "type=float"
       assert log =~ "type=map(size=1)"
-      # Map contents must NEVER appear in the log:
+      assert log =~ "type=list(len=2)"
+      assert log =~ "type=tuple(size=2)"
+      assert log =~ "type=pid"
+      # Map / list / tuple contents must NEVER appear in the log:
       refute log =~ "\"k\" => \"v\""
+      refute log =~ ":tuple"
+      refute log =~ "\"a\""
+    end
+
+    test "improper list input doesn't crash the descriptor" do
+      # `length/1` raises `ArgumentError` on improper lists. The
+      # `proper_list?/1` guard in `describe_type/1` keeps the
+      # defensive path itself defensive — falling through to
+      # `list(improper)` instead of letting the helper crash and
+      # propagate a worker error.
+      log =
+        ExUnit.CaptureLog.capture_log(fn ->
+          assert {"", nil, ""} =
+                   TranslatePostWorker.parse_translated_response([:a | :b])
+        end)
+
+      assert log =~ "type=list(improper)"
+    end
+
+    test "struct input is described by module name, not field values" do
+      # Real risk: a `%Plug.Conn{}` or `%MyApp.User{}` accidentally
+      # threaded through carries gobs of PII. The descriptor must
+      # surface ONLY the module name.
+      log =
+        ExUnit.CaptureLog.capture_log(fn ->
+          assert {"", nil, ""} =
+                   TranslatePostWorker.parse_translated_response(%URI{scheme: "https"})
+        end)
+
+      assert log =~ "type=struct:URI"
+      # URI's struct values must not appear:
+      refute log =~ "https"
     end
 
     test "only TITLE present (no CONTENT, no SLUG) falls back to markdown salvage with empty values" do

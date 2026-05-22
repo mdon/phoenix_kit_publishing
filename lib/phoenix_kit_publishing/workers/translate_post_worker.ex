@@ -465,12 +465,29 @@ defmodule PhoenixKit.Modules.Publishing.Workers.TranslatePostWorker do
   defp describe_type(v) when is_integer(v), do: "integer"
   defp describe_type(v) when is_float(v), do: "float"
   defp describe_type(v) when is_map(v), do: "map(size=#{map_size(v)})"
-  defp describe_type(v) when is_list(v), do: "list(len=#{length(v)})"
   defp describe_type(v) when is_tuple(v), do: "tuple(size=#{tuple_size(v)})"
   defp describe_type(v) when is_pid(v), do: "pid"
   defp describe_type(v) when is_reference(v), do: "reference"
   defp describe_type(v) when is_function(v), do: "function"
+
+  # `length/1` only works on proper lists — calling it on an improper
+  # list like `[:a | :b]` raises `ArgumentError`. The describe path
+  # is defensive itself; crashing here would defeat the point. Use
+  # `:proper` vs `:improper` as the label and skip the length on
+  # improper lists.
+  defp describe_type(v) when is_list(v) do
+    if proper_list?(v) do
+      "list(len=#{length(v)})"
+    else
+      "list(improper)"
+    end
+  end
+
   defp describe_type(_), do: "unknown"
+
+  defp proper_list?([]), do: true
+  defp proper_list?([_ | tail]) when is_list(tail), do: proper_list?(tail)
+  defp proper_list?(_), do: false
 
   # Re-attempt parsing against title+content only (no slug). Matches
   # the format used by older prompts that don't ask for a slug. Falls
