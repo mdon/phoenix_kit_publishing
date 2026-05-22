@@ -438,7 +438,39 @@ defmodule PhoenixKit.Modules.Publishing.Workers.TranslatePostWorker do
   # FunctionClauseError. The AI extract pipeline always feeds us
   # strings, but the function is `def` (public for testing) so a
   # test or external caller can hand us anything.
-  def parse_translated_response(_other), do: {"", nil, ""}
+  #
+  # If this clause ever fires in production we'd persist a blank
+  # translation row — log a warning so ops can investigate. Keep
+  # the log low-detail (only the type + module of structs, never
+  # the full value) so AI response payloads / PII don't leak into
+  # logs. Test calls hit the same warning, which is noisy by
+  # design — tests pass an explicit `nil`/atom/number, so the
+  # operator-visible signal is correct: "this path was exercised".
+  def parse_translated_response(other) do
+    Logger.warning(
+      "[TranslatePostWorker] parse_translated_response/1 fallback fired " <>
+        "for non-binary input (type=#{describe_type(other)}). " <>
+        "This would persist a blank translation in production."
+    )
+
+    {"", nil, ""}
+  end
+
+  # Returns a short, log-safe description of a value's shape — never
+  # the value itself. Structs identify by module name; primitives
+  # report their type only.
+  defp describe_type(%mod{}), do: "struct:#{inspect(mod)}"
+  defp describe_type(v) when is_nil(v), do: "nil"
+  defp describe_type(v) when is_atom(v), do: "atom"
+  defp describe_type(v) when is_integer(v), do: "integer"
+  defp describe_type(v) when is_float(v), do: "float"
+  defp describe_type(v) when is_map(v), do: "map(size=#{map_size(v)})"
+  defp describe_type(v) when is_list(v), do: "list(len=#{length(v)})"
+  defp describe_type(v) when is_tuple(v), do: "tuple(size=#{tuple_size(v)})"
+  defp describe_type(v) when is_pid(v), do: "pid"
+  defp describe_type(v) when is_reference(v), do: "reference"
+  defp describe_type(v) when is_function(v), do: "function"
+  defp describe_type(_), do: "unknown"
 
   # Re-attempt parsing against title+content only (no slug). Matches
   # the format used by older prompts that don't ask for a slug. Falls

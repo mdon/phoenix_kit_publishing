@@ -302,16 +302,35 @@ defmodule PhoenixKit.Modules.Publishing.TranslatePostWorkerTest do
       assert content =~ "Mixed case content"
     end
 
-    test "non-binary input fails closed with empty tuple (defensive)" do
+    test "non-binary input fails closed with empty tuple + warning log (defensive)" do
       # `parse_translated_response/1` is `def` (public for testing).
       # `Translation.parse_response/2` guards on `is_binary/1`, so
       # passing nil / atom / number would crash with FunctionClauseError.
       # Defensive fallback returns the empty-tuple shape so a test or
       # external caller can hand us anything without crashing the worker.
-      assert {"", nil, ""} = TranslatePostWorker.parse_translated_response(nil)
-      assert {"", nil, ""} = TranslatePostWorker.parse_translated_response(:atom)
-      assert {"", nil, ""} = TranslatePostWorker.parse_translated_response(123)
-      assert {"", nil, ""} = TranslatePostWorker.parse_translated_response(%{})
+      #
+      # The fallback ALSO emits a `Logger.warning` — if this clause
+      # ever fires in production it would persist a blank translation
+      # row, so ops needs the visible signal. The log carries the
+      # input's TYPE only (never the value itself, to avoid leaking
+      # PII / API keys in pathological inputs). Test config sets
+      # `config :logger, level: :warning`, so `Logger.warning` is
+      # not filtered — no need to bump the level per-test.
+      log =
+        ExUnit.CaptureLog.capture_log(fn ->
+          assert {"", nil, ""} = TranslatePostWorker.parse_translated_response(nil)
+          assert {"", nil, ""} = TranslatePostWorker.parse_translated_response(:atom)
+          assert {"", nil, ""} = TranslatePostWorker.parse_translated_response(123)
+          assert {"", nil, ""} = TranslatePostWorker.parse_translated_response(%{"k" => "v"})
+        end)
+
+      assert log =~ "parse_translated_response/1 fallback fired"
+      assert log =~ "type=nil"
+      assert log =~ "type=atom"
+      assert log =~ "type=integer"
+      assert log =~ "type=map(size=1)"
+      # Map contents must NEVER appear in the log:
+      refute log =~ "\"k\" => \"v\""
     end
 
     test "only TITLE present (no CONTENT, no SLUG) falls back to markdown salvage with empty values" do
