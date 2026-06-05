@@ -47,7 +47,7 @@ defmodule PhoenixKit.Modules.Publishing.Workers.TranslatePostWorker do
     max_attempts: 3,
     unique: [
       keys: [:group_slug, :post_uuid],
-      states: [:available, :scheduled, :executing, :retryable]
+      states: :incomplete
     ]
 
   # Suppress dialyzer warnings for pattern matches where dialyzer incorrectly infers
