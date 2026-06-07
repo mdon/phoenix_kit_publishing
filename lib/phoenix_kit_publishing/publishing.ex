@@ -219,7 +219,6 @@ defmodule PhoenixKit.Modules.Publishing do
     settings_call(:get_boolean_setting, [@publishing_enabled_key, false])
   end
 
-  @impl PhoenixKit.Module
   @spec ai_translatables() :: [{String.t(), module()}]
   def ai_translatables do
     [{PhoenixKitPublishing.AITranslatable.resource_type(), PhoenixKitPublishing.AITranslatable}]

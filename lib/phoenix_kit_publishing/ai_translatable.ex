@@ -1,8 +1,8 @@
 defmodule PhoenixKitPublishing.AITranslatable do
   @moduledoc """
-  `PhoenixKit.Modules.AI.Translatable` adapter for publishing posts — the
+  `PhoenixKitAI.Translatable` adapter for publishing posts — the
   per-module hook into core's generic AI-translation pipeline
-  (`PhoenixKit.Modules.AI.{Translations,TranslateWorker}`).
+  (`PhoenixKitAI.{Translations,TranslateWorker}`).
 
   Replaces the bespoke `Workers.TranslatePostWorker`, which translated every
   language **sequentially in a single Oban job**. `Translations.enqueue_all_missing/2`
@@ -42,7 +42,7 @@ defmodule PhoenixKitPublishing.AITranslatable do
   publishing's own `:translation_created` via `add_language_to_post`.
   """
 
-  @behaviour PhoenixKit.Modules.AI.Translatable
+  @behaviour PhoenixKitAI.Translatable
 
   alias PhoenixKit.Modules.Publishing
   alias PhoenixKit.Modules.Publishing.Constants

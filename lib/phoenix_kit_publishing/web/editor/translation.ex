@@ -10,7 +10,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor.Translation do
 
   import Ecto.Query, only: [from: 2]
 
-  alias PhoenixKit.Modules.AI.Translations
+  alias PhoenixKitAI.Translations
   alias PhoenixKit.Modules.Publishing
   alias PhoenixKit.Modules.Publishing.LanguageHelpers
   alias PhoenixKit.Modules.Publishing.PresenceHelpers
@@ -22,7 +22,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor.Translation do
   # Core's generic-pipeline Oban worker. Referenced as a module (not a bare
   # string) so the name stays in sync with core and the coupling is greppable;
   # `Oban.Job.worker` stores `inspect/1` of the worker module.
-  @translate_worker PhoenixKit.Modules.AI.TranslateWorker
+  @translate_worker PhoenixKitAI.TranslateWorker
 
   # ============================================================================
   # Availability Checks
@@ -30,7 +30,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor.Translation do
 
   # Availability + endpoint/prompt listing are generic across every
   # AI-translation consumer, so they delegate to core
-  # `PhoenixKit.Modules.AI.Translations` — the canonical implementation —
+  # `PhoenixKitAI.Translations` — the canonical implementation —
   # rather than re-deriving the same `{uuid, name}` shape here. (Catalogue
   # and projects share the same core helpers.) Publishing keeps its own
   # *default* endpoint/prompt resolution below, since those read

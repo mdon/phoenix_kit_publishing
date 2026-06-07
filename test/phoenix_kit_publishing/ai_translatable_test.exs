@@ -1,6 +1,6 @@
 defmodule PhoenixKitPublishing.AITranslatableTest do
   @moduledoc """
-  Unit coverage for the `PhoenixKit.Modules.AI.Translatable` adapter that wires
+  Unit coverage for the `PhoenixKitAI.Translatable` adapter that wires
   publishing posts into core's generic AI-translation pipeline. Covers the four
   callbacks (fetch / source_fields / put_translation / pubsub_topics) and the
   local url_slug generation. The actual AI call + fan-out live in core.

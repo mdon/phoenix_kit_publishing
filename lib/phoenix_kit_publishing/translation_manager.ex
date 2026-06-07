@@ -7,7 +7,7 @@ defmodule PhoenixKit.Modules.Publishing.TranslationManager do
 
   require Logger
 
-  alias PhoenixKit.Modules.AI.Translations
+  alias PhoenixKitAI.Translations
   alias PhoenixKit.Modules.Languages.DialectMapper
   alias PhoenixKit.Modules.Publishing.ActivityLog
   alias PhoenixKit.Modules.Publishing.Constants
