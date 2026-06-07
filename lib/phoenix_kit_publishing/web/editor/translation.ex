@@ -174,23 +174,26 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor.Translation do
   Gets target languages for translation (missing languages only).
   """
   def get_target_languages_for_translation(socket) do
-    post = socket.assigns.post
-    # Use post's stored primary language for translation source
-    primary_language = LanguageHelpers.get_primary_language()
-    available_languages = post.available_languages || []
-
-    Publishing.enabled_language_codes()
-    |> Enum.reject(&(&1 == primary_language or &1 in available_languages))
+    # Core owns the "enabled minus primary minus already-translated" rule
+    # (same helper catalogue/projects use) — don't re-derive it here.
+    Translations.missing_languages(
+      Publishing.enabled_language_codes(),
+      LanguageHelpers.get_primary_language(),
+      socket.assigns.post.available_languages || []
+    )
   end
 
   @doc """
   Gets all target languages for translation (all except primary).
   """
   def get_all_target_languages(_socket) do
-    primary_language = LanguageHelpers.get_primary_language()
-
-    Publishing.enabled_language_codes()
-    |> Enum.reject(&(&1 == primary_language))
+    # "All enabled except primary" is the missing-languages rule with an empty
+    # existing-set.
+    Translations.missing_languages(
+      Publishing.enabled_language_codes(),
+      LanguageHelpers.get_primary_language(),
+      []
+    )
   end
 
   # ============================================================================
