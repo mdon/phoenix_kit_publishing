@@ -146,6 +146,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
       |> assign(:ai_translation_progress, nil)
       |> assign(:ai_translation_total, nil)
       |> assign(:ai_translation_languages, [])
+      |> assign(:ai_translation_failures, 0)
       |> assign(:translation_locked?, false)
       |> assign(:show_translation_confirm, false)
       |> assign(:pending_translation_languages, [])
@@ -1296,23 +1297,38 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
        |> assign(:ai_translation_progress, 0)
        |> assign(:ai_translation_total, length(target_languages))
        |> assign(:ai_translation_languages, target_languages)
+       |> assign(:ai_translation_failures, 0)
        |> assign(:translation_locked?, should_lock)}
     else
       {:noreply, socket}
     end
   end
 
+  # Per-language success from core's generic pipeline. Each parallel job
+  # broadcasts on this post's translations topic (AITranslatable.pubsub_topics/1),
+  # so we count completions toward the progress bar the :translation_started
+  # event primed.
   def handle_info(
-        {:translation_progress, group_slug, post_identifier, completed, total, _last_language},
+        {:ai_translation, :translation_completed, %{resource_uuid: resource_uuid}},
         socket
       ) do
-    if socket.assigns[:group_slug] == group_slug && post_matches?(socket, post_identifier) do
+    if ai_event_for_this_post?(socket, resource_uuid) do
+      {:noreply, socket |> bump_translation_progress() |> maybe_finalize_translation()}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_info(
+        {:ai_translation, :translation_failed, %{resource_uuid: resource_uuid}},
+        socket
+      ) do
+    if ai_event_for_this_post?(socket, resource_uuid) do
       socket =
         socket
-        |> assign(:ai_translation_status, :in_progress)
-        |> assign(:ai_translation_progress, completed)
-        |> assign(:ai_translation_total, total)
-        |> Persistence.refresh_available_languages()
+        |> bump_translation_progress()
+        |> bump_translation_failures()
+        |> maybe_finalize_translation()
 
       {:noreply, socket}
     else
@@ -1320,46 +1336,10 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
     end
   end
 
-  def handle_info({:translation_completed, group_slug, post_identifier, results}, socket) do
-    if socket.assigns[:group_slug] == group_slug && post_matches?(socket, post_identifier) do
-      flash_msg =
-        if results.failure_count > 0 do
-          gettext("Translation completed with %{success} succeeded, %{failed} failed",
-            success: results.success_count,
-            failed: results.failure_count
-          )
-        else
-          gettext("Translation completed successfully for %{count} languages",
-            count: results.success_count
-          )
-        end
-
-      flash_level = if results.failure_count > 0, do: :warning, else: :info
-
-      current_language = socket.assigns[:current_language]
-      succeeded_languages = results[:succeeded] || []
-
-      socket =
-        socket
-        |> assign(:ai_translation_status, :completed)
-        |> assign(:ai_translation_languages, [])
-        |> assign(:translation_locked?, false)
-
-      socket =
-        if current_language in succeeded_languages do
-          Persistence.reload_translated_content(socket, flash_msg, flash_level)
-        else
-          # Reload source language content too (worker reads from DB, no conflict)
-          socket
-          |> Persistence.refresh_available_languages()
-          |> put_flash(flash_level, flash_msg)
-        end
-
-      {:noreply, socket}
-    else
-      {:noreply, socket}
-    end
-  end
+  # Other generic lifecycle events (per-language :translation_started, etc.)
+  # need no handling — :translation_started above already primed the UI, and
+  # the per-language content row refresh rides publishing's :translation_created.
+  def handle_info({:ai_translation, _event, _payload}, socket), do: {:noreply, socket}
 
   def handle_info({:translation_created, group_slug, post_identifier, language}, socket) do
     if socket.assigns[:group_slug] == group_slug && post_matches?(socket, post_identifier) do
@@ -1524,6 +1504,64 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
   defp post_matches?(socket, broadcast_id) do
     post = socket.assigns[:post]
     post != nil && post[:uuid] == broadcast_id
+  end
+
+  # Generic-pipeline events carry the post uuid as resource_uuid.
+  defp ai_event_for_this_post?(socket, resource_uuid) do
+    post = socket.assigns[:post]
+    is_binary(resource_uuid) and post != nil and post[:uuid] == resource_uuid
+  end
+
+  defp bump_translation_progress(socket) do
+    assign(socket, :ai_translation_progress, (socket.assigns[:ai_translation_progress] || 0) + 1)
+  end
+
+  defp bump_translation_failures(socket) do
+    assign(socket, :ai_translation_failures, (socket.assigns[:ai_translation_failures] || 0) + 1)
+  end
+
+  # When every enqueued language has reported back (success or failure), close
+  # out: flash a summary, unlock, and reload the current language's content if
+  # it was one of the translated targets.
+  defp maybe_finalize_translation(socket) do
+    total = socket.assigns[:ai_translation_total] || 0
+    progress = socket.assigns[:ai_translation_progress] || 0
+
+    if total > 0 and progress >= total do
+      failures = socket.assigns[:ai_translation_failures] || 0
+      success = max(total - failures, 0)
+      translated = socket.assigns[:ai_translation_languages] || []
+      current_language = socket.assigns[:current_language]
+      {level, msg} = translation_summary(success, failures)
+
+      socket =
+        socket
+        |> assign(:ai_translation_status, :completed)
+        |> assign(:ai_translation_languages, [])
+        |> assign(:translation_locked?, false)
+
+      if current_language in translated do
+        Persistence.reload_translated_content(socket, msg, level)
+      else
+        socket
+        |> Persistence.refresh_available_languages()
+        |> put_flash(level, msg)
+      end
+    else
+      socket
+    end
+  end
+
+  defp translation_summary(success, 0) do
+    {:info, gettext("Translation completed successfully for %{count} languages", count: success)}
+  end
+
+  defp translation_summary(success, failures) do
+    {:warning,
+     gettext("Translation completed with %{success} succeeded, %{failed} failed",
+       success: success,
+       failed: failures
+     )}
   end
 
   defp reload_post_on_lock_acquired(socket) do

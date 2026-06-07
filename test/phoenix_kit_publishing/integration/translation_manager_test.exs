@@ -6,7 +6,7 @@ defmodule PhoenixKit.Integration.Publishing.TranslationManagerTest do
 
   Happy paths are already exercised indirectly by
   `integration/activity_logging_test.exs` (for `add_language_to_post`
-  and `delete_language`) and by `translate_post_worker_test.exs`. This
+  and `delete_language`). This
   file focuses on the error branches and on the audit trail of
   `clear_translation` — the latter being newly-wired in this sweep.
 

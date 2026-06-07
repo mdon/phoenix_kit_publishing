@@ -8,14 +8,16 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor.Translation do
 
   use Gettext, backend: PhoenixKitWeb.Gettext
 
+  import Ecto.Query, only: [from: 2]
+
   alias PhoenixKit.Modules.AI.Translations
   alias PhoenixKit.Modules.Publishing
   alias PhoenixKit.Modules.Publishing.LanguageHelpers
   alias PhoenixKit.Modules.Publishing.PresenceHelpers
   alias PhoenixKit.Modules.Publishing.PubSub, as: PublishingPubSub
-  alias PhoenixKit.Modules.Publishing.Workers.TranslatePostWorker
   alias PhoenixKit.Settings
   alias PhoenixKitAI, as: AI
+  alias PhoenixKitPublishing.AITranslatable
 
   @translation_prompt_slug "translate-publishing-posts"
 
@@ -222,27 +224,30 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor.Translation do
       socket.assigns[:current_language] ||
         LanguageHelpers.get_primary_language()
 
-    case TranslatePostWorker.enqueue(
-           socket.assigns.group_slug,
-           post.uuid,
-           endpoint_uuid: socket.assigns.ai_selected_endpoint_uuid,
-           prompt_uuid: socket.assigns[:ai_selected_prompt_uuid],
-           version: socket.assigns.current_version,
-           user_uuid: user_uuid,
-           target_languages: target_languages,
-           source_language: source_language
-         ) do
-      {:ok, %{conflict?: true}} ->
-        # Job already exists for this post
-        {:noreply,
-         Phoenix.LiveView.put_flash(
-           socket,
-           :info,
-           gettext("A translation job is already running for this post")
-         )}
+    # One Oban job per target language (core's generic pipeline) so they run
+    # in parallel — replaces the legacy single-job sequential worker.
+    base_params = %{
+      resource_type: AITranslatable.resource_type(),
+      resource_uuid: post.uuid,
+      endpoint_uuid: socket.assigns.ai_selected_endpoint_uuid,
+      prompt_uuid: socket.assigns[:ai_selected_prompt_uuid],
+      source_lang: source_language,
+      actor_uuid: user_uuid
+    }
 
-      {:ok, _job} ->
-        {:noreply, translation_success_socket(socket, target_languages)}
+    case Translations.enqueue_all_missing(base_params, target_languages) do
+      {:ok, %{in_flight: []}} ->
+        {:noreply, translation_error_socket(socket)}
+
+      {:ok, %{in_flight: in_flight}} ->
+        # Tell every editor session (incl. this one) to show progress + lock.
+        PublishingPubSub.broadcast_translation_started(
+          socket.assigns.group_slug,
+          post.uuid,
+          in_flight
+        )
+
+        {:noreply, translation_success_socket(socket, in_flight)}
 
       {:error, _reason} ->
         {:noreply, translation_error_socket(socket)}
@@ -527,14 +532,13 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor.Translation do
     post = socket.assigns[:post]
 
     if post && post[:uuid] do
-      case TranslatePostWorker.active_job(post.uuid) do
-        nil ->
+      case in_flight_translation_languages(post.uuid) do
+        [] ->
           socket
 
-        job ->
-          target_languages = Map.get(job.args, "target_languages", [])
-          source_language = Map.get(job.args, "source_language")
+        target_languages ->
           current_lang = socket.assigns[:current_language]
+          source_language = LanguageHelpers.get_primary_language()
 
           # Lock this editor if the current language is being translated or is the source
           should_lock =
@@ -551,5 +555,31 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor.Translation do
     else
       socket
     end
+  end
+
+  # Target languages with a non-terminal generic-pipeline translation job for
+  # any version of this post. Lets the editor restore the in-progress banner
+  # across a page refresh. Fails open (empty) on any query error.
+  defp in_flight_translation_languages(post_uuid) do
+    repo = PhoenixKit.RepoHelper.repo()
+
+    query =
+      from(j in Oban.Job,
+        where: j.worker == "PhoenixKit.Modules.AI.TranslateWorker",
+        where: j.state in ["available", "scheduled", "executing", "retryable"],
+        select: j.args
+      )
+
+    query
+    |> repo.all()
+    |> Enum.filter(fn args ->
+      args["resource_type"] == AITranslatable.resource_type() and
+        args["resource_uuid"] == post_uuid
+    end)
+    |> Enum.map(& &1["target_lang"])
+    |> Enum.reject(&is_nil/1)
+    |> Enum.uniq()
+  rescue
+    _ -> []
   end
 end

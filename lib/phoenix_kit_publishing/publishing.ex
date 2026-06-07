@@ -220,6 +220,12 @@ defmodule PhoenixKit.Modules.Publishing do
   end
 
   @impl PhoenixKit.Module
+  @spec ai_translatables() :: [{String.t(), module()}]
+  def ai_translatables do
+    [{PhoenixKitPublishing.AITranslatable.resource_type(), PhoenixKitPublishing.AITranslatable}]
+  end
+
+  @impl PhoenixKit.Module
   @spec enable_system() :: {:ok, any()} | {:error, any()}
   def enable_system do
     result = settings_call(:update_boolean_setting, [@publishing_enabled_key, true])
