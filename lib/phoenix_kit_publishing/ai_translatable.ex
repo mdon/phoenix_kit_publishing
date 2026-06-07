@@ -18,8 +18,10 @@ defmodule PhoenixKitPublishing.AITranslatable do
 
   ## Fields
 
-  `source_fields/2` returns `%{"title", "content"}` read in the source
-  language. `put_translation/4` creates the target-language content row (via
+  `source_fields/2` returns `%{"Title", "Content"}` read in the source
+  language — capitalized to match the `{{Title}}`/`{{Content}}` placeholders in
+  the publishing translation prompt (core's variable substitution is
+  case-sensitive). `put_translation/4` creates the target-language content row (via
   `add_language_to_post` when absent) and writes the translated title/content,
   **generating the per-language `url_slug` locally** from the translated title
   via `SlugHelpers.slugify/1`. That honors the configured slug style and avoids
@@ -87,9 +89,16 @@ defmodule PhoenixKitPublishing.AITranslatable do
   def source_fields(%__MODULE__{} = resource, source_lang) do
     case Publishing.read_post_by_uuid(resource.post_uuid, source_lang, resource.version) do
       {:ok, post} ->
+        # Keys are capitalized ("Title"/"Content") to match the placeholders in
+        # the publishing translation prompt ({{Title}}/{{Content}}). Core's
+        # prompt-variable substitution is case-SENSITIVE
+        # (PhoenixKitAI.Prompt.get_variable_value), and the same field keys
+        # drive response parsing (markers are upcased either way), so the casing
+        # must line up with the prompt or {{Title}}/{{Content}} render literally
+        # and the model hallucinates instead of translating.
         %{}
-        |> put_nonempty("title", extract_title(post))
-        |> put_nonempty("content", post.content || "")
+        |> put_nonempty("Title", extract_title(post))
+        |> put_nonempty("Content", post.content || "")
 
       _ ->
         %{}
@@ -146,11 +155,14 @@ defmodule PhoenixKitPublishing.AITranslatable do
   end
 
   defp build_params(fields, resource, target_lang) do
-    title = Map.get(fields, "title")
+    # `fields` comes back from core's parser keyed by the SAME names
+    # source_fields/2 emitted ("Title"/"Content"); the DB params are the
+    # lowercase content-schema fields.
+    title = Map.get(fields, "Title")
 
     %{}
     |> maybe_put("title", title)
-    |> maybe_put("content", Map.get(fields, "content"))
+    |> maybe_put("content", Map.get(fields, "Content"))
     |> maybe_put_slug(title, resource, target_lang)
   end
 

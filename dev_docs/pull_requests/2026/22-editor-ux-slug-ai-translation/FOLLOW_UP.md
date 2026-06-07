@@ -53,6 +53,57 @@ Codex flagged two genuine HIGH bugs in the AI-translation path (both verified):
   pins the resolved version in `fetch/2` and threads it through both the read
   and the write. (`lib/phoenix_kit_publishing/ai_translatable.ex`)
 
+## Fixed (Batch 4 — live browser test, 2026-06-07)
+
+Ran a real end-to-end AI translation in Chrome (dev server, parent app) instead
+of trusting only the data-layer tests — opened a post on its **ru** (non-primary)
+page and translated en-US → ru. This surfaced **two real bugs**, one of them a
+regression introduced by this PR's migration. Both fixed and re-verified live.
+
+### Bug 1 (HIGH, regression) — prompt variables not substituted
+
+**Symptom:** translations came back as hallucinated/placeholder content (e.g. a
+fluent-but-unrelated article, or literal `[… title]`), not a translation of the
+source. **Root cause:** the publishing prompt template uses capitalized
+placeholders `{{Title}}` / `{{Content}}`, but the new adapter's `source_fields/2`
+returned lowercase `"title"` / `"content"` keys. Core feeds those keys straight
+into `PhoenixKitAI.Prompt.render`, whose substitution is **case-sensitive**
+(`get_variable_value` tries the string key then the atom key, nothing else;
+unmatched `{{…}}` is left literal). So `{{Title}}`/`{{Content}}` never rendered,
+the model received the template with empty/literal placeholders, and made
+something up. The retired `TranslatePostWorker` fed capitalized `"Title"`/
+`"Content"` (verified in git `a446178^`); the migration to the generic pipeline
+dropped that casing — the keys now drive both substitution **and** response
+parsing, so they must match the prompt.
+
+**Fix:** `source_fields/2` emits `"Title"` / `"Content"`; `build_params/3` reads
+them back under the same casing (DB params stay lowercase `title`/`content`).
+(`lib/phoenix_kit_publishing/ai_translatable.ex`) Verified live: re-translating
+en-US → ru now yields a genuine translation — title "Демонстрация рендеринга
+Markdown" (= "Markdown Rendering Demo"), body translating the actual source,
+slug `demonstratsiya-renderinga-markdown`.
+
+### Bug 2 (latent) — `source_content_blank?/1` checked the viewed language
+
+On a non-primary page it read `socket.assigns[:current_language]` (e.g. an empty
+`ru` buffer) instead of the primary, so the confirmation modal falsely warned
+"The source content is empty" while the real source (en-US) had content. Same
+`current_language`-as-source bug-class Codex flagged in `do_enqueue_translation`,
+in a sibling warning helper the Batch-2 fix missed. Now uses
+`source_language_for_translation/1` (the primary) consistently. Verified live:
+the false warning is gone; only the legitimate "will overwrite" warning remains.
+(`web/editor/translation.ex`)
+
+### Also confirmed working in the same live run
+- Enqueued job args: `source_lang=en-US` (the **primary**, not the viewed `ru`)
+  — the Batch-2 source fix, end-to-end.
+- `url_slug` generated **locally** as a Cyrillic→Latin transliteration via the
+  slug engine, written to the correct version; editor LiveView live-updates via
+  PubSub on completion.
+- A misbehaving reasoning endpoint that dumped chain-of-thought into the title
+  (>500 chars) was **discarded cleanly** by the content changeset — no
+  partial/corrupt write.
+
 ## Tests added (Batch — 2026-06-07)
 
 - `test/phoenix_kit_publishing/ai_translatable_test.exs` (new) — the four
@@ -66,6 +117,13 @@ Codex flagged two genuine HIGH bugs in the AI-translation path (both verified):
   `publishing_slug_style` setting.
 - `translation_manager_bulk_test.exs` (added earlier in the PR) — pins
   `build_bulk_translation_params/2`.
+- `editor_translation_test.exs` (new, Batch 4) — `source_content_blank?/1`
+  reads the primary language as source on a non-primary page (regression guard
+  for Batch-4 Bug 2), and uses the live buffer when viewing the primary.
+- `ai_translatable_test.exs` (Batch 4) — `source_fields/2` pins the exact key
+  set `["Content", "Title"]` (capitalized), the regression guard for Batch-4
+  Bug 1: a lowercase key would leave the prompt placeholders unrendered. The
+  `put_translation/4` tests feed `"Title"`/`"Content"` accordingly.
 - `ai_translatable_test.exs` — added a slug-conflict test: when another post
   already owns the generated slug in the same group+language, the new
   translation's `url_slug` is omitted and falls back to the post's default slug
@@ -130,12 +188,13 @@ runnable in the review sandbox (no `psql`); precommit was the gate.
 
 | File | Change |
 |------|--------|
-| `lib/phoenix_kit_publishing/ai_translatable.ex` | url_slug uniqueness guard; `:post_slug` on struct; `with` simplification; dead `|| %{}` drop (Batch 3) |
+| `lib/phoenix_kit_publishing/ai_translatable.ex` | url_slug uniqueness guard; `:post_slug` on struct; `with` simplification; dead `\|\| %{}` drop; **`source_fields`/`build_params` field keys `Title`/`Content` to match the prompt placeholders (Batch 4 — substitution regression fix)** |
 | `lib/phoenix_kit_publishing/web/editor.ex` | `maxlength="200"` on url_slug input; style-aware `pattern` (Batch 3) |
 | `lib/phoenix_kit_publishing/web/editor/translation.ex` | source lang = primary (Batch 2 + Batch 3 `source_content_blank?`); `@translate_worker` ref (Batch 3) |
 | `lib/phoenix_kit_publishing/slug_helpers.ex` | `html_input_pattern/0` (Batch 3) |
-| `test/phoenix_kit_publishing/ai_translatable_test.exs` | new — 7 adapter tests (incl. slug-conflict) |
+| `test/phoenix_kit_publishing/ai_translatable_test.exs` | new — 7 adapter tests (incl. slug-conflict); pins `source_fields` key casing `["Content","Title"]` (Batch 4) |
 | `test/phoenix_kit_publishing/slug_helpers_test.exs` | +6 slug-engine / style tests; +`html_input_pattern/0` (Batch 3) |
+| `test/phoenix_kit_publishing/editor_translation_test.exs` | new — `source_content_blank?/1` source-language regression (Batch 4) |
 
 ## Verification
 

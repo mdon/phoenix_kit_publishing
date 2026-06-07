@@ -81,8 +81,13 @@ defmodule PhoenixKitPublishing.AITranslatableTest do
       {:ok, resource} = AITranslatable.fetch("publishing_post", post_uuid)
       fields = AITranslatable.source_fields(resource, "en-US")
 
-      assert fields["title"] == "Hello World"
-      assert fields["content"] =~ "The body."
+      # Capitalized keys to match the prompt's {{Title}}/{{Content}} placeholders.
+      # Core's prompt substitution is case-sensitive, so the exact key casing is
+      # load-bearing — lowercase keys leave the placeholders unrendered and the
+      # model hallucinates. Pin the key set, not just the values.
+      assert Enum.sort(Map.keys(fields)) == ["Content", "Title"]
+      assert fields["Title"] == "Hello World"
+      assert fields["Content"] =~ "The body."
     end
   end
 
@@ -94,7 +99,7 @@ defmodule PhoenixKitPublishing.AITranslatableTest do
                AITranslatable.put_translation(
                  resource,
                  "ru",
-                 %{"title" => "Привет мир", "content" => "# Привет мир\n\nтекст"},
+                 %{"Title" => "Привет мир", "Content" => "# Привет мир\n\nтекст"},
                  []
                )
 
@@ -113,7 +118,7 @@ defmodule PhoenixKitPublishing.AITranslatableTest do
         AITranslatable.put_translation(
           other_res,
           "ru",
-          %{"title" => "Привет мир", "content" => "x"},
+          %{"Title" => "Привет мир", "Content" => "x"},
           []
         )
 
@@ -128,7 +133,7 @@ defmodule PhoenixKitPublishing.AITranslatableTest do
         AITranslatable.put_translation(
           resource,
           "ru",
-          %{"title" => "Привет мир", "content" => "y"},
+          %{"Title" => "Привет мир", "Content" => "y"},
           []
         )
 

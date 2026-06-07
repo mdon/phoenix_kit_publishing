@@ -476,7 +476,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor.Translation do
           content = source_post.content || ""
           String.trim(content) == ""
 
-        {:error, _} ->
+        _ ->
           # Can't read source - assume it's blank to be safe
           true
       end
