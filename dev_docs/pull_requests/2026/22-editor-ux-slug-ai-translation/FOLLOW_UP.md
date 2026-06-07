@@ -76,12 +76,24 @@ something up. The retired `TranslatePostWorker` fed capitalized `"Title"`/
 dropped that casing — the keys now drive both substitution **and** response
 parsing, so they must match the prompt.
 
-**Fix:** `source_fields/2` emits `"Title"` / `"Content"`; `build_params/3` reads
-them back under the same casing (DB params stay lowercase `title`/`content`).
-(`lib/phoenix_kit_publishing/ai_translatable.ex`) Verified live: re-translating
-en-US → ru now yields a genuine translation — title "Демонстрация рендеринга
-Markdown" (= "Markdown Rendering Demo"), body translating the actual source,
-slug `demonstratsiya-renderinga-markdown`.
+**Fix (standardized to the ecosystem convention):** rather than match
+publishing's bespoke capitalized prompt, we aligned publishing with the
+catalogue/projects convention — **lowercase** field keys throughout.
+`source_fields/2` emits `"title"`/`"content"`, `build_params/3` reads them back
+(DB params were already lowercase), and the shipped default prompt
+(`default_prompt_content/0`) now uses `{{title}}`/`{{content}}` plus the generic
+*"skip a value that is still a literal `{{placeholder}}`"* instruction, so a
+future binding mismatch **fails closed** (field skipped → clean missing-marker
+error) instead of hallucinating. Verified live (lowercase path, fresh job): title
+"Демонстрация рендеринга Markdown" (= "Markdown Rendering Demo"), body
+translating the actual source, slug `demonstratsiya-renderinga-markdown`.
+(`ai_translatable.ex`, `web/editor/translation.ex`)
+
+**Existing installs:** a previously-generated "Translate Publishing Posts"
+prompt still carries the old `{{Title}}`/`{{Content}}` placeholders and must be
+regenerated (or its placeholders lowercased) to work with the standardized
+adapter. The dev DB prompt was updated in place. **Surfaced to Max** — pre-release,
+so no production installs are affected yet.
 
 ### Bug 2 (latent) — `source_content_blank?/1` checked the viewed language
 
@@ -121,9 +133,14 @@ the false warning is gone; only the legitimate "will overwrite" warning remains.
   reads the primary language as source on a non-primary page (regression guard
   for Batch-4 Bug 2), and uses the live buffer when viewing the primary.
 - `ai_translatable_test.exs` (Batch 4) — `source_fields/2` pins the exact key
-  set `["Content", "Title"]` (capitalized), the regression guard for Batch-4
-  Bug 1: a lowercase key would leave the prompt placeholders unrendered. The
-  `put_translation/4` tests feed `"Title"`/`"Content"` accordingly.
+  set `["content", "title"]` (lowercase, matching the standardized prompt), the
+  regression guard for Batch-4 Bug 1: any casing drift leaves the prompt
+  placeholders unrendered.
+- `editor_translation_test.exs` (Batch 4) — a prompt↔adapter **contract test**:
+  extracts every `{{placeholder}}` from `default_prompt_content/0` (minus the
+  core-provided language slots) and asserts it equals the key set
+  `source_fields/2` binds. This is the guard that fails the moment the prompt
+  and adapter casing drift apart again.
 - `ai_translatable_test.exs` — added a slug-conflict test: when another post
   already owns the generated slug in the same group+language, the new
   translation's `url_slug` is omitted and falls back to the post's default slug

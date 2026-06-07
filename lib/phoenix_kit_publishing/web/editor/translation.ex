@@ -101,46 +101,69 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor.Translation do
   Returns {:ok, prompt} or {:error, changeset}.
   """
   def generate_default_translation_prompt do
-    attrs = %{
+    AI.create_prompt(%{
       name: "Translate Publishing Posts",
       description: "Default prompt for translating publishing posts between languages",
-      content: """
-      Translate the following content from {{SourceLanguage}} to {{TargetLanguage}}.
+      content: default_prompt_content()
+    })
+  end
 
-      RULES:
-      - Preserve the EXACT formatting of the original (headings, line breaks, spacing, etc.)
-      - If the original has a # heading, keep it. If it doesn't, don't add one.
-      - Preserve all Markdown formatting (bold, italic, links, code blocks, lists)
-      - Do NOT translate text inside code blocks or inline code
-      - Translate naturally and idiomatically
-      - Keep HTML tags and special syntax unchanged
+  @doc """
+  The shipped translation prompt template.
 
-      OUTPUT FORMAT - respond with ONLY this format, nothing else before or after:
+  The `{{title}}` / `{{content}}` placeholders are **lowercase on purpose** —
+  they must match, byte-for-byte, the keys `AITranslatable.source_fields/2`
+  binds (the same lowercase convention as the catalogue and projects prompts),
+  because core's prompt-variable substitution (`PhoenixKitAI.Prompt.render`) is
+  case-sensitive and silently leaves an unmatched `{{Var}}` literal in the
+  prompt. The defensive "skip a value that is still a literal placeholder"
+  rule makes a binding mismatch **fail closed** (the field is skipped, the job
+  fails cleanly on a missing marker) rather than producing a hallucinated
+  translation. `editor_translation_test.exs` pins the placeholder↔key invariant
+  so the two can't drift apart again. Exposed (not inlined) so that test can
+  read the template without writing a DB row.
+  """
+  @spec default_prompt_content() :: String.t()
+  def default_prompt_content do
+    """
+    Translate the following content from {{SourceLanguage}} to {{TargetLanguage}}.
 
-      ---TITLE---
-      [translated title - just the title text, no # symbol]
-      ---SLUG---
-      [url-friendly-slug-in-target-language]
-      ---CONTENT---
-      [translated content - preserve EXACT original formatting]
+    RULES:
+    - Preserve the EXACT formatting of the original (headings, line breaks, spacing, etc.)
+    - If the original has a # heading, keep it. If it doesn't, don't add one.
+    - Preserve all Markdown formatting (bold, italic, links, code blocks, lists)
+    - Do NOT translate text inside code blocks or inline code
+    - Translate naturally and idiomatically
+    - Keep HTML tags and special syntax unchanged
 
-      SLUG RULES:
-      - Lowercase letters only (a-z)
-      - Numbers allowed (0-9)
-      - Use hyphens (-) to separate words
-      - No spaces, accents, or special characters
-      - Keep it short and SEO-friendly
-      - Example: "getting-started" -> "primeros-pasos" (Spanish)
+    OUTPUT FORMAT - respond with ONLY this format, nothing else before or after:
 
-      === SOURCE CONTENT ===
+    ---TITLE---
+    [translated title - just the title text, no # symbol]
+    ---SLUG---
+    [url-friendly-slug-in-target-language]
+    ---CONTENT---
+    [translated content - preserve EXACT original formatting]
 
-      Title: {{Title}}
+    Skip any field whose source value below is missing, blank, or still a
+    literal placeholder (e.g. a value that looks like `{{title}}` means the
+    caller did not bind it) — do NOT emit its marker, and do NOT translate the
+    placeholder text itself.
 
-      {{Content}}
-      """
-    }
+    SLUG RULES:
+    - Lowercase letters only (a-z)
+    - Numbers allowed (0-9)
+    - Use hyphens (-) to separate words
+    - No spaces, accents, or special characters
+    - Keep it short and SEO-friendly
+    - Example: "getting-started" -> "primeros-pasos" (Spanish)
 
-    AI.create_prompt(attrs)
+    === SOURCE CONTENT ===
+
+    Title: {{title}}
+
+    {{content}}
+    """
   end
 
   # ============================================================================

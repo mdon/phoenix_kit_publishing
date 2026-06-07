@@ -81,13 +81,14 @@ defmodule PhoenixKitPublishing.AITranslatableTest do
       {:ok, resource} = AITranslatable.fetch("publishing_post", post_uuid)
       fields = AITranslatable.source_fields(resource, "en-US")
 
-      # Capitalized keys to match the prompt's {{Title}}/{{Content}} placeholders.
-      # Core's prompt substitution is case-sensitive, so the exact key casing is
-      # load-bearing — lowercase keys leave the placeholders unrendered and the
-      # model hallucinates. Pin the key set, not just the values.
-      assert Enum.sort(Map.keys(fields)) == ["Content", "Title"]
-      assert fields["Title"] == "Hello World"
-      assert fields["Content"] =~ "The body."
+      # Lowercase keys to match the prompt's {{title}}/{{content}} placeholders
+      # (same convention as catalogue/projects). Core's prompt substitution is
+      # case-sensitive, so the exact key casing is load-bearing — a mismatch
+      # leaves the placeholders unrendered and the model hallucinates. Pin the
+      # key set, not just the values.
+      assert Enum.sort(Map.keys(fields)) == ["content", "title"]
+      assert fields["title"] == "Hello World"
+      assert fields["content"] =~ "The body."
     end
   end
 
@@ -99,7 +100,7 @@ defmodule PhoenixKitPublishing.AITranslatableTest do
                AITranslatable.put_translation(
                  resource,
                  "ru",
-                 %{"Title" => "Привет мир", "Content" => "# Привет мир\n\nтекст"},
+                 %{"title" => "Привет мир", "content" => "# Привет мир\n\nтекст"},
                  []
                )
 
@@ -118,7 +119,7 @@ defmodule PhoenixKitPublishing.AITranslatableTest do
         AITranslatable.put_translation(
           other_res,
           "ru",
-          %{"Title" => "Привет мир", "Content" => "x"},
+          %{"title" => "Привет мир", "content" => "x"},
           []
         )
 
@@ -133,7 +134,7 @@ defmodule PhoenixKitPublishing.AITranslatableTest do
         AITranslatable.put_translation(
           resource,
           "ru",
-          %{"Title" => "Привет мир", "Content" => "y"},
+          %{"title" => "Привет мир", "content" => "y"},
           []
         )
 

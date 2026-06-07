@@ -14,6 +14,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor.TranslationTest do
   alias PhoenixKit.Modules.Publishing.Posts
   alias PhoenixKit.Modules.Publishing.Web.Editor.Translation
   alias PhoenixKit.Settings
+  alias PhoenixKitPublishing.AITranslatable
 
   setup do
     {:ok, _} = Settings.update_boolean_setting("languages_enabled", true)
@@ -71,6 +72,40 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor.TranslationTest do
       s = socket(%{post: post, current_language: "en-US", current_version: nil, content: ""})
 
       assert Translation.source_content_blank?(s)
+    end
+  end
+
+  describe "prompt/adapter variable contract" do
+    test "shipped prompt placeholders exactly match the adapter's source_fields keys",
+         %{post: post} do
+      # The 2026-06-07 regression: source_fields/2 returned lowercase keys while
+      # the prompt used {{Title}}/{{Content}}. Core's substitution is
+      # case-sensitive, so the placeholders rendered literally and the model
+      # hallucinated. Pin the invariant: every {{Placeholder}} in the shipped
+      # prompt (minus the core-provided language slots) must be a key the
+      # adapter actually binds — same string, same casing.
+      {:ok, resource} = AITranslatable.fetch("publishing_post", post.uuid)
+
+      bound_keys =
+        resource
+        |> AITranslatable.source_fields("en-US")
+        |> Map.keys()
+        |> MapSet.new()
+
+      placeholders =
+        ~r/\{\{(\w+)\}\}/
+        |> Regex.scan(Translation.default_prompt_content())
+        |> Enum.map(fn [_, name] -> name end)
+        |> Enum.reject(&(&1 in ["SourceLanguage", "TargetLanguage"]))
+        |> MapSet.new()
+
+      assert placeholders == bound_keys,
+             """
+             Prompt placeholders and adapter source_fields keys have drifted.
+             Prompt {{...}} (minus language slots): #{inspect(MapSet.to_list(placeholders))}
+             source_fields/2 keys:                  #{inspect(MapSet.to_list(bound_keys))}
+             They must match byte-for-byte (core substitution is case-sensitive).
+             """
     end
   end
 end

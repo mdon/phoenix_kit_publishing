@@ -18,10 +18,10 @@ defmodule PhoenixKitPublishing.AITranslatable do
 
   ## Fields
 
-  `source_fields/2` returns `%{"Title", "Content"}` read in the source
-  language — capitalized to match the `{{Title}}`/`{{Content}}` placeholders in
-  the publishing translation prompt (core's variable substitution is
-  case-sensitive). `put_translation/4` creates the target-language content row (via
+  `source_fields/2` returns `%{"title", "content"}` read in the source
+  language — lowercase to match the `{{title}}`/`{{content}}` placeholders in
+  the publishing translation prompt, the same convention as the catalogue and
+  projects adapters (core's variable substitution is case-sensitive). `put_translation/4` creates the target-language content row (via
   `add_language_to_post` when absent) and writes the translated title/content,
   **generating the per-language `url_slug` locally** from the translated title
   via `SlugHelpers.slugify/1`. That honors the configured slug style and avoids
@@ -89,16 +89,17 @@ defmodule PhoenixKitPublishing.AITranslatable do
   def source_fields(%__MODULE__{} = resource, source_lang) do
     case Publishing.read_post_by_uuid(resource.post_uuid, source_lang, resource.version) do
       {:ok, post} ->
-        # Keys are capitalized ("Title"/"Content") to match the placeholders in
-        # the publishing translation prompt ({{Title}}/{{Content}}). Core's
-        # prompt-variable substitution is case-SENSITIVE
-        # (PhoenixKitAI.Prompt.get_variable_value), and the same field keys
-        # drive response parsing (markers are upcased either way), so the casing
-        # must line up with the prompt or {{Title}}/{{Content}} render literally
-        # and the model hallucinates instead of translating.
+        # Lowercase keys ("title"/"content") match the prompt's {{title}}/
+        # {{content}} placeholders — the same convention as the catalogue and
+        # projects adapters. Core's prompt substitution is case-SENSITIVE
+        # (PhoenixKitAI.Prompt.get_variable_value) and these keys also drive
+        # response parsing (markers are upcased either way), so they must line
+        # up with the prompt placeholders or the model gets a literal {{title}}
+        # and hallucinates. editor_translation_test.exs pins the default
+        # prompt's placeholders against these keys.
         %{}
-        |> put_nonempty("Title", extract_title(post))
-        |> put_nonempty("Content", post.content || "")
+        |> put_nonempty("title", extract_title(post))
+        |> put_nonempty("content", post.content || "")
 
       _ ->
         %{}
@@ -156,13 +157,13 @@ defmodule PhoenixKitPublishing.AITranslatable do
 
   defp build_params(fields, resource, target_lang) do
     # `fields` comes back from core's parser keyed by the SAME names
-    # source_fields/2 emitted ("Title"/"Content"); the DB params are the
-    # lowercase content-schema fields.
-    title = Map.get(fields, "Title")
+    # source_fields/2 emitted ("title"/"content"), which are already the
+    # lowercase content-schema field names.
+    title = Map.get(fields, "title")
 
     %{}
     |> maybe_put("title", title)
-    |> maybe_put("content", Map.get(fields, "Content"))
+    |> maybe_put("content", Map.get(fields, "content"))
     |> maybe_put_slug(title, resource, target_lang)
   end
 
