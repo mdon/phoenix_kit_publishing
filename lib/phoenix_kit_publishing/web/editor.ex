@@ -117,6 +117,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
       |> assign(:current_language, nil)
       |> assign(:current_language_enabled, true)
       |> assign(:current_language_known, true)
+      |> assign(:is_primary_language, true)
       |> assign(:default_language, nil)
       |> assign(:default_language_name, nil)
       |> assign(:available_languages, [])
@@ -145,6 +146,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
       |> assign(:ai_translation_progress, nil)
       |> assign(:ai_translation_total, nil)
       |> assign(:ai_translation_languages, [])
+      |> assign(:ai_translation_failures, 0)
       |> assign(:translation_locked?, false)
       |> assign(:show_translation_confirm, false)
       |> assign(:pending_translation_languages, [])
@@ -184,19 +186,38 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
   end
 
   # UUID-based route: /admin/publishing/:group/:post_uuid/edit
-  def handle_params(%{"post_uuid" => post_uuid} = params, _uri, socket)
+  def handle_params(%{"post_uuid" => post_uuid} = params, uri, socket)
       when not is_map_key(params, "preview_token") do
+    socket = assign(socket, :endpoint_url, extract_endpoint_url(uri))
     handle_uuid_post_params(socket, post_uuid, params)
   end
 
-  def handle_params(%{"path" => path} = params, _uri, socket)
+  def handle_params(%{"path" => path} = params, uri, socket)
       when not is_map_key(params, "preview_token") do
+    socket = assign(socket, :endpoint_url, extract_endpoint_url(uri))
     handle_path_post_params(socket, path, params)
   end
 
   def handle_params(_params, _uri, socket) do
     {:noreply, socket}
   end
+
+  # Derive the public-facing origin (scheme://host[:port]) from the current
+  # request URI so the edit page can show the same full public URL the post
+  # listing does. Mirrors Web.Listing.extract_endpoint_url/1.
+  defp extract_endpoint_url(uri) when is_binary(uri) do
+    case URI.parse(uri) do
+      %URI{scheme: scheme, host: host, port: port}
+      when not is_nil(scheme) and not is_nil(host) ->
+        port_string = if port in [80, 443], do: "", else: ":#{port}"
+        "#{scheme}://#{host}#{port_string}"
+
+      _ ->
+        ""
+    end
+  end
+
+  defp extract_endpoint_url(_), do: ""
 
   defp handle_uuid_post_params(socket, post_uuid, params) do
     group_slug = socket.assigns.group_slug
@@ -1018,11 +1039,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
       |> then(fn p ->
         if form_slug && form_slug != "", do: Map.put(p, :slug, form_slug), else: p
       end)
-      |> then(fn p ->
-        if form_url_slug && form_url_slug != "",
-          do: Map.put(p, :url_slug, form_url_slug),
-          else: p
-      end)
+      |> Map.put(:url_slug, if(form_url_slug in [nil, ""], do: nil, else: form_url_slug))
 
     {updated_post, Helpers.build_public_url(updated_post, language)}
   end
@@ -1280,23 +1297,38 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
        |> assign(:ai_translation_progress, 0)
        |> assign(:ai_translation_total, length(target_languages))
        |> assign(:ai_translation_languages, target_languages)
+       |> assign(:ai_translation_failures, 0)
        |> assign(:translation_locked?, should_lock)}
     else
       {:noreply, socket}
     end
   end
 
+  # Per-language success from core's generic pipeline. Each parallel job
+  # broadcasts on this post's translations topic (AITranslatable.pubsub_topics/1),
+  # so we count completions toward the progress bar the :translation_started
+  # event primed.
   def handle_info(
-        {:translation_progress, group_slug, post_identifier, completed, total, _last_language},
+        {:ai_translation, :translation_completed, %{resource_uuid: resource_uuid}},
         socket
       ) do
-    if socket.assigns[:group_slug] == group_slug && post_matches?(socket, post_identifier) do
+    if ai_event_for_this_post?(socket, resource_uuid) do
+      {:noreply, socket |> bump_translation_progress() |> maybe_finalize_translation()}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_info(
+        {:ai_translation, :translation_failed, %{resource_uuid: resource_uuid}},
+        socket
+      ) do
+    if ai_event_for_this_post?(socket, resource_uuid) do
       socket =
         socket
-        |> assign(:ai_translation_status, :in_progress)
-        |> assign(:ai_translation_progress, completed)
-        |> assign(:ai_translation_total, total)
-        |> Persistence.refresh_available_languages()
+        |> bump_translation_progress()
+        |> bump_translation_failures()
+        |> maybe_finalize_translation()
 
       {:noreply, socket}
     else
@@ -1304,46 +1336,10 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
     end
   end
 
-  def handle_info({:translation_completed, group_slug, post_identifier, results}, socket) do
-    if socket.assigns[:group_slug] == group_slug && post_matches?(socket, post_identifier) do
-      flash_msg =
-        if results.failure_count > 0 do
-          gettext("Translation completed with %{success} succeeded, %{failed} failed",
-            success: results.success_count,
-            failed: results.failure_count
-          )
-        else
-          gettext("Translation completed successfully for %{count} languages",
-            count: results.success_count
-          )
-        end
-
-      flash_level = if results.failure_count > 0, do: :warning, else: :info
-
-      current_language = socket.assigns[:current_language]
-      succeeded_languages = results[:succeeded] || []
-
-      socket =
-        socket
-        |> assign(:ai_translation_status, :completed)
-        |> assign(:ai_translation_languages, [])
-        |> assign(:translation_locked?, false)
-
-      socket =
-        if current_language in succeeded_languages do
-          Persistence.reload_translated_content(socket, flash_msg, flash_level)
-        else
-          # Reload source language content too (worker reads from DB, no conflict)
-          socket
-          |> Persistence.refresh_available_languages()
-          |> put_flash(flash_level, flash_msg)
-        end
-
-      {:noreply, socket}
-    else
-      {:noreply, socket}
-    end
-  end
+  # Other generic lifecycle events (per-language :translation_started, etc.)
+  # need no handling — :translation_started above already primed the UI, and
+  # the per-language content row refresh rides publishing's :translation_created.
+  def handle_info({:ai_translation, _event, _payload}, socket), do: {:noreply, socket}
 
   def handle_info({:translation_created, group_slug, post_identifier, language}, socket) do
     if socket.assigns[:group_slug] == group_slug && post_matches?(socket, post_identifier) do
@@ -1508,6 +1504,64 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
   defp post_matches?(socket, broadcast_id) do
     post = socket.assigns[:post]
     post != nil && post[:uuid] == broadcast_id
+  end
+
+  # Generic-pipeline events carry the post uuid as resource_uuid.
+  defp ai_event_for_this_post?(socket, resource_uuid) do
+    post = socket.assigns[:post]
+    is_binary(resource_uuid) and post != nil and post[:uuid] == resource_uuid
+  end
+
+  defp bump_translation_progress(socket) do
+    assign(socket, :ai_translation_progress, (socket.assigns[:ai_translation_progress] || 0) + 1)
+  end
+
+  defp bump_translation_failures(socket) do
+    assign(socket, :ai_translation_failures, (socket.assigns[:ai_translation_failures] || 0) + 1)
+  end
+
+  # When every enqueued language has reported back (success or failure), close
+  # out: flash a summary, unlock, and reload the current language's content if
+  # it was one of the translated targets.
+  defp maybe_finalize_translation(socket) do
+    total = socket.assigns[:ai_translation_total] || 0
+    progress = socket.assigns[:ai_translation_progress] || 0
+
+    if total > 0 and progress >= total do
+      failures = socket.assigns[:ai_translation_failures] || 0
+      success = max(total - failures, 0)
+      translated = socket.assigns[:ai_translation_languages] || []
+      current_language = socket.assigns[:current_language]
+      {level, msg} = translation_summary(success, failures)
+
+      socket =
+        socket
+        |> assign(:ai_translation_status, :completed)
+        |> assign(:ai_translation_languages, [])
+        |> assign(:translation_locked?, false)
+
+      if current_language in translated do
+        Persistence.reload_translated_content(socket, msg, level)
+      else
+        socket
+        |> Persistence.refresh_available_languages()
+        |> put_flash(level, msg)
+      end
+    else
+      socket
+    end
+  end
+
+  defp translation_summary(success, 0) do
+    {:info, gettext("Translation completed successfully for %{count} languages", count: success)}
+  end
+
+  defp translation_summary(success, failures) do
+    {:warning,
+     gettext("Translation completed with %{success} succeeded, %{failed} failed",
+       success: success,
+       failed: failures
+     )}
   end
 
   defp reload_post_on_lock_acquired(socket) do
@@ -1842,9 +1896,9 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
     >
     </button>
 
-    <div class="container mx-auto px-4 py-6 space-y-6">
+    <div class="w-full px-4 py-6 space-y-6">
     <div class="flex flex-wrap items-center justify-between gap-2">
-      <button type="button" class="btn btn-ghost btn-sm" phx-click="back_to_list">
+      <button type="button" class="btn btn-ghost btn-sm pl-0" phx-click="back_to_list">
         <.icon name="hero-arrow-left" class="w-4 h-4 mr-2" /> {gettext("Back to %{group}",
           group: @group_name || gettext("Group")
         )}
@@ -1884,6 +1938,21 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
         <% end %>
       </div>
     </div>
+
+    <%!-- Public URL (shown for published posts, mirrors the post listing) --%>
+    <%= if @form["status"] == "published" && @public_url do %>
+      <% full_public_url = (assigns[:endpoint_url] || "") <> @public_url %>
+      <p class="text-xs text-base-content/50 break-all">
+        <span class="font-medium text-base-content">{gettext("Public URL")}:</span>
+        <a
+          href={full_public_url}
+          target="_blank"
+          class="link link-hover font-mono text-xs"
+        >
+          {full_public_url}
+        </a>
+      </p>
+    <% end %>
 
     <%!-- Version Switcher and Actions --%>
     <div class="flex flex-col gap-2">
@@ -2296,8 +2365,8 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
               </div>
             <% end %>
 
-            <div class="card bg-base-100 shadow-xl border border-base-200">
-              <div class="card-body space-y-4">
+            <div>
+              <div class="space-y-4">
                 <%!-- Save status and button --%>
                 <div class="flex flex-wrap items-center justify-end gap-1.5">
                   <%!-- Other viewers indicator --%>
@@ -2386,39 +2455,88 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
 
           <%!-- Right column: Version Settings (global, shared across all languages) --%>
           <div class="lg:w-80 space-y-4">
-            <div class="card bg-base-100 shadow-xl border border-base-200">
-              <div class="card-body space-y-4">
+            <div>
+              <div class="space-y-4">
                 <h3 class="text-xs font-semibold uppercase tracking-wider text-base-content/50">
                   {gettext("Version Settings")}
                 </h3>
 
                 <%!-- Slug (slug-mode groups only) --%>
                 <%= if @group_mode == "slug" do %>
-                  <div>
-                    <label class="label">
-                      <span class="label-text text-sm font-semibold text-base-content">
-                        {gettext("Slug")}
-                      </span>
-                    </label>
-                    <input
-                      type="text"
-                      name="slug"
-                      id="slug-input"
-                      value={@form["slug"]}
-                      pattern="[a-z0-9]+(-[a-z0-9]+)*"
-                      class={"input input-bordered w-full lowercase #{if edit_disabled? or @viewing_older_version, do: "input-disabled bg-base-200"}"}
-                      placeholder={gettext("auto-generated from title")}
-                      title={
-                        gettext(
-                          "Use lowercase letters, numbers, and hyphens only. No spaces or special characters."
-                        )
-                      }
-                      readonly={edit_disabled? or @viewing_older_version}
-                    />
-                    <p class="text-xs text-base-content/60 mt-1">
-                      {gettext("Use lowercase letters, numbers, and hyphens only.")}
-                    </p>
-                  </div>
+                  <%= if @is_primary_language do %>
+                    <%!-- Primary language: editable slug used in the post URL --%>
+                    <div>
+                      <label class="label">
+                        <span class="label-text text-sm font-semibold text-base-content">
+                          {gettext("Slug")}
+                        </span>
+                      </label>
+                      <input
+                        type="text"
+                        name="slug"
+                        id="slug-input"
+                        value={@form["slug"]}
+                        pattern="[a-z0-9]+(-[a-z0-9]+)*"
+                        class={"input input-bordered w-full lowercase #{if edit_disabled? or @viewing_older_version, do: "input-disabled bg-base-200"}"}
+                        placeholder={gettext("auto-generated from title")}
+                        title={
+                          gettext(
+                            "Use lowercase letters, numbers, and hyphens only. No spaces or special characters."
+                          )
+                        }
+                        readonly={edit_disabled? or @viewing_older_version}
+                      />
+                      <p class="text-xs text-base-content/60 mt-1">
+                        {gettext("Use lowercase letters, numbers, and hyphens only.")}
+                        {gettext("This will be the default URL for all languages.")}
+                      </p>
+                    </div>
+                  <% else %>
+                    <%!-- Translation: per-language URL slug for SEO-friendly localized URLs --%>
+                    <div>
+                      <label class="label">
+                        <span class="label-text text-sm font-semibold text-base-content">
+                          {gettext("URL Slug")}
+                          <span class="text-base-content/60 font-normal ml-1">
+                            ({gettext("optional")})
+                          </span>
+                        </span>
+                      </label>
+                      <input
+                        type="text"
+                        name="url_slug"
+                        id="url-slug-input"
+                        value={@form["url_slug"] || ""}
+                        maxlength="200"
+                        pattern="[a-z0-9]+(-[a-z0-9]+)*"
+                        class={"input input-bordered w-full lowercase #{if edit_disabled? or @viewing_older_version, do: "input-disabled bg-base-200"}"}
+                        placeholder={@form["slug"] || ""}
+                        title={
+                          gettext(
+                            "Use lowercase letters, numbers, and hyphens only. Leave empty to use the default slug."
+                          )
+                        }
+                        readonly={edit_disabled? or @viewing_older_version}
+                      />
+                      <p class="text-xs text-base-content/60 mt-1">
+                        {gettext(
+                          "Custom URL for this language. Leave empty to use default: %{slug}",
+                          slug: @form["slug"]
+                        )}
+                      </p>
+                      <p class="text-xs text-base-content/50 mt-0.5">
+                        {gettext("Preview: /%{language}/%{group}/%{slug}",
+                          language: @current_language,
+                          group: @group_slug,
+                          slug:
+                            if(@form["url_slug"] != "",
+                              do: @form["url_slug"],
+                              else: @form["slug"]
+                            )
+                        )}
+                      </p>
+                    </div>
+                  <% end %>
                 <% end %>
 
                 <div>

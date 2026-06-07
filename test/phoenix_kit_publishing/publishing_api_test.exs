@@ -47,8 +47,8 @@ defmodule PhoenixKit.Modules.Publishing.PublishingAPITest do
       assert Code.ensure_loaded?(PhoenixKit.Modules.Publishing.DBStorage.Mapper)
     end
 
-    test "Worker modules are defined" do
-      assert Code.ensure_loaded?(PhoenixKit.Modules.Publishing.Workers.TranslatePostWorker)
+    test "AI translation adapter is defined" do
+      assert Code.ensure_loaded?(PhoenixKitPublishing.AITranslatable)
     end
 
     test "Refactored submodules are defined" do

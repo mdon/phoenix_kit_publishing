@@ -64,6 +64,35 @@ defmodule PhoenixKit.Modules.Publishing.SlugHelpersTest do
       refute SlugHelpers.valid_slug?("")
     end
   end
+
+  describe "slugify/2 (style-aware, explicit style → pure)" do
+    test "transliterate maps Cyrillic + strips Latin diacritics to ASCII" do
+      assert SlugHelpers.slugify("Привет мир", style: :transliterate) == "privet-mir"
+      assert SlugHelpers.slugify("Café Привет 2024", style: :transliterate) == "cafe-privet-2024"
+      assert SlugHelpers.slugify("My First Post!", style: :transliterate) == "my-first-post"
+    end
+
+    test "unicode keeps letters/numbers from any script" do
+      assert SlugHelpers.slugify("Привет, мир!", style: :unicode) == "привет-мир"
+      assert SlugHelpers.slugify("My First Post!", style: :unicode) == "my-first-post"
+    end
+
+    test "ascii strips everything non-ASCII (legacy behavior)" do
+      assert SlugHelpers.slugify("Привет мир", style: :ascii) == ""
+      assert SlugHelpers.slugify("My First Post!", style: :ascii) == "my-first-post"
+    end
+
+    test "caps length at 200 on a hyphen boundary (transliteration can expand)" do
+      slug = SlugHelpers.slugify(String.duplicate("щ", 300), style: :transliterate)
+      assert String.length(slug) <= 200
+      refute String.ends_with?(slug, "-")
+    end
+
+    test "nil / blank input returns an empty string" do
+      assert SlugHelpers.slugify(nil) == ""
+      assert SlugHelpers.slugify("   ", style: :transliterate) == ""
+    end
+  end
 end
 
 defmodule PhoenixKit.Modules.Publishing.SlugHelpersDBTest do
@@ -196,6 +225,20 @@ defmodule PhoenixKit.Modules.Publishing.SlugHelpersDBTest do
   describe "clear_conflicting_url_slugs/2" do
     test "returns [] when no conflicts exist", %{group_slug: group_slug} do
       assert SlugHelpers.clear_conflicting_url_slugs(group_slug, "no-conflicts") == []
+    end
+  end
+
+  describe "slug_style/0 + matches_shape?/1" do
+    test "follow the publishing_slug_style setting" do
+      {:ok, _} = Settings.update_setting("publishing_slug_style", "unicode")
+      assert SlugHelpers.slug_style() == :unicode
+      assert SlugHelpers.matches_shape?("привет-мир")
+      assert SlugHelpers.matches_shape?("privet-mir")
+
+      {:ok, _} = Settings.update_setting("publishing_slug_style", "transliterate")
+      assert SlugHelpers.slug_style() == :transliterate
+      assert SlugHelpers.matches_shape?("privet-mir")
+      refute SlugHelpers.matches_shape?("привет-мир")
     end
   end
 end

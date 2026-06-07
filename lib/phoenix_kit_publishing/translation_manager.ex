@@ -7,16 +7,19 @@ defmodule PhoenixKit.Modules.Publishing.TranslationManager do
 
   require Logger
 
+  alias PhoenixKit.Modules.AI.Translations
   alias PhoenixKit.Modules.Languages.DialectMapper
   alias PhoenixKit.Modules.Publishing.ActivityLog
   alias PhoenixKit.Modules.Publishing.Constants
   alias PhoenixKit.Modules.Publishing.DBStorage
+  alias PhoenixKit.Modules.Publishing.LanguageHelpers
   alias PhoenixKit.Modules.Publishing.ListingCache
   alias PhoenixKit.Modules.Publishing.PublishingContent
   alias PhoenixKit.Modules.Publishing.PubSub, as: PublishingPubSub
   alias PhoenixKit.Modules.Publishing.Shared
   alias PhoenixKit.Modules.Publishing.StaleFixer
-  alias PhoenixKit.Modules.Publishing.Workers.TranslatePostWorker
+  alias PhoenixKit.Settings
+  alias PhoenixKitPublishing.AITranslatable
 
   @doc """
   Adds a new language translation to an existing post.
@@ -303,13 +306,49 @@ defmodule PhoenixKit.Modules.Publishing.TranslationManager do
 
   ## Returns
 
-  - `{:ok, %Oban.Job{}}` - Job was successfully enqueued
-  - `{:error, changeset}` - Failed to enqueue job
+  Delegates to core's generic pipeline, enqueuing one job per target language
+  (they run in parallel):
+
+  - `{:ok, %{enqueued: n, conflicts: n, errors: [], in_flight: [lang]}}`
+  - `{:error, reason}` - malformed params (e.g. missing endpoint/prompt)
 
   """
   @spec translate_post_to_all_languages(String.t(), String.t(), keyword()) ::
-          {:ok, Oban.Job.t()} | {:error, Ecto.Changeset.t()}
-  def translate_post_to_all_languages(group_slug, post_uuid, opts \\ []) do
-    TranslatePostWorker.enqueue(group_slug, post_uuid, opts)
+          {:ok, map()} | {:error, term()}
+  def translate_post_to_all_languages(_group_slug, post_uuid, opts \\ []) do
+    {base_params, targets} = build_bulk_translation_params(post_uuid, opts)
+    Translations.enqueue_all_missing(base_params, targets)
   end
+
+  @doc false
+  # Public for testing. Assembles core's generic-pipeline `base_params` and the
+  # target-language list for `translate_post_to_all_languages/3`, resolving
+  # defaults: source = primary language; targets = all enabled except source;
+  # endpoint/prompt fall back to the publishing settings; actor is included only
+  # when a `:user_uuid` is given.
+  @spec build_bulk_translation_params(String.t(), keyword()) :: {map(), [String.t()]}
+  def build_bulk_translation_params(post_uuid, opts) do
+    source_lang = opts[:source_language] || LanguageHelpers.get_primary_language()
+
+    targets =
+      opts[:target_languages] ||
+        Enum.reject(LanguageHelpers.enabled_language_codes(), &(&1 == source_lang))
+
+    base_params =
+      %{
+        resource_type: AITranslatable.resource_type(),
+        resource_uuid: post_uuid,
+        endpoint_uuid:
+          opts[:endpoint_uuid] || Settings.get_setting("publishing_translation_endpoint_uuid"),
+        prompt_uuid:
+          opts[:prompt_uuid] || Settings.get_setting("publishing_translation_prompt_uuid"),
+        source_lang: source_lang
+      }
+      |> maybe_put_actor(opts[:user_uuid])
+
+    {base_params, targets}
+  end
+
+  defp maybe_put_actor(params, nil), do: params
+  defp maybe_put_actor(params, actor_uuid), do: Map.put(params, :actor_uuid, actor_uuid)
 end
