@@ -15,11 +15,9 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor.Translation do
   alias PhoenixKit.Modules.Publishing.LanguageHelpers
   alias PhoenixKit.Modules.Publishing.PresenceHelpers
   alias PhoenixKit.Modules.Publishing.PubSub, as: PublishingPubSub
-  alias PhoenixKit.Settings
+  alias PhoenixKit.Modules.Publishing.TranslationManager
   alias PhoenixKitAI, as: AI
   alias PhoenixKitPublishing.AITranslatable
-
-  @translation_prompt_slug "translate-publishing-posts"
 
   # Core's generic-pipeline Oban worker. Referenced as a module (not a bare
   # string) so the name stays in sync with core and the coupling is greppable;
@@ -43,8 +41,6 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor.Translation do
   """
   def ai_translation_available?, do: Translations.available?()
 
-  defp ai_module_available?, do: Code.ensure_loaded?(PhoenixKitAI)
-
   @doc """
   Lists available AI endpoints for translation as `[{uuid, name}]`.
   """
@@ -55,46 +51,24 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor.Translation do
   """
   def list_ai_prompts, do: Translations.list_prompts()
 
+  # Default endpoint/prompt resolution is domain logic shared with the
+  # programmatic bulk API — TranslationManager owns it so the two paths can't
+  # drift. These stay as the editor's entry points but just delegate.
+
   @doc """
   Gets the default AI endpoint UUID from settings.
   """
-  def get_default_ai_endpoint_uuid do
-    case Settings.get_setting("publishing_translation_endpoint_uuid") do
-      nil -> nil
-      "" -> nil
-      id -> id
-    end
-  end
+  def get_default_ai_endpoint_uuid, do: TranslationManager.default_endpoint_uuid()
 
   @doc """
-  Gets the default AI prompt UUID for translation from settings.
+  Gets the default AI prompt UUID for translation (setting, then slug fallback).
   """
-  def get_default_ai_prompt_uuid do
-    case Settings.get_setting("publishing_translation_prompt_uuid") do
-      nil -> fallback_prompt_uuid()
-      "" -> fallback_prompt_uuid()
-      id -> id
-    end
-  end
-
-  defp fallback_prompt_uuid do
-    if ai_module_available?() and AI.enabled?() do
-      case AI.get_prompt_by_slug(@translation_prompt_slug) do
-        nil -> nil
-        prompt -> prompt.uuid
-      end
-    else
-      nil
-    end
-  end
+  def get_default_ai_prompt_uuid, do: TranslationManager.default_prompt_uuid()
 
   @doc """
   Checks if the default translation prompt already exists.
   """
-  def default_translation_prompt_exists? do
-    ai_module_available?() and AI.enabled?() and
-      AI.get_prompt_by_slug(@translation_prompt_slug) != nil
-  end
+  def default_translation_prompt_exists?, do: TranslationManager.default_prompt_exists?()
 
   @doc """
   Generates the default translation prompt in the AI prompts system.

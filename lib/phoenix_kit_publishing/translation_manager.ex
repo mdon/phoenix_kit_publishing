@@ -21,6 +21,69 @@ defmodule PhoenixKit.Modules.Publishing.TranslationManager do
   alias PhoenixKit.Settings
   alias PhoenixKitPublishing.AITranslatable
 
+  # Slug of the publishing-specific default translation prompt. Canonical here
+  # (domain) so the editor LiveView and the programmatic bulk API resolve the
+  # default endpoint/prompt the same way — the editor delegates to these.
+  @translation_prompt_slug "translate-publishing-posts"
+
+  @doc """
+  Resolves the default AI endpoint UUID for publishing translation.
+
+  Reads the `publishing_translation_endpoint_uuid` setting; `nil`/`""` → `nil`.
+  """
+  @spec default_endpoint_uuid() :: String.t() | nil
+  def default_endpoint_uuid do
+    case Settings.get_setting("publishing_translation_endpoint_uuid") do
+      nil -> nil
+      "" -> nil
+      id -> id
+    end
+  end
+
+  @doc """
+  Resolves the default AI prompt UUID for publishing translation.
+
+  Prefers the `publishing_translation_prompt_uuid` setting, then falls back to
+  the prompt with slug `#{@translation_prompt_slug}`. Both the editor and the
+  bulk API use this so they can't drift (the bulk API previously skipped the
+  slug fallback and could enqueue a `nil` prompt).
+  """
+  @spec default_prompt_uuid() :: String.t() | nil
+  def default_prompt_uuid do
+    case Settings.get_setting("publishing_translation_prompt_uuid") do
+      nil -> prompt_uuid_by_slug()
+      "" -> prompt_uuid_by_slug()
+      id -> id
+    end
+  end
+
+  @doc "Whether the publishing default translation prompt exists (by slug)."
+  @spec default_prompt_exists?() :: boolean()
+  def default_prompt_exists? do
+    ai_available?() and PhoenixKitAI.get_prompt_by_slug(@translation_prompt_slug) != nil
+  end
+
+  @doc "The slug of the publishing default translation prompt."
+  @spec translation_prompt_slug() :: String.t()
+  def translation_prompt_slug, do: @translation_prompt_slug
+
+  defp prompt_uuid_by_slug do
+    if ai_available?() do
+      case PhoenixKitAI.get_prompt_by_slug(@translation_prompt_slug) do
+        nil -> nil
+        prompt -> prompt.uuid
+      end
+    else
+      nil
+    end
+  end
+
+  # PhoenixKitAI is an optional plugin — guard the reference so this domain
+  # module compiles and runs when the plugin is absent.
+  defp ai_available? do
+    Code.ensure_loaded?(PhoenixKitAI) and PhoenixKitAI.enabled?()
+  end
+
   @doc """
   Adds a new language translation to an existing post.
 
@@ -338,10 +401,8 @@ defmodule PhoenixKit.Modules.Publishing.TranslationManager do
       %{
         resource_type: AITranslatable.resource_type(),
         resource_uuid: post_uuid,
-        endpoint_uuid:
-          opts[:endpoint_uuid] || Settings.get_setting("publishing_translation_endpoint_uuid"),
-        prompt_uuid:
-          opts[:prompt_uuid] || Settings.get_setting("publishing_translation_prompt_uuid"),
+        endpoint_uuid: opts[:endpoint_uuid] || default_endpoint_uuid(),
+        prompt_uuid: opts[:prompt_uuid] || default_prompt_uuid(),
         source_lang: source_lang
       }
       |> maybe_put_actor(opts[:user_uuid])

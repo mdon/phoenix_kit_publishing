@@ -116,6 +116,37 @@ the false warning is gone; only the legitimate "will overwrite" warning remains.
   (>500 chars) was **discarded cleanly** by the content changeset — no
   partial/corrupt write.
 
+## Codex re-review (Batch 4, 2026-06-07) — 3 findings, all verified
+
+- **F3 (Low) — FIXED.** The programmatic bulk API (`build_bulk_translation_params/2`)
+  resolved the prompt/endpoint with a bare `Settings.get_setting/1` and **no slug
+  fallback**, while the editor used the richer `get_default_ai_prompt_uuid/0`
+  (setting → slug). So with the setting unset but the default prompt present,
+  the bulk API enqueued `prompt_uuid: nil` and failed. Fixed by moving the
+  canonical resolvers (`default_endpoint_uuid/0`, `default_prompt_uuid/0`,
+  `default_prompt_exists?/0`) **into `TranslationManager` (domain)** — the
+  editor now delegates to them, so both paths share one source of truth and
+  can't drift. (`translation_manager.ex`, `web/editor/translation.ex`)
+- **F1 (Medium) — SURFACED (core-contract limitation).** The generic
+  `Translatable.fetch/2` contract is `(resource_type, resource_uuid)` — there is
+  **no version dimension**, so the editor's `current_version` cannot be threaded
+  into the job. `fetch/2` re-resolves the active version; on a published-v1 +
+  draft-v2 post, translating while viewing the draft targets v1. Read==write
+  stays consistent (no corruption) — it just always targets the active version.
+  Fixing this needs a core change (carry a version/opaque-key through the job to
+  `fetch/2`). **For Max:** want the generic pipeline to support a version/scope
+  dimension, or should publishing always translate the active version (and the
+  editor reflect that)? Matches the documented v1/v2 residual below.
+- **F2 (Medium) — SURFACED + dev fixed.** A "Translate Publishing Posts" prompt
+  generated **before** the lowercase standardization still carries
+  `{{Title}}/{{Content}}`; `default_prompt_exists?/0` only checks slug presence,
+  so the UI hides "Generate Default Prompt" and the stale row keeps hallucinating
+  (it predates the fail-closed instruction). The dev DB prompt was lowercased in
+  place. **For Max:** pre-release, so no production installs — but if any prompt
+  predates this, regenerate it. A guided "your prompt is stale, regenerate?"
+  affordance would be the durable fix (deliberately not auto-rewriting a
+  possibly-customized prompt).
+
 ## Tests added (Batch — 2026-06-07)
 
 - `test/phoenix_kit_publishing/ai_translatable_test.exs` (new) — the four
