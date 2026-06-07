@@ -185,7 +185,7 @@ defmodule PhoenixKitPublishing.AITranslatable do
 
     case Regex.run(~r/^#\s+(.+)$/m, content) do
       [_, title] -> String.trim(title)
-      nil -> Map.get(post.metadata || %{}, :title, Constants.default_title())
+      nil -> Map.get(post.metadata, :title, Constants.default_title())
     end
   end
 

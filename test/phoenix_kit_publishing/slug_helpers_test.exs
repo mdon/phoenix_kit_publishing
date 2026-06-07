@@ -241,4 +241,17 @@ defmodule PhoenixKit.Modules.Publishing.SlugHelpersDBTest do
       refute SlugHelpers.matches_shape?("привет-мир")
     end
   end
+
+  describe "html_input_pattern/0" do
+    test "tracks the publishing_slug_style setting" do
+      {:ok, _} = Settings.update_setting("publishing_slug_style", "unicode")
+      assert SlugHelpers.html_input_pattern() == "[\\p{L}\\p{N}]+(-[\\p{L}\\p{N}]+)*"
+
+      {:ok, _} = Settings.update_setting("publishing_slug_style", "transliterate")
+      assert SlugHelpers.html_input_pattern() == "[a-z0-9]+(-[a-z0-9]+)*"
+
+      {:ok, _} = Settings.update_setting("publishing_slug_style", "ascii")
+      assert SlugHelpers.html_input_pattern() == "[a-z0-9]+(-[a-z0-9]+)*"
+    end
+  end
 end

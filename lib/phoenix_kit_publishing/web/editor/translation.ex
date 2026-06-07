@@ -21,6 +21,11 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor.Translation do
 
   @translation_prompt_slug "translate-publishing-posts"
 
+  # Core's generic-pipeline Oban worker. Referenced as a module (not a bare
+  # string) so the name stays in sync with core and the coupling is greppable;
+  # `Oban.Job.worker` stores `inspect/1` of the worker module.
+  @translate_worker PhoenixKit.Modules.AI.TranslateWorker
+
   # ============================================================================
   # Availability Checks
   # ============================================================================
@@ -452,18 +457,20 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor.Translation do
   def source_content_blank?(socket) do
     post = socket.assigns.post
 
-    source_language =
-      socket.assigns[:current_language] ||
-        LanguageHelpers.get_primary_language()
-
+    # Source is ALWAYS the primary language (the content actually fed to the
+    # translator), never the language the editor happens to be viewing — same
+    # invariant as do_enqueue_translation/2 and build_translation_warnings/2.
+    # Checking the viewed language here would warn "source is empty" about a
+    # translation, or stay silent while the real (primary) source is blank.
+    source_language = source_language_for_translation(socket)
     current_version = socket.assigns[:current_version]
 
-    # If we're on the primary language, check current content
+    # If we're already viewing the source language, the live buffer is
+    # authoritative; otherwise read the primary content from the database.
     if socket.assigns[:current_language] == source_language do
       content = socket.assigns.content || ""
       String.trim(content) == ""
     else
-      # Read the source language content from the database
       case Publishing.read_post_by_uuid(post.uuid, source_language, current_version) do
         {:ok, source_post} ->
           content = source_post.content || ""
@@ -568,7 +575,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor.Translation do
 
     query =
       from(j in Oban.Job,
-        where: j.worker == "PhoenixKit.Modules.AI.TranslateWorker",
+        where: j.worker == ^inspect(@translate_worker),
         where: j.state in ["available", "scheduled", "executing", "retryable"],
         select: j.args
       )

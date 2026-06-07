@@ -175,6 +175,28 @@ defmodule PhoenixKit.Modules.Publishing.SlugHelpers do
   def matches_shape?(slug) when is_binary(slug), do: Regex.match?(slug_pattern(), slug)
   def matches_shape?(_), do: false
 
+  # HTML5 `pattern` attribute sources — mirror the shape regexes above but as
+  # plain strings (the attribute is compiled Unicode-aware by the browser, so
+  # `\p{L}`/`\p{N}` resolve under :unicode).
+  @ascii_html_pattern "[a-z0-9]+(-[a-z0-9]+)*"
+  @unicode_html_pattern "[\\p{L}\\p{N}]+(-[\\p{L}\\p{N}]+)*"
+
+  @doc """
+  Returns the HTML5 `pattern` attribute source matching the active slug style.
+
+  Keeps the editor's `url_slug` input client-side validation in sync with the
+  server-side `validate_url_slug/4` — ASCII for `:transliterate`/`:ascii`,
+  Unicode letters/numbers for `:unicode`. Without this the input would reject a
+  valid Unicode slug the server accepts.
+  """
+  @spec html_input_pattern() :: String.t()
+  def html_input_pattern do
+    case slug_style() do
+      :unicode -> @unicode_html_pattern
+      _ -> @ascii_html_pattern
+    end
+  end
+
   @doc """
   Validates whether the given string is a valid slug format and not a reserved language code.
   """

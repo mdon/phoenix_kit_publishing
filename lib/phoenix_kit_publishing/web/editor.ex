@@ -30,6 +30,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
   alias PhoenixKit.Modules.Publishing.LanguageHelpers
   alias PhoenixKit.Modules.Publishing.PubSub, as: PublishingPubSub
   alias PhoenixKit.Modules.Publishing.Shared
+  alias PhoenixKit.Modules.Publishing.SlugHelpers
   alias PhoenixKit.Modules.Publishing.Web.Controller.Language, as: ControllerLanguage
   alias PhoenixKit.Settings
   alias PhoenixKit.Utils.Routes
@@ -2508,7 +2509,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
                         id="url-slug-input"
                         value={@form["url_slug"] || ""}
                         maxlength="200"
-                        pattern="[a-z0-9]+(-[a-z0-9]+)*"
+                        pattern={SlugHelpers.html_input_pattern()}
                         class={"input input-bordered w-full lowercase #{if edit_disabled? or @viewing_older_version, do: "input-disabled bg-base-200"}"}
                         placeholder={@form["slug"] || ""}
                         title={

@@ -67,10 +67,10 @@ defmodule PhoenixKitPublishing.MixProject do
   defp deps do
     [
       # PhoenixKit provides the Module behaviour, Settings API, and core infrastructure.
-      # 1.7.131 is the floor — it carries the generic AI-translation pipeline
+      # 1.7.132 is the floor — it carries the generic AI-translation pipeline
       # (`Modules.AI.{Translatable,Translations,TranslateWorker}` +
       # `ai_translatables/0`) that `ai_translatable.ex` plugs into.
-      {:phoenix_kit, "~> 1.7.131"},
+      {:phoenix_kit, "~> 1.7.132"},
       {:phoenix_kit_ai, "~> 0.1"},
 
       # LiveView for admin pages

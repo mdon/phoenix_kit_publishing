@@ -71,6 +71,37 @@ Codex flagged two genuine HIGH bugs in the AI-translation path (both verified):
   translation's `url_slug` is omitted and falls back to the post's default slug
   (pins the Batch-1 uniqueness guard).
 
+## Fixed (Batch 3 — Claude post-merge review, 2026-06-07)
+
+Independent Elixir-skill review of the merged surface (full write-up in
+`CLAUDE_REVIEW.md`). Three findings + one pre-existing Dialyzer fix:
+
+- **`source_content_blank?/1` still sourced from the viewed language** — residual
+  of the Batch-2 "source is always primary" fix. The blank-content confirmation
+  warning inspected `current_language || primary`, so on a non-primary page it
+  warned about the wrong language (false "empty source" warning, or no warning
+  while the real primary source was blank). Now uses
+  `source_language_for_translation/1`. (`web/editor/translation.ex`)
+- **`url_slug` input `pattern` was hardcoded ASCII** even under the new
+  `:unicode` slug style, so the browser rejected a Unicode slug the server
+  accepts. Added style-aware `SlugHelpers.html_input_pattern/0` and wired the
+  input to it. (`slug_helpers.ex`, `web/editor.ex`)
+- **Hardcoded worker-module string** in `in_flight_translation_languages/1`
+  (`j.worker == "PhoenixKit.Modules.AI.TranslateWorker"`) → `^inspect(@translate_worker)`
+  module attribute so a core rename can't silently break banner restore.
+  (`web/editor/translation.ex`)
+- **Pre-existing Dialyzer error** (not PR #22 code): dead `|| %{}` guard on the
+  always-a-map `post.metadata` in `extract_title/1`, surfaced by `mix precommit`
+  (which runs Dialyzer; the PR ran only format/credo/compile). Dropped.
+  (`ai_translatable.ex:188`)
+
+Tests: `slug_helpers_test.exs` — `html_input_pattern/0` tracks the
+`publishing_slug_style` setting (unicode vs ascii/transliterate).
+
+Verification: `mix precommit` (compile --warnings-as-errors, deps.unlock check,
+format --check, credo --strict, **dialyzer**) — 0 errors. `mix test` not
+runnable in the review sandbox (no `psql`); precommit was the gate.
+
 ## Skipped (with rationale)
 
 - **`slug_style/0` broad `rescue _ ->`** — intentional fail-open to
@@ -99,11 +130,12 @@ Codex flagged two genuine HIGH bugs in the AI-translation path (both verified):
 
 | File | Change |
 |------|--------|
-| `lib/phoenix_kit_publishing/ai_translatable.ex` | url_slug uniqueness guard; `:post_slug` on struct; `with` simplification |
-| `lib/phoenix_kit_publishing/web/editor.ex` | `maxlength="200"` on url_slug input |
-| `lib/phoenix_kit_publishing/web/editor/translation.ex` | source lang = primary (Batch 2) |
+| `lib/phoenix_kit_publishing/ai_translatable.ex` | url_slug uniqueness guard; `:post_slug` on struct; `with` simplification; dead `|| %{}` drop (Batch 3) |
+| `lib/phoenix_kit_publishing/web/editor.ex` | `maxlength="200"` on url_slug input; style-aware `pattern` (Batch 3) |
+| `lib/phoenix_kit_publishing/web/editor/translation.ex` | source lang = primary (Batch 2 + Batch 3 `source_content_blank?`); `@translate_worker` ref (Batch 3) |
+| `lib/phoenix_kit_publishing/slug_helpers.ex` | `html_input_pattern/0` (Batch 3) |
 | `test/phoenix_kit_publishing/ai_translatable_test.exs` | new — 7 adapter tests (incl. slug-conflict) |
-| `test/phoenix_kit_publishing/slug_helpers_test.exs` | +6 slug-engine / style tests |
+| `test/phoenix_kit_publishing/slug_helpers_test.exs` | +6 slug-engine / style tests; +`html_input_pattern/0` (Batch 3) |
 
 ## Verification
 
