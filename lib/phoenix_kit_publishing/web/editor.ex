@@ -143,6 +143,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
       |> assign(:ai_prompts, Translation.list_ai_prompts())
       |> assign(:ai_selected_prompt_uuid, Translation.get_default_ai_prompt_uuid())
       |> assign(:ai_default_prompt_exists, Translation.default_translation_prompt_exists?())
+      |> assign(:ai_default_prompt_stale, Translation.default_translation_prompt_stale?())
       |> assign(:ai_translation_status, nil)
       |> assign(:ai_translation_progress, nil)
       |> assign(:ai_translation_total, nil)
@@ -761,6 +762,27 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
            socket,
            :error,
            gettext("Failed to create prompt. It may already exist.")
+         )}
+    end
+  end
+
+  def handle_event("regenerate_default_translation_prompt", _params, socket) do
+    case Translation.regenerate_default_translation_prompt() do
+      {:ok, prompt} ->
+        {:noreply,
+         socket
+         |> assign(:ai_prompts, Translation.list_ai_prompts())
+         |> assign(:ai_selected_prompt_uuid, prompt.uuid)
+         |> assign(:ai_default_prompt_exists, true)
+         |> assign(:ai_default_prompt_stale, false)
+         |> Phoenix.LiveView.put_flash(:info, gettext("Default translation prompt updated"))}
+
+      {:error, _changeset} ->
+        {:noreply,
+         Phoenix.LiveView.put_flash(
+           socket,
+           :error,
+           gettext("Failed to update the default prompt")
          )}
     end
   end
@@ -2160,6 +2182,17 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
                   >
                     <.icon name="hero-sparkles" class="w-3 h-3" />
                     {gettext("Generate Default Prompt")}
+                  </button>
+                <% end %>
+                <%= if @ai_default_prompt_exists and @ai_default_prompt_stale do %>
+                  <button
+                    type="button"
+                    class="btn btn-warning btn-outline btn-xs gap-1"
+                    phx-click="regenerate_default_translation_prompt"
+                    title={gettext("This prompt predates the current format and may mistranslate. Click to update it.")}
+                  >
+                    <.icon name="hero-arrow-path" class="w-3 h-3" />
+                    {gettext("Regenerate Default Prompt")}
                   </button>
                 <% end %>
               </div>

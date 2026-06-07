@@ -71,6 +71,43 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor.Translation do
   def default_translation_prompt_exists?, do: TranslationManager.default_prompt_exists?()
 
   @doc """
+  Whether the persisted default prompt is **stale** — it exists but predates the
+  lowercase-placeholder standardization, so it still references `{{Title}}`/
+  `{{Content}}` and would not bind the adapter's `title`/`content` keys (the
+  model would hallucinate). Drives a "Regenerate default prompt" affordance so a
+  stale row isn't a dead end (the "Generate" button hides once a prompt exists).
+  """
+  def default_translation_prompt_stale? do
+    case persisted_default_prompt() do
+      %{content: content} when is_binary(content) ->
+        not (String.contains?(content, "{{title}}") and String.contains?(content, "{{content}}"))
+
+      _ ->
+        false
+    end
+  end
+
+  @doc """
+  Repairs a stale default prompt by rewriting its content to the current
+  template **in place** (preserving its uuid + any endpoint wiring), or creates
+  it if absent. Returns `{:ok, prompt}` or `{:error, reason}`.
+  """
+  def regenerate_default_translation_prompt do
+    case persisted_default_prompt() do
+      nil -> generate_default_translation_prompt()
+      prompt -> AI.update_prompt(prompt, %{content: default_prompt_content()})
+    end
+  end
+
+  defp persisted_default_prompt do
+    if Code.ensure_loaded?(PhoenixKitAI) and AI.enabled?() do
+      AI.get_prompt_by_slug(TranslationManager.translation_prompt_slug())
+    else
+      nil
+    end
+  end
+
+  @doc """
   Generates the default translation prompt in the AI prompts system.
   Returns {:ok, prompt} or {:error, changeset}.
   """
