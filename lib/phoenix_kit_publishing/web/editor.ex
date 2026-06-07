@@ -117,6 +117,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
       |> assign(:current_language, nil)
       |> assign(:current_language_enabled, true)
       |> assign(:current_language_known, true)
+      |> assign(:is_primary_language, true)
       |> assign(:default_language, nil)
       |> assign(:default_language_name, nil)
       |> assign(:available_languages, [])
@@ -184,19 +185,38 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
   end
 
   # UUID-based route: /admin/publishing/:group/:post_uuid/edit
-  def handle_params(%{"post_uuid" => post_uuid} = params, _uri, socket)
+  def handle_params(%{"post_uuid" => post_uuid} = params, uri, socket)
       when not is_map_key(params, "preview_token") do
+    socket = assign(socket, :endpoint_url, extract_endpoint_url(uri))
     handle_uuid_post_params(socket, post_uuid, params)
   end
 
-  def handle_params(%{"path" => path} = params, _uri, socket)
+  def handle_params(%{"path" => path} = params, uri, socket)
       when not is_map_key(params, "preview_token") do
+    socket = assign(socket, :endpoint_url, extract_endpoint_url(uri))
     handle_path_post_params(socket, path, params)
   end
 
   def handle_params(_params, _uri, socket) do
     {:noreply, socket}
   end
+
+  # Derive the public-facing origin (scheme://host[:port]) from the current
+  # request URI so the edit page can show the same full public URL the post
+  # listing does. Mirrors Web.Listing.extract_endpoint_url/1.
+  defp extract_endpoint_url(uri) when is_binary(uri) do
+    case URI.parse(uri) do
+      %URI{scheme: scheme, host: host, port: port}
+      when not is_nil(scheme) and not is_nil(host) ->
+        port_string = if port in [80, 443], do: "", else: ":#{port}"
+        "#{scheme}://#{host}#{port_string}"
+
+      _ ->
+        ""
+    end
+  end
+
+  defp extract_endpoint_url(_), do: ""
 
   defp handle_uuid_post_params(socket, post_uuid, params) do
     group_slug = socket.assigns.group_slug
@@ -1018,11 +1038,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
       |> then(fn p ->
         if form_slug && form_slug != "", do: Map.put(p, :slug, form_slug), else: p
       end)
-      |> then(fn p ->
-        if form_url_slug && form_url_slug != "",
-          do: Map.put(p, :url_slug, form_url_slug),
-          else: p
-      end)
+      |> Map.put(:url_slug, if(form_url_slug in [nil, ""], do: nil, else: form_url_slug))
 
     {updated_post, Helpers.build_public_url(updated_post, language)}
   end
@@ -1842,9 +1858,9 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
     >
     </button>
 
-    <div class="container mx-auto px-4 py-6 space-y-6">
+    <div class="w-full px-4 py-6 space-y-6">
     <div class="flex flex-wrap items-center justify-between gap-2">
-      <button type="button" class="btn btn-ghost btn-sm" phx-click="back_to_list">
+      <button type="button" class="btn btn-ghost btn-sm pl-0" phx-click="back_to_list">
         <.icon name="hero-arrow-left" class="w-4 h-4 mr-2" /> {gettext("Back to %{group}",
           group: @group_name || gettext("Group")
         )}
@@ -1884,6 +1900,21 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
         <% end %>
       </div>
     </div>
+
+    <%!-- Public URL (shown for published posts, mirrors the post listing) --%>
+    <%= if @form["status"] == "published" && @public_url do %>
+      <% full_public_url = (assigns[:endpoint_url] || "") <> @public_url %>
+      <p class="text-xs text-base-content/50 break-all">
+        <span class="font-medium text-base-content">{gettext("Public URL")}:</span>
+        <a
+          href={full_public_url}
+          target="_blank"
+          class="link link-hover font-mono text-xs"
+        >
+          {full_public_url}
+        </a>
+      </p>
+    <% end %>
 
     <%!-- Version Switcher and Actions --%>
     <div class="flex flex-col gap-2">
@@ -2296,8 +2327,8 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
               </div>
             <% end %>
 
-            <div class="card bg-base-100 shadow-xl border border-base-200">
-              <div class="card-body space-y-4">
+            <div>
+              <div class="space-y-4">
                 <%!-- Save status and button --%>
                 <div class="flex flex-wrap items-center justify-end gap-1.5">
                   <%!-- Other viewers indicator --%>
@@ -2386,39 +2417,87 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
 
           <%!-- Right column: Version Settings (global, shared across all languages) --%>
           <div class="lg:w-80 space-y-4">
-            <div class="card bg-base-100 shadow-xl border border-base-200">
-              <div class="card-body space-y-4">
+            <div>
+              <div class="space-y-4">
                 <h3 class="text-xs font-semibold uppercase tracking-wider text-base-content/50">
                   {gettext("Version Settings")}
                 </h3>
 
                 <%!-- Slug (slug-mode groups only) --%>
                 <%= if @group_mode == "slug" do %>
-                  <div>
-                    <label class="label">
-                      <span class="label-text text-sm font-semibold text-base-content">
-                        {gettext("Slug")}
-                      </span>
-                    </label>
-                    <input
-                      type="text"
-                      name="slug"
-                      id="slug-input"
-                      value={@form["slug"]}
-                      pattern="[a-z0-9]+(-[a-z0-9]+)*"
-                      class={"input input-bordered w-full lowercase #{if edit_disabled? or @viewing_older_version, do: "input-disabled bg-base-200"}"}
-                      placeholder={gettext("auto-generated from title")}
-                      title={
-                        gettext(
-                          "Use lowercase letters, numbers, and hyphens only. No spaces or special characters."
-                        )
-                      }
-                      readonly={edit_disabled? or @viewing_older_version}
-                    />
-                    <p class="text-xs text-base-content/60 mt-1">
-                      {gettext("Use lowercase letters, numbers, and hyphens only.")}
-                    </p>
-                  </div>
+                  <%= if @is_primary_language do %>
+                    <%!-- Primary language: editable slug used in the post URL --%>
+                    <div>
+                      <label class="label">
+                        <span class="label-text text-sm font-semibold text-base-content">
+                          {gettext("Slug")}
+                        </span>
+                      </label>
+                      <input
+                        type="text"
+                        name="slug"
+                        id="slug-input"
+                        value={@form["slug"]}
+                        pattern="[a-z0-9]+(-[a-z0-9]+)*"
+                        class={"input input-bordered w-full lowercase #{if edit_disabled? or @viewing_older_version, do: "input-disabled bg-base-200"}"}
+                        placeholder={gettext("auto-generated from title")}
+                        title={
+                          gettext(
+                            "Use lowercase letters, numbers, and hyphens only. No spaces or special characters."
+                          )
+                        }
+                        readonly={edit_disabled? or @viewing_older_version}
+                      />
+                      <p class="text-xs text-base-content/60 mt-1">
+                        {gettext("Use lowercase letters, numbers, and hyphens only.")}
+                        {gettext("This will be the default URL for all languages.")}
+                      </p>
+                    </div>
+                  <% else %>
+                    <%!-- Translation: per-language URL slug for SEO-friendly localized URLs --%>
+                    <div>
+                      <label class="label">
+                        <span class="label-text text-sm font-semibold text-base-content">
+                          {gettext("URL Slug")}
+                          <span class="text-base-content/60 font-normal ml-1">
+                            ({gettext("optional")})
+                          </span>
+                        </span>
+                      </label>
+                      <input
+                        type="text"
+                        name="url_slug"
+                        id="url-slug-input"
+                        value={@form["url_slug"] || ""}
+                        pattern="[a-z0-9]+(-[a-z0-9]+)*"
+                        class={"input input-bordered w-full lowercase #{if edit_disabled? or @viewing_older_version, do: "input-disabled bg-base-200"}"}
+                        placeholder={@form["slug"] || ""}
+                        title={
+                          gettext(
+                            "Use lowercase letters, numbers, and hyphens only. Leave empty to use the default slug."
+                          )
+                        }
+                        readonly={edit_disabled? or @viewing_older_version}
+                      />
+                      <p class="text-xs text-base-content/60 mt-1">
+                        {gettext(
+                          "Custom URL for this language. Leave empty to use default: %{slug}",
+                          slug: @form["slug"]
+                        )}
+                      </p>
+                      <p class="text-xs text-base-content/50 mt-0.5">
+                        {gettext("Preview: /%{language}/%{group}/%{slug}",
+                          language: @current_language,
+                          group: @group_slug,
+                          slug:
+                            if(@form["url_slug"] != "",
+                              do: @form["url_slug"],
+                              else: @form["slug"]
+                            )
+                        )}
+                      </p>
+                    </div>
+                  <% end %>
                 <% end %>
 
                 <div>

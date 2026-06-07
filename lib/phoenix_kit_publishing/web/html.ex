@@ -123,7 +123,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.HTML do
         </div>
         <%!-- Admin Edit Button --%>
         <%= if assigns[:admin_edit_url] do %>
-          <a href={@admin_edit_url} class="btn btn-sm btn-ghost gap-2">
+          <a href={@admin_edit_url} class="btn btn-sm btn-outline gap-2">
             <.icon name="hero-pencil-square" class="w-4 h-4" />
             {@admin_edit_label || "Edit"}
           </a>
@@ -300,7 +300,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.HTML do
         <% end %>
         <%!-- Admin Edit Button --%>
         <%= if assigns[:admin_edit_url] do %>
-          <a href={@admin_edit_url} class="btn btn-sm btn-ghost gap-2">
+          <a href={@admin_edit_url} class="btn btn-sm btn-outline gap-2">
             <.icon name="hero-pencil-square" class="w-4 h-4" />
             {@admin_edit_label || "Edit"}
           </a>

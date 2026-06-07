@@ -35,6 +35,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor.Helpers do
     |> Phoenix.Component.assign(:current_language_name, current_language_name)
     |> Phoenix.Component.assign(:default_language, default_language)
     |> Phoenix.Component.assign(:default_language_name, default_language_name)
+    |> Phoenix.Component.assign(:is_primary_language, language_code == default_language)
     |> Phoenix.Component.assign(
       :current_language_enabled,
       Publishing.language_enabled?(language_code, enabled_languages)
