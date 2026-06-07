@@ -186,6 +186,33 @@ adapter unit test pins scope "1"→v1 / "2"→v2 on a two-version post.
 CI stays red (same hold as the rest of this PR). Pin left at `~> 1.7.132`; Max
 cuts the core release + the pin bump.
 
+## Codex re-review of F1 (Batch 5, 2026-06-07) — 3 findings
+
+- **F-A (Medium) — FIXED.** Nil-scope jobs (the programmatic bulk API; legacy
+  pre-upgrade jobs) write the active version, but the editor filters events by a
+  concrete version string (`"1"`), so `nil ≠ "1"` meant an open editor on the
+  active version ignored bulk-job completion/failure events and didn't restore
+  in-flight state. Fix: the bulk builder now resolves the post's **active
+  version number** and passes it as `resource_scope` (instead of nil), so it
+  matches an editor on that version. Truly-legacy nil-scope jobs remain
+  unmatched but drain within minutes. (`translation_manager.ex`)
+- **F-C (Low) — FIXED (core).** Core AI audit entries omitted the scope, so logs
+  couldn't tell v1 from v2 translation work. `TranslateWorker.log_added/2` now
+  includes `resource_scope` in metadata when present (unversioned resources'
+  entries unchanged). (core `translate_worker.ex`)
+- **F-B (Low/Med) — SURFACED.** `:translation_created` (publishing's per-language
+  content event) is version-blind — `broadcast_translation_created/3` drops the
+  version and editors handle it by uuid only, so a v1 new-language event triggers
+  a (harmless) refresh in a v2 editor. Not fixed here: that event is **shared
+  with the manual add-language flow**, so threading version through it has a
+  wider blast radius than the spurious-refresh payoff. **For Max:** worth a
+  follow-up if cross-version editor refreshes become noticeable.
+
+Codex confirmed: nil-scope dedup `IS NULL` is correct; string/integer
+canonicalization is consistent (publishing `to_string`, core normalizes ints,
+`parse_scope` accepts both); `fetch/3` optionality + `fetch/2` fallback keep
+catalogue/projects back-compatible.
+
 ## Tests added (Batch — 2026-06-07)
 
 - `test/phoenix_kit_publishing/ai_translatable_test.exs` (new) — the four

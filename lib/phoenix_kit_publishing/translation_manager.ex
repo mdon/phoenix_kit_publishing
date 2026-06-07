@@ -403,7 +403,13 @@ defmodule PhoenixKit.Modules.Publishing.TranslationManager do
         resource_uuid: post_uuid,
         endpoint_uuid: opts[:endpoint_uuid] || default_endpoint_uuid(),
         prompt_uuid: opts[:prompt_uuid] || default_prompt_uuid(),
-        source_lang: source_lang
+        source_lang: source_lang,
+        # Scope to the active version's number (not nil) so an editor open on
+        # that version still matches the lifecycle events — the editor always
+        # filters by a concrete version string. `opts[:resource_scope]` lets a
+        # caller target a specific version; otherwise the active version, or nil
+        # when it can't be resolved (fetch/3 falls back to active either way).
+        resource_scope: opts[:resource_scope] || active_version_scope(post_uuid)
       }
       |> maybe_put_actor(opts[:user_uuid])
 
@@ -412,4 +418,16 @@ defmodule PhoenixKit.Modules.Publishing.TranslationManager do
 
   defp maybe_put_actor(params, nil), do: params
   defp maybe_put_actor(params, actor_uuid), do: Map.put(params, :actor_uuid, actor_uuid)
+
+  # The post's active version number as a string, matching the editor's scope
+  # convention. nil (→ active via fetch/3) when there's no active version or the
+  # lookup fails.
+  defp active_version_scope(post_uuid) do
+    case DBStorage.get_post_by_uuid(post_uuid, [:active_version]) do
+      %{active_version: %{version_number: n}} when is_integer(n) -> Integer.to_string(n)
+      _ -> nil
+    end
+  rescue
+    _ -> nil
+  end
 end
