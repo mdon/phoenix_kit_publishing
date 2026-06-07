@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.1.14 - 2026-06-07
+
+PR #21 + PR #22 — editor UX, configurable slug style, and parallel AI translation (one Oban job per language via core's generic pipeline), plus a post-merge review sweep. Requires `phoenix_kit ~> 1.7.132`.
+
+### Added
+- **Configurable slug style** (`publishing_slug_style` setting + Settings dropdown). One style-aware `SlugHelpers.slugify/2` that every slug engine routes through: `transliterate` (default — Cyrillic → Latin, `Привет мир` → `privet-mir`), `unicode` (keep letters/numbers from any script, `привет-мир`), and `ascii` (legacy strip). Non-Latin titles no longer collapse to "untitled". Slugs are capped at 200 chars on a hyphen boundary.
+- **`PhoenixKitPublishing.AITranslatable`** — adapter onto core's generic AI-translation pipeline (`PhoenixKit.Modules.AI.{Translations,TranslateWorker}`), registered via `ai_translatables/0`. The per-language `url_slug` is generated locally from the translated title (honoring the slug style, never trusting an AI-returned slug) with a group+language uniqueness guard that omits the slug on conflict.
+- Editor UX: full-width layout matching the catalogue, aligned header rows, the public URL shown under the action buttons on published posts, and the re-enabled per-language URL Slug field with live preview.
+
+### Changed
+- **AI translation now runs one Oban job per target language** (core's `Translations.enqueue_all_missing/2`) instead of translating every language sequentially in a single job — wall-clock drops from the sum of all languages to roughly the slowest one. The programmatic `translate_post_to_all_languages/3` routes through the same pipeline.
+- `ai_translation_available?/0`, `list_ai_endpoints/0`, and `list_ai_prompts/0` delegate to core `PhoenixKit.Modules.AI.Translations` instead of re-deriving the `{uuid, name}` shape a third time (PR #21). Publishing keeps its own default endpoint/prompt resolution and its `translate-publishing-posts` prompt.
+- The `url_slug` uniqueness check now excludes the current post **in SQL**.
+- Bumped the `phoenix_kit` dependency floor to `~> 1.7.132` (first release with the generic AI-translation pipeline this module plugs into).
+
+### Fixed
+- **Translation source is always the primary language**, never the language the editor happens to be viewing — "translate this language" on a non-primary page no longer enqueues a language into itself, and "translate all/missing" no longer sources from a translation. Covers the `source_content_blank?/1` blank-source confirmation warning.
+- **Read/write version pinning** in the translation adapter — a published-v1 + draft-v2 post no longer reads one version and writes the new language row onto another.
+- The `url_slug` input gained `maxlength="200"` and a style-aware HTML5 `pattern`, so a valid Unicode slug isn't rejected client-side under the `unicode` style.
+- The in-flight translation query references the core worker module instead of a hardcoded string, and a dead `|| %{}` guard on the always-a-map `post.metadata` was removed (Dialyzer).
+
+### Removed
+- The legacy `Workers.TranslatePostWorker` and its tests — superseded by the `AITranslatable` adapter + core pipeline (net −1.3k LOC).
+
 ## 0.1.13 - 2026-05-22
 
 PR #20 — restore a defensive non-binary fallback in `TranslatePostWorker.parse_translated_response/1`, plus a follow-up that tightens the log-safe type descriptor.
