@@ -220,9 +220,12 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor.Translation do
     user_uuid = if user, do: user.user.uuid, else: nil
     post = socket.assigns.post
 
-    source_language =
-      socket.assigns[:current_language] ||
-        LanguageHelpers.get_primary_language()
+    # Source is ALWAYS the primary language (the canonical content), never the
+    # language the editor happens to be viewing — otherwise "translate this
+    # language" on a non-primary page would translate it into itself, and
+    # "translate all/missing" would translate from a translation. Matches the
+    # source used by build_translation_warnings/2.
+    source_language = source_language_for_translation(socket)
 
     # One Oban job per target language (core's generic pipeline) so they run
     # in parallel — replaces the legacy single-job sequential worker.
