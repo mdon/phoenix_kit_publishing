@@ -1308,8 +1308,12 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
   # Handle Info - Translation Events
   # ============================================================================
 
-  def handle_info({:translation_started, group_slug, post_identifier, target_languages}, socket) do
-    if socket.assigns[:group_slug] == group_slug && post_matches?(socket, post_identifier) do
+  def handle_info(
+        {:translation_started, group_slug, post_identifier, target_languages, scope},
+        socket
+      ) do
+    if socket.assigns[:group_slug] == group_slug && post_matches?(socket, post_identifier) &&
+         scope == current_version_scope(socket) do
       current_lang = socket.assigns[:current_language]
       source_lang = source_language_for_translation(socket)
       should_lock = current_lang == source_lang or current_lang in target_languages
@@ -1332,10 +1336,10 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
   # so we count completions toward the progress bar the :translation_started
   # event primed.
   def handle_info(
-        {:ai_translation, :translation_completed, %{resource_uuid: resource_uuid}},
+        {:ai_translation, :translation_completed, %{resource_uuid: resource_uuid} = payload},
         socket
       ) do
-    if ai_event_for_this_post?(socket, resource_uuid) do
+    if ai_event_for_this_post?(socket, resource_uuid, Map.get(payload, :resource_scope)) do
       {:noreply, socket |> bump_translation_progress() |> maybe_finalize_translation()}
     else
       {:noreply, socket}
@@ -1343,10 +1347,10 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
   end
 
   def handle_info(
-        {:ai_translation, :translation_failed, %{resource_uuid: resource_uuid}},
+        {:ai_translation, :translation_failed, %{resource_uuid: resource_uuid} = payload},
         socket
       ) do
-    if ai_event_for_this_post?(socket, resource_uuid) do
+    if ai_event_for_this_post?(socket, resource_uuid, Map.get(payload, :resource_scope)) do
       socket =
         socket
         |> bump_translation_progress()
@@ -1529,10 +1533,24 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
     post != nil && post[:uuid] == broadcast_id
   end
 
-  # Generic-pipeline events carry the post uuid as resource_uuid.
-  defp ai_event_for_this_post?(socket, resource_uuid) do
+  # Generic-pipeline events carry the post uuid as resource_uuid and the
+  # targeted version as resource_scope. Match BOTH so an editor viewing a
+  # different version of the same post ignores events for the other version.
+  defp ai_event_for_this_post?(socket, resource_uuid, resource_scope) do
     post = socket.assigns[:post]
-    is_binary(resource_uuid) and post != nil and post[:uuid] == resource_uuid
+
+    is_binary(resource_uuid) and post != nil and post[:uuid] == resource_uuid and
+      resource_scope == current_version_scope(socket)
+  end
+
+  # The version the editor is on, as the string the pipeline carries in
+  # `resource_scope` (nil → active version). Mirrors
+  # `Editor.Translation`'s enqueue scope so events match what was enqueued.
+  defp current_version_scope(socket) do
+    case socket.assigns[:current_version] do
+      nil -> nil
+      version -> to_string(version)
+    end
   end
 
   defp bump_translation_progress(socket) do

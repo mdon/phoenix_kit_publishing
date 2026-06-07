@@ -64,18 +64,27 @@ defmodule PhoenixKitPublishing.AITranslatable do
         }
 
   @impl true
-  def fetch(@resource_type, post_uuid) when is_binary(post_uuid) do
-    case Publishing.read_post_by_uuid(post_uuid, LanguageHelpers.get_primary_language()) do
+  # Required arity — delegates with a nil scope, i.e. the post's active version
+  # (the historical fetch/2 behavior).
+  def fetch(resource_type, post_uuid), do: fetch(resource_type, post_uuid, nil)
+
+  @impl true
+  def fetch(@resource_type, post_uuid, scope) when is_binary(post_uuid) do
+    # `scope` is the version number (as a string from the Oban args) the editor
+    # was on; nil → active version. Pin the resolved version and thread it
+    # through the read (source_fields) and the write (ensure_language_row) so a
+    # published post with a newer draft can't read one version and write another
+    # — and so translating a draft targets THAT draft, not the active version.
+    version = parse_scope(scope)
+
+    case Publishing.read_post_by_uuid(post_uuid, LanguageHelpers.get_primary_language(), version) do
       {:ok, post} ->
-        # Pin the version we resolved here and thread it through both the read
-        # (source_fields) and the write (ensure_language_row), so a published
-        # post with a newer draft can't read one version and write another.
         {:ok,
          %__MODULE__{
            post_uuid: post_uuid,
            group_slug: post.group,
            post_slug: post.slug,
-           version: Map.get(post, :version)
+           version: version || Map.get(post, :version)
          }}
 
       _ ->
@@ -83,7 +92,20 @@ defmodule PhoenixKitPublishing.AITranslatable do
     end
   end
 
-  def fetch(other, _uuid), do: {:error, {:unknown_resource_type, other}}
+  def fetch(other, _uuid, _scope), do: {:error, {:unknown_resource_type, other}}
+
+  # resource_scope carries the version number as a decimal string (or nil).
+  defp parse_scope(nil), do: nil
+  defp parse_scope(v) when is_integer(v), do: v
+
+  defp parse_scope(v) when is_binary(v) do
+    case Integer.parse(v) do
+      {n, ""} -> n
+      _ -> nil
+    end
+  end
+
+  defp parse_scope(_), do: nil
 
   @impl true
   def source_fields(%__MODULE__{} = resource, source_lang) do

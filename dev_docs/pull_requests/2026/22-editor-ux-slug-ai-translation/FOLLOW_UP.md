@@ -147,6 +147,45 @@ the false warning is gone; only the legitimate "will overwrite" warning remains.
   affordance would be the durable fix (deliberately not auto-rewriting a
   possibly-customized prompt).
 
+## Decisions implemented (Batch 5, 2026-06-07) — F1 + F2
+
+Both Codex re-review mediums were turned into decisions (planning-capper
+quick-verify on F1) and implemented.
+
+### F2 — regenerate affordance for stale prompts (publishing-only)
+`Translation.default_translation_prompt_stale?/0` + `regenerate_default_translation_prompt/0`
+(updates the row in place via `PhoenixKitAI.update_prompt/3`); editor shows a
+"Regenerate Default Prompt" button when a stale (pre-lowercase) prompt exists.
+Live-verified: re-staling the dev prompt surfaced the button; clicking it
+repaired the row.
+
+### F1 — version scope through the generic pipeline (CORE + publishing)
+Chosen approach: thread an opaque `resource_scope` so a draft v2 translates
+independently of the active v1 (was: always the active version). Cross-repo:
+
+- **Core `phoenix_kit`** (commit on core `main`): optional `Translatable.fetch/3`;
+  `Translations` normalizes `resource_scope` (JSON-safe string|nil) and keys the
+  in-flight **dedup** on it; `TranslateWorker` threads it from args, dispatches
+  `fetch/3` when exported (guarded `Code.ensure_loaded?/1`) else `fetch/2`, and
+  adds it to lifecycle broadcast payloads. Backward-compatible — catalogue/projects
+  keep `fetch/2`; legacy unscoped jobs still run.
+- **Publishing**: `AITranslatable.fetch/3` (scope = version number; `fetch/2`
+  delegates with nil = active version); editor enqueue passes
+  `resource_scope = current_version`; the in-flight-restore query and the
+  `{:ai_translation,…}` + `{:translation_started,…}` handlers filter by scope so
+  a different-version editor ignores another version's progress/locks.
+
+Per the planning-capper, scope was threaded through the **full** job-identity
+surface (dedup + in-flight query + PubSub start payload + completion/fail
+filtering), not just enqueue. Live-verified: enqueuing from the v1 editor
+produced a job with `resource_scope="1"` that completed and wrote v1; the
+adapter unit test pins scope "1"→v1 / "2"→v2 on a two-version post.
+
+**Release gate (extends the existing one):** F1's publishing side needs core's
+`fetch/3` — i.e. the **next** core release after 1.7.132. Until then publishing
+CI stays red (same hold as the rest of this PR). Pin left at `~> 1.7.132`; Max
+cuts the core release + the pin bump.
+
 ## Tests added (Batch — 2026-06-07)
 
 - `test/phoenix_kit_publishing/ai_translatable_test.exs` (new) — the four

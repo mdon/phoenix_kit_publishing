@@ -277,7 +277,11 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor.Translation do
       endpoint_uuid: socket.assigns.ai_selected_endpoint_uuid,
       prompt_uuid: socket.assigns[:ai_selected_prompt_uuid],
       source_lang: source_language,
-      actor_uuid: user_uuid
+      actor_uuid: user_uuid,
+      # Translate the version the editor is on (a draft, not always the active
+      # one). Core threads this scope to AITranslatable.fetch/3 and keys job
+      # dedup on it, so v1 and v2 translate independently.
+      resource_scope: version_scope(socket)
     }
 
     case Translations.enqueue_all_missing(base_params, target_languages) do
@@ -285,11 +289,13 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor.Translation do
         {:noreply, translation_error_socket(socket)}
 
       {:ok, %{in_flight: in_flight}} ->
-        # Tell every editor session (incl. this one) to show progress + lock.
+        # Tell every editor session on THIS version (incl. this one) to show
+        # progress + lock; other-version editors ignore it (scope mismatch).
         PublishingPubSub.broadcast_translation_started(
           socket.assigns.group_slug,
           post.uuid,
-          in_flight
+          in_flight,
+          version_scope(socket)
         )
 
         {:noreply, translation_success_socket(socket, in_flight)}
@@ -407,6 +413,16 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor.Translation do
   """
   def source_language_for_translation(_socket) do
     LanguageHelpers.get_primary_language()
+  end
+
+  # The version the editor is on, as the string `resource_scope` the core
+  # pipeline threads to `AITranslatable.fetch/3` and keys job dedup on. `nil`
+  # (no current version) → the post's active version.
+  defp version_scope(socket) do
+    case socket.assigns[:current_version] do
+      nil -> nil
+      version -> to_string(version)
+    end
   end
 
   defp check_source_language_editor(socket, warnings) do
@@ -579,7 +595,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor.Translation do
     post = socket.assigns[:post]
 
     if post && post[:uuid] do
-      case in_flight_translation_languages(post.uuid) do
+      case in_flight_translation_languages(post.uuid, version_scope(socket)) do
         [] ->
           socket
 
@@ -605,9 +621,13 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor.Translation do
   end
 
   # Target languages with a non-terminal generic-pipeline translation job for
-  # any version of this post. Lets the editor restore the in-progress banner
-  # across a page refresh. Fails open (empty) on any query error.
-  defp in_flight_translation_languages(post_uuid) do
+  # THIS post AND THIS version (`scope`). Scoping by version matters now that
+  # each version translates independently — otherwise a v2 editor would restore
+  # v1's in-progress banner. `scope` is nil (active version) or the version
+  # string; a job matches when its stored `resource_scope` equals it (both nil
+  # ↔ unscoped/legacy jobs). Lets the editor restore the banner across a page
+  # refresh. Fails open (empty) on any query error.
+  defp in_flight_translation_languages(post_uuid, scope) do
     repo = PhoenixKit.RepoHelper.repo()
 
     query =
@@ -621,7 +641,8 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor.Translation do
     |> repo.all()
     |> Enum.filter(fn args ->
       args["resource_type"] == AITranslatable.resource_type() and
-        args["resource_uuid"] == post_uuid
+        args["resource_uuid"] == post_uuid and
+        args["resource_scope"] == scope
     end)
     |> Enum.map(& &1["target_lang"])
     |> Enum.reject(&is_nil/1)
