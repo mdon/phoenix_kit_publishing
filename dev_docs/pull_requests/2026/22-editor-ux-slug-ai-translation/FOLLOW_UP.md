@@ -200,13 +200,15 @@ cuts the core release + the pin bump.
   couldn't tell v1 from v2 translation work. `TranslateWorker.log_added/2` now
   includes `resource_scope` in metadata when present (unversioned resources'
   entries unchanged). (core `translate_worker.ex`)
-- **F-B (Low/Med) — SURFACED.** `:translation_created` (publishing's per-language
-  content event) is version-blind — `broadcast_translation_created/3` drops the
-  version and editors handle it by uuid only, so a v1 new-language event triggers
-  a (harmless) refresh in a v2 editor. Not fixed here: that event is **shared
-  with the manual add-language flow**, so threading version through it has a
-  wider blast radius than the spurious-refresh payoff. **For Max:** worth a
-  follow-up if cross-version editor refreshes become noticeable.
+- **F-B (Low/Med) — FIXED.** `:translation_created` (publishing's per-language
+  content event) was version-blind — every editor for the post refreshed on any
+  version's new language. Threaded the version through:
+  `broadcast_translation_created/4` carries the version string (default nil =
+  legacy behavior), `add_language_to_post` passes the row's version, and the
+  editor handler refreshes only when it matches `current_version_scope/1`. This
+  covers BOTH the AI path and the shared manual add-language flow (both go
+  through `add_language_to_post`), so it was safe to thread without a separate
+  blast radius. (`pubsub.ex`, `translation_manager.ex`, `web/editor.ex`)
 
 Codex confirmed: nil-scope dedup `IS NULL` is correct; string/integer
 canonicalization is consistent (publishing `to_string`, core normalizes ints,

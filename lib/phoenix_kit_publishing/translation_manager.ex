@@ -106,7 +106,12 @@ defmodule PhoenixKit.Modules.Publishing.TranslationManager do
       broadcast_id = new_post.uuid
 
       if broadcast_id do
-        PublishingPubSub.broadcast_translation_created(group_slug, broadcast_id, language_code)
+        PublishingPubSub.broadcast_translation_created(
+          group_slug,
+          broadcast_id,
+          language_code,
+          content_version_scope(new_post)
+        )
       end
 
       ActivityLog.log_manual(
@@ -418,6 +423,15 @@ defmodule PhoenixKit.Modules.Publishing.TranslationManager do
 
   defp maybe_put_actor(params, nil), do: params
   defp maybe_put_actor(params, actor_uuid), do: Map.put(params, :actor_uuid, actor_uuid)
+
+  # The version a read-back post map sits on, as the string the editor matches
+  # translation events against (mirrors the editor's current_version scope).
+  defp content_version_scope(post) do
+    case Map.get(post, :version) do
+      nil -> nil
+      version -> to_string(version)
+    end
+  end
 
   # The post's active version number as a string, matching the editor's scope
   # convention. nil (→ active via fetch/3) when there's no active version or the

@@ -1368,8 +1368,11 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
   # the per-language content row refresh rides publishing's :translation_created.
   def handle_info({:ai_translation, _event, _payload}, socket), do: {:noreply, socket}
 
-  def handle_info({:translation_created, group_slug, post_identifier, language}, socket) do
-    if socket.assigns[:group_slug] == group_slug && post_matches?(socket, post_identifier) do
+  def handle_info({:translation_created, group_slug, post_identifier, language, version}, socket) do
+    # Only refresh when the new language landed on the version this editor is
+    # viewing — a different version's per-language content is independent.
+    if socket.assigns[:group_slug] == group_slug && post_matches?(socket, post_identifier) &&
+         version == current_version_scope(socket) do
       {:noreply, handle_translation_created_update(socket, language)}
     else
       {:noreply, socket}
