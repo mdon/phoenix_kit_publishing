@@ -10,13 +10,14 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor.Translation do
 
   import Ecto.Query, only: [from: 2]
 
-  alias PhoenixKitAI.Translations
   alias PhoenixKit.Modules.Publishing
+  alias PhoenixKit.Modules.Publishing.Constants
   alias PhoenixKit.Modules.Publishing.LanguageHelpers
   alias PhoenixKit.Modules.Publishing.PresenceHelpers
   alias PhoenixKit.Modules.Publishing.PubSub, as: PublishingPubSub
   alias PhoenixKit.Modules.Publishing.TranslationManager
   alias PhoenixKitAI, as: AI
+  alias PhoenixKitAI.Translations
   alias PhoenixKitPublishing.AITranslatable
 
   # Core's generic-pipeline Oban worker. Referenced as a module (not a bare
@@ -336,15 +337,35 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor.Translation do
   def build_translation_warnings(socket, target_languages) do
     warnings = []
 
-    # Check if source content is blank
+    # Warn about a blank source, distinguishing which field is missing. The
+    # source has two translatable fields (title + body content), so a blanket
+    # "content is empty" misleads when only the title is filled — that title
+    # still translates fine.
     warnings =
-      if source_content_blank?(socket) do
-        [
-          {:warning, gettext("The source content is empty. This will create empty translations.")}
-          | warnings
-        ]
-      else
-        warnings
+      case source_blank_state(socket) do
+        {true, true} ->
+          [
+            {:warning,
+             gettext("The source has no title or content — the translations will be empty.")}
+            | warnings
+          ]
+
+        {false, true} ->
+          [
+            {:warning,
+             gettext("The source has no body content — only the title will be translated.")}
+            | warnings
+          ]
+
+        {true, false} ->
+          [
+            {:warning,
+             gettext("The source has no title — only the body content will be translated.")}
+            | warnings
+          ]
+
+        {false, false} ->
+          warnings
       end
 
     # Check if any target languages have existing content that will be overwritten
@@ -505,35 +526,70 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor.Translation do
   end
 
   @doc """
-  Checks if the source content is blank.
+  Checks if the source body content is blank. Kept for callers that only care
+  about the body; `source_blank_state/1` is the richer title+content variant.
   """
   def source_content_blank?(socket) do
-    post = socket.assigns.post
+    {_title_blank, content_blank} = source_blank_state(socket)
+    content_blank
+  end
 
-    # Source is ALWAYS the primary language (the content actually fed to the
-    # translator), never the language the editor happens to be viewing — same
-    # invariant as do_enqueue_translation/2 and build_translation_warnings/2.
-    # Checking the viewed language here would warn "source is empty" about a
-    # translation, or stay silent while the real (primary) source is blank.
+  @doc """
+  Returns `{title_blank?, content_blank?}` for the translation source.
+
+  The source feeds two translatable fields — the title and the body content —
+  so the confirmation modal can warn precisely (nothing, only-title, or
+  only-content) instead of a blanket "content is empty". The effective title
+  mirrors the adapter's `extract_title/1`: the first `# heading` of the body,
+  else the stored/typed title (the default `"Untitled"` counts as no title).
+  """
+  def source_blank_state(socket) do
+    {title, content} = source_title_and_content(socket)
+    {blank_title?(title, content), String.trim(content) == ""}
+  end
+
+  # Source is ALWAYS the primary language (the content actually fed to the
+  # translator), never the language the editor happens to be viewing — same
+  # invariant as do_enqueue_translation/2 and build_translation_warnings/2.
+  # When viewing the source language the live buffer is authoritative;
+  # otherwise read the primary row from the database.
+  defp source_title_and_content(socket) do
+    post = socket.assigns.post
     source_language = source_language_for_translation(socket)
     current_version = socket.assigns[:current_version]
 
-    # If we're already viewing the source language, the live buffer is
-    # authoritative; otherwise read the primary content from the database.
     if socket.assigns[:current_language] == source_language do
-      content = socket.assigns.content || ""
-      String.trim(content) == ""
+      {live_form_title(socket), socket.assigns.content || ""}
     else
       case Publishing.read_post_by_uuid(post.uuid, source_language, current_version) do
         {:ok, source_post} ->
-          content = source_post.content || ""
-          String.trim(content) == ""
+          {db_metadata_title(source_post), source_post.content || ""}
 
+        # Can't read source - treat as fully blank to be safe.
         _ ->
-          # Can't read source - assume it's blank to be safe
-          true
+          {"", ""}
       end
     end
+  end
+
+  defp live_form_title(socket) do
+    socket.assigns |> Map.get(:form, %{}) |> Map.get("title", "")
+  end
+
+  defp db_metadata_title(post) do
+    post |> Map.get(:metadata, %{}) |> Map.get(:title, "")
+  end
+
+  # Mirrors AITranslatable.extract_title/1: a `# heading` in the body wins,
+  # otherwise the metadata/form title; the default "Untitled" is not a title.
+  defp blank_title?(title_meta, content) do
+    effective =
+      case Regex.run(~r/^#\s+(.+)$/m, content || "") do
+        [_, heading] -> String.trim(heading)
+        nil -> title_meta |> to_string() |> String.trim()
+      end
+
+    effective == "" or effective == Constants.default_title()
   end
 
   # ============================================================================

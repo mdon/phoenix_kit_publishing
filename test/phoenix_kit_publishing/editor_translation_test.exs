@@ -75,6 +75,77 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor.TranslationTest do
     end
   end
 
+  describe "source_blank_state/1" do
+    # {title_blank?, content_blank?} drives the precise translation-modal warning.
+
+    test "reports both blank on an empty primary buffer with no title", %{post: post} do
+      s =
+        socket(%{
+          post: post,
+          current_language: "en-US",
+          current_version: nil,
+          content: "",
+          form: %{"title" => ""}
+        })
+
+      assert Translation.source_blank_state(s) == {true, true}
+    end
+
+    test "title-only: a typed title with empty content is not 'both blank'", %{post: post} do
+      # The case the user flagged: only a title is filled. The title still
+      # translates, so the warning must say "only the title" — not "empty".
+      s =
+        socket(%{
+          post: post,
+          current_language: "en-US",
+          current_version: nil,
+          content: "",
+          form: %{"title" => "My Title"}
+        })
+
+      assert Translation.source_blank_state(s) == {false, true}
+    end
+
+    test "content-only: body text with no title/heading reports title blank", %{post: post} do
+      s =
+        socket(%{
+          post: post,
+          current_language: "en-US",
+          current_version: nil,
+          content: "Just some body text, no heading.",
+          form: %{"title" => ""}
+        })
+
+      assert Translation.source_blank_state(s) == {true, false}
+    end
+
+    test "a `# heading` counts as a title even with a blank title field", %{post: post} do
+      s =
+        socket(%{
+          post: post,
+          current_language: "en-US",
+          current_version: nil,
+          content: "# Real Heading\n\nBody.",
+          form: %{"title" => ""}
+        })
+
+      assert Translation.source_blank_state(s) == {false, false}
+    end
+
+    test "the default \"Untitled\" title does not count as a title", %{post: post} do
+      s =
+        socket(%{
+          post: post,
+          current_language: "en-US",
+          current_version: nil,
+          content: "",
+          form: %{"title" => "Untitled"}
+        })
+
+      assert Translation.source_blank_state(s) == {true, true}
+    end
+  end
+
   describe "prompt/adapter variable contract" do
     test "shipped prompt placeholders exactly match the adapter's source_fields keys",
          %{post: post} do

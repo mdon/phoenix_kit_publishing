@@ -7,7 +7,6 @@ defmodule PhoenixKit.Modules.Publishing.TranslationManager do
 
   require Logger
 
-  alias PhoenixKitAI.Translations
   alias PhoenixKit.Modules.Languages.DialectMapper
   alias PhoenixKit.Modules.Publishing.ActivityLog
   alias PhoenixKit.Modules.Publishing.Constants
@@ -19,6 +18,7 @@ defmodule PhoenixKit.Modules.Publishing.TranslationManager do
   alias PhoenixKit.Modules.Publishing.Shared
   alias PhoenixKit.Modules.Publishing.StaleFixer
   alias PhoenixKit.Settings
+  alias PhoenixKitAI.Translations
   alias PhoenixKitPublishing.AITranslatable
 
   # Slug of the publishing-specific default translation prompt. Canonical here
