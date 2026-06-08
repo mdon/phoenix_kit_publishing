@@ -2141,11 +2141,11 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
             <p class="text-sm text-base-content/70">
               <%= if @current_language == @default_language do %>
                 {gettext(
-                  "Automatically translate this post to other languages using AI. The translation will be queued as a background job."
+                  "Automatically translate this post to other languages using AI. Each translation runs as a background job — you can keep editing while it finishes, or safely leave this page."
                 )}
               <% else %>
                 {gettext(
-                  "Translate the %{source} post to %{target} using AI. The translation will be queued as a background job.",
+                  "Translate the %{source} post to %{target} using AI. It runs as a background job — you can keep editing while it finishes, or safely leave this page.",
                   source: @default_language_name,
                   target: @current_language_name
                 )}
@@ -2172,6 +2172,14 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
               >
                 {gettext("Manage Endpoints")}
               </.link>
+              <p class="flex items-start gap-1 text-xs text-base-content/60">
+                <.icon name="hero-information-circle" class="w-3.5 h-3.5 shrink-0 mt-px" />
+                <span>
+                  {gettext(
+                    "Reasoning (\"thinking\") models are slower and may return unstructured output — a standard model is recommended for translation."
+                  )}
+                </span>
+              </p>
             </div>
 
             <%!-- Prompt Selection --%>
