@@ -1,9 +1,9 @@
 defmodule PhoenixKitPublishing.AITranslatableTest do
   @moduledoc """
-  Unit coverage for the `PhoenixKit.Modules.AI.Translatable` adapter that wires
-  publishing posts into core's generic AI-translation pipeline. Covers the four
+  Unit coverage for the `PhoenixKitAI.Translatable` adapter that wires
+  publishing posts into PhoenixKitAI's generic AI-translation pipeline. Covers the four
   callbacks (fetch / source_fields / put_translation / pubsub_topics) and the
-  local url_slug generation. The actual AI call + fan-out live in core.
+  local url_slug generation. The actual AI call + fan-out live in PhoenixKitAI.
   """
   use PhoenixKitPublishing.DataCase, async: false
 
@@ -11,6 +11,7 @@ defmodule PhoenixKitPublishing.AITranslatableTest do
   alias PhoenixKit.Modules.Publishing.Groups
   alias PhoenixKit.Modules.Publishing.Posts
   alias PhoenixKit.Modules.Publishing.PubSub, as: PublishingPubSub
+  alias PhoenixKit.Modules.Publishing.Versions
   alias PhoenixKit.Settings
   alias PhoenixKitPublishing.AITranslatable
 
@@ -81,6 +82,12 @@ defmodule PhoenixKitPublishing.AITranslatableTest do
       {:ok, resource} = AITranslatable.fetch("publishing_post", post_uuid)
       fields = AITranslatable.source_fields(resource, "en-US")
 
+      # Lowercase keys to match the prompt's {{title}}/{{content}} placeholders
+      # (same convention as catalogue/projects). Core's prompt substitution is
+      # case-sensitive, so the exact key casing is load-bearing — a mismatch
+      # leaves the placeholders unrendered and the model hallucinates. Pin the
+      # key set, not just the values.
+      assert Enum.sort(Map.keys(fields)) == ["content", "title"]
       assert fields["title"] == "Hello World"
       assert fields["content"] =~ "The body."
     end
@@ -134,6 +141,41 @@ defmodule PhoenixKitPublishing.AITranslatableTest do
 
       {:ok, ru} = Publishing.read_post_by_uuid(post_uuid, "ru")
       assert ru.url_slug == "hello-world"
+    end
+  end
+
+  describe "fetch/3 version scoping" do
+    test "targets the version named by the scope, not just the active one",
+         %{group_slug: group_slug, post_uuid: post_uuid} do
+      # v1 (from setup) has "# Hello World\n\nThe body."
+      {:ok, v1} = Publishing.read_post_by_uuid(post_uuid, "en-US")
+      assert v1.version == 1
+
+      # Branch a v2 draft (copies v1), then give it distinct content.
+      {:ok, _} = Versions.create_new_version(group_slug, v1, %{})
+      {:ok, v2} = Publishing.read_post_by_uuid(post_uuid, "en-US", 2)
+
+      {:ok, _} =
+        Publishing.update_post(
+          group_slug,
+          v2,
+          %{"title" => "Second Version", "content" => "# Second Version\n\nv2 body."},
+          %{}
+        )
+
+      # scope "1" pins v1 and reads v1's source content...
+      {:ok, r1} = AITranslatable.fetch("publishing_post", post_uuid, "1")
+      assert r1.version == 1
+      assert AITranslatable.source_fields(r1, "en-US")["content"] =~ "The body."
+
+      # ...scope "2" pins v2 and reads v2's source content.
+      {:ok, r2} = AITranslatable.fetch("publishing_post", post_uuid, "2")
+      assert r2.version == 2
+      assert AITranslatable.source_fields(r2, "en-US")["content"] =~ "v2 body."
+
+      # A non-numeric scope falls back gracefully (nil → active version).
+      {:ok, r_bad} = AITranslatable.fetch("publishing_post", post_uuid, "garbage")
+      assert is_integer(r_bad.version)
     end
   end
 

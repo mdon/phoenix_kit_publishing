@@ -285,12 +285,18 @@ defmodule PhoenixKit.Modules.Publishing.PubSub do
 
   @doc """
   Broadcasts that a new translation was created for a post.
+
+  `version` (the version-number string the language row was added to, or nil)
+  rides the payload so an editor viewing a different version ignores it —
+  versions hold independent per-language content. nil keeps the legacy
+  version-agnostic behavior.
   """
-  @spec broadcast_translation_created(String.t(), String.t(), String.t()) :: broadcast_result
-  def broadcast_translation_created(group_slug, post_slug, language) do
+  @spec broadcast_translation_created(String.t(), String.t(), String.t(), String.t() | nil) ::
+          broadcast_result
+  def broadcast_translation_created(group_slug, post_slug, language, version \\ nil) do
     Manager.broadcast(
       post_translations_topic(group_slug, post_slug),
-      {:translation_created, group_slug, post_slug, language}
+      {:translation_created, group_slug, post_slug, language, version}
     )
   end
 
@@ -442,9 +448,13 @@ defmodule PhoenixKit.Modules.Publishing.PubSub do
   Broadcasts that AI translation has started.
   Sent to both posts_topic (for group listing) and post_translations_topic (for editor).
   """
-  @spec broadcast_translation_started(String.t(), String.t(), [String.t()]) :: broadcast_result
-  def broadcast_translation_started(group_slug, post_slug, target_languages) do
-    payload = {:translation_started, group_slug, post_slug, target_languages}
+  @spec broadcast_translation_started(String.t(), String.t(), [String.t()], String.t() | nil) ::
+          broadcast_result
+  def broadcast_translation_started(group_slug, post_slug, target_languages, scope \\ nil) do
+    # `scope` (the version the jobs target) rides the editor payload so an editor
+    # viewing a different version ignores this start event — versions translate
+    # independently. The group-listing payload stays version-agnostic.
+    payload = {:translation_started, group_slug, post_slug, target_languages, scope}
 
     # Broadcast to group listing
     Manager.broadcast(

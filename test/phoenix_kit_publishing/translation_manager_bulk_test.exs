@@ -8,7 +8,9 @@ defmodule PhoenixKitPublishing.TranslationManagerBulkTest do
 
   Passing `:source_language` + `:target_languages` keeps these pure (no DB /
   Languages-config dependency): the default-resolution branch that reads
-  `LanguageHelpers` only fires when those opts are omitted.
+  `LanguageHelpers` only fires when those opts are omitted. An explicit
+  `:resource_scope` likewise skips the active-version lookup (which rescues to
+  `nil` without a DB connection).
   """
   use ExUnit.Case, async: true
 
@@ -18,11 +20,11 @@ defmodule PhoenixKitPublishing.TranslationManagerBulkTest do
   @base_opts [endpoint_uuid: "ep-uuid", prompt_uuid: "pr-uuid", source_language: "en"]
 
   describe "build_bulk_translation_params/2" do
-    test "assembles core generic-pipeline params from explicit opts" do
+    test "assembles PhoenixKitAI translation params from explicit opts" do
       {base, targets} =
         TranslationManager.build_bulk_translation_params(
           @post,
-          @base_opts ++ [target_languages: ["es", "fr"]]
+          @base_opts ++ [target_languages: ["es", "fr"], resource_scope: "1"]
         )
 
       assert base == %{
@@ -30,7 +32,8 @@ defmodule PhoenixKitPublishing.TranslationManagerBulkTest do
                resource_uuid: @post,
                endpoint_uuid: "ep-uuid",
                prompt_uuid: "pr-uuid",
-               source_lang: "en"
+               source_lang: "en",
+               resource_scope: "1"
              }
 
       assert targets == ["es", "fr"]

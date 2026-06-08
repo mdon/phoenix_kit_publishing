@@ -53,6 +53,168 @@ Codex flagged two genuine HIGH bugs in the AI-translation path (both verified):
   pins the resolved version in `fetch/2` and threads it through both the read
   and the write. (`lib/phoenix_kit_publishing/ai_translatable.ex`)
 
+## Fixed (Batch 4 — live browser test, 2026-06-07)
+
+Ran a real end-to-end AI translation in Chrome (dev server, parent app) instead
+of trusting only the data-layer tests — opened a post on its **ru** (non-primary)
+page and translated en-US → ru. This surfaced **two real bugs**, one of them a
+regression introduced by this PR's migration. Both fixed and re-verified live.
+
+### Bug 1 (HIGH, regression) — prompt variables not substituted
+
+**Symptom:** translations came back as hallucinated/placeholder content (e.g. a
+fluent-but-unrelated article, or literal `[… title]`), not a translation of the
+source. **Root cause:** the publishing prompt template uses capitalized
+placeholders `{{Title}}` / `{{Content}}`, but the new adapter's `source_fields/2`
+returned lowercase `"title"` / `"content"` keys. Core feeds those keys straight
+into `PhoenixKitAI.Prompt.render`, whose substitution is **case-sensitive**
+(`get_variable_value` tries the string key then the atom key, nothing else;
+unmatched `{{…}}` is left literal). So `{{Title}}`/`{{Content}}` never rendered,
+the model received the template with empty/literal placeholders, and made
+something up. The retired `TranslatePostWorker` fed capitalized `"Title"`/
+`"Content"` (verified in git `a446178^`); the migration to the generic pipeline
+dropped that casing — the keys now drive both substitution **and** response
+parsing, so they must match the prompt.
+
+**Fix (standardized to the ecosystem convention):** rather than match
+publishing's bespoke capitalized prompt, we aligned publishing with the
+catalogue/projects convention — **lowercase** field keys throughout.
+`source_fields/2` emits `"title"`/`"content"`, `build_params/3` reads them back
+(DB params were already lowercase), and the shipped default prompt
+(`default_prompt_content/0`) now uses `{{title}}`/`{{content}}` plus the generic
+*"skip a value that is still a literal `{{placeholder}}`"* instruction, so a
+future binding mismatch **fails closed** (field skipped → clean missing-marker
+error) instead of hallucinating. Verified live (lowercase path, fresh job): title
+"Демонстрация рендеринга Markdown" (= "Markdown Rendering Demo"), body
+translating the actual source, slug `demonstratsiya-renderinga-markdown`.
+(`ai_translatable.ex`, `web/editor/translation.ex`)
+
+**Existing installs:** a previously-generated "Translate Publishing Posts"
+prompt still carries the old `{{Title}}`/`{{Content}}` placeholders and must be
+regenerated (or its placeholders lowercased) to work with the standardized
+adapter. The dev DB prompt was updated in place. **Surfaced to Max** — pre-release,
+so no production installs are affected yet.
+
+### Bug 2 (latent) — `source_content_blank?/1` checked the viewed language
+
+On a non-primary page it read `socket.assigns[:current_language]` (e.g. an empty
+`ru` buffer) instead of the primary, so the confirmation modal falsely warned
+"The source content is empty" while the real source (en-US) had content. Same
+`current_language`-as-source bug-class Codex flagged in `do_enqueue_translation`,
+in a sibling warning helper the Batch-2 fix missed. Now uses
+`source_language_for_translation/1` (the primary) consistently. Verified live:
+the false warning is gone; only the legitimate "will overwrite" warning remains.
+(`web/editor/translation.ex`)
+
+### Also confirmed working in the same live run
+- Enqueued job args: `source_lang=en-US` (the **primary**, not the viewed `ru`)
+  — the Batch-2 source fix, end-to-end.
+- `url_slug` generated **locally** as a Cyrillic→Latin transliteration via the
+  slug engine, written to the correct version; editor LiveView live-updates via
+  PubSub on completion.
+- A misbehaving reasoning endpoint that dumped chain-of-thought into the title
+  (>500 chars) was **discarded cleanly** by the content changeset — no
+  partial/corrupt write.
+
+## Codex re-review (Batch 4, 2026-06-07) — 3 findings, all verified
+
+- **F3 (Low) — FIXED.** The programmatic bulk API (`build_bulk_translation_params/2`)
+  resolved the prompt/endpoint with a bare `Settings.get_setting/1` and **no slug
+  fallback**, while the editor used the richer `get_default_ai_prompt_uuid/0`
+  (setting → slug). So with the setting unset but the default prompt present,
+  the bulk API enqueued `prompt_uuid: nil` and failed. Fixed by moving the
+  canonical resolvers (`default_endpoint_uuid/0`, `default_prompt_uuid/0`,
+  `default_prompt_exists?/0`) **into `TranslationManager` (domain)** — the
+  editor now delegates to them, so both paths share one source of truth and
+  can't drift. (`translation_manager.ex`, `web/editor/translation.ex`)
+- **F1 (Medium) — SURFACED (core-contract limitation).** The generic
+  `Translatable.fetch/2` contract is `(resource_type, resource_uuid)` — there is
+  **no version dimension**, so the editor's `current_version` cannot be threaded
+  into the job. `fetch/2` re-resolves the active version; on a published-v1 +
+  draft-v2 post, translating while viewing the draft targets v1. Read==write
+  stays consistent (no corruption) — it just always targets the active version.
+  Fixing this needs a core change (carry a version/opaque-key through the job to
+  `fetch/2`). **For Max:** want the generic pipeline to support a version/scope
+  dimension, or should publishing always translate the active version (and the
+  editor reflect that)? Matches the documented v1/v2 residual below.
+- **F2 (Medium) — SURFACED + dev fixed.** A "Translate Publishing Posts" prompt
+  generated **before** the lowercase standardization still carries
+  `{{Title}}/{{Content}}`; `default_prompt_exists?/0` only checks slug presence,
+  so the UI hides "Generate Default Prompt" and the stale row keeps hallucinating
+  (it predates the fail-closed instruction). The dev DB prompt was lowercased in
+  place. **For Max:** pre-release, so no production installs — but if any prompt
+  predates this, regenerate it. A guided "your prompt is stale, regenerate?"
+  affordance would be the durable fix (deliberately not auto-rewriting a
+  possibly-customized prompt).
+
+## Decisions implemented (Batch 5, 2026-06-07) — F1 + F2
+
+Both Codex re-review mediums were turned into decisions (planning-capper
+quick-verify on F1) and implemented.
+
+### F2 — regenerate affordance for stale prompts (publishing-only)
+`Translation.default_translation_prompt_stale?/0` + `regenerate_default_translation_prompt/0`
+(updates the row in place via `PhoenixKitAI.update_prompt/3`); editor shows a
+"Regenerate Default Prompt" button when a stale (pre-lowercase) prompt exists.
+Live-verified: re-staling the dev prompt surfaced the button; clicking it
+repaired the row.
+
+### F1 — version scope through the generic pipeline (CORE + publishing)
+Chosen approach: thread an opaque `resource_scope` so a draft v2 translates
+independently of the active v1 (was: always the active version). Cross-repo:
+
+- **Core `phoenix_kit`** (commit on core `main`): optional `Translatable.fetch/3`;
+  `Translations` normalizes `resource_scope` (JSON-safe string|nil) and keys the
+  in-flight **dedup** on it; `TranslateWorker` threads it from args, dispatches
+  `fetch/3` when exported (guarded `Code.ensure_loaded?/1`) else `fetch/2`, and
+  adds it to lifecycle broadcast payloads. Backward-compatible — catalogue/projects
+  keep `fetch/2`; legacy unscoped jobs still run.
+- **Publishing**: `AITranslatable.fetch/3` (scope = version number; `fetch/2`
+  delegates with nil = active version); editor enqueue passes
+  `resource_scope = current_version`; the in-flight-restore query and the
+  `{:ai_translation,…}` + `{:translation_started,…}` handlers filter by scope so
+  a different-version editor ignores another version's progress/locks.
+
+Per the planning-capper, scope was threaded through the **full** job-identity
+surface (dedup + in-flight query + PubSub start payload + completion/fail
+filtering), not just enqueue. Live-verified: enqueuing from the v1 editor
+produced a job with `resource_scope="1"` that completed and wrote v1; the
+adapter unit test pins scope "1"→v1 / "2"→v2 on a two-version post.
+
+**Release gate (extends the existing one):** F1's publishing side needs core's
+`fetch/3` — i.e. the **next** core release after 1.7.132. Until then publishing
+CI stays red (same hold as the rest of this PR). Pin left at `~> 1.7.132`; Max
+cuts the core release + the pin bump.
+
+## Codex re-review of F1 (Batch 5, 2026-06-07) — 3 findings
+
+- **F-A (Medium) — FIXED.** Nil-scope jobs (the programmatic bulk API; legacy
+  pre-upgrade jobs) write the active version, but the editor filters events by a
+  concrete version string (`"1"`), so `nil ≠ "1"` meant an open editor on the
+  active version ignored bulk-job completion/failure events and didn't restore
+  in-flight state. Fix: the bulk builder now resolves the post's **active
+  version number** and passes it as `resource_scope` (instead of nil), so it
+  matches an editor on that version. Truly-legacy nil-scope jobs remain
+  unmatched but drain within minutes. (`translation_manager.ex`)
+- **F-C (Low) — FIXED (core).** Core AI audit entries omitted the scope, so logs
+  couldn't tell v1 from v2 translation work. `TranslateWorker.log_added/2` now
+  includes `resource_scope` in metadata when present (unversioned resources'
+  entries unchanged). (core `translate_worker.ex`)
+- **F-B (Low/Med) — FIXED.** `:translation_created` (publishing's per-language
+  content event) was version-blind — every editor for the post refreshed on any
+  version's new language. Threaded the version through:
+  `broadcast_translation_created/4` carries the version string (default nil =
+  legacy behavior), `add_language_to_post` passes the row's version, and the
+  editor handler refreshes only when it matches `current_version_scope/1`. This
+  covers BOTH the AI path and the shared manual add-language flow (both go
+  through `add_language_to_post`), so it was safe to thread without a separate
+  blast radius. (`pubsub.ex`, `translation_manager.ex`, `web/editor.ex`)
+
+Codex confirmed: nil-scope dedup `IS NULL` is correct; string/integer
+canonicalization is consistent (publishing `to_string`, core normalizes ints,
+`parse_scope` accepts both); `fetch/3` optionality + `fetch/2` fallback keep
+catalogue/projects back-compatible.
+
 ## Tests added (Batch — 2026-06-07)
 
 - `test/phoenix_kit_publishing/ai_translatable_test.exs` (new) — the four
@@ -66,6 +228,18 @@ Codex flagged two genuine HIGH bugs in the AI-translation path (both verified):
   `publishing_slug_style` setting.
 - `translation_manager_bulk_test.exs` (added earlier in the PR) — pins
   `build_bulk_translation_params/2`.
+- `editor_translation_test.exs` (new, Batch 4) — `source_content_blank?/1`
+  reads the primary language as source on a non-primary page (regression guard
+  for Batch-4 Bug 2), and uses the live buffer when viewing the primary.
+- `ai_translatable_test.exs` (Batch 4) — `source_fields/2` pins the exact key
+  set `["content", "title"]` (lowercase, matching the standardized prompt), the
+  regression guard for Batch-4 Bug 1: any casing drift leaves the prompt
+  placeholders unrendered.
+- `editor_translation_test.exs` (Batch 4) — a prompt↔adapter **contract test**:
+  extracts every `{{placeholder}}` from `default_prompt_content/0` (minus the
+  core-provided language slots) and asserts it equals the key set
+  `source_fields/2` binds. This is the guard that fails the moment the prompt
+  and adapter casing drift apart again.
 - `ai_translatable_test.exs` — added a slug-conflict test: when another post
   already owns the generated slug in the same group+language, the new
   translation's `url_slug` is omitted and falls back to the post's default slug
@@ -130,12 +304,13 @@ runnable in the review sandbox (no `psql`); precommit was the gate.
 
 | File | Change |
 |------|--------|
-| `lib/phoenix_kit_publishing/ai_translatable.ex` | url_slug uniqueness guard; `:post_slug` on struct; `with` simplification; dead `|| %{}` drop (Batch 3) |
+| `lib/phoenix_kit_publishing/ai_translatable.ex` | url_slug uniqueness guard; `:post_slug` on struct; `with` simplification; dead `\|\| %{}` drop; **`source_fields`/`build_params` field keys `Title`/`Content` to match the prompt placeholders (Batch 4 — substitution regression fix)** |
 | `lib/phoenix_kit_publishing/web/editor.ex` | `maxlength="200"` on url_slug input; style-aware `pattern` (Batch 3) |
 | `lib/phoenix_kit_publishing/web/editor/translation.ex` | source lang = primary (Batch 2 + Batch 3 `source_content_blank?`); `@translate_worker` ref (Batch 3) |
 | `lib/phoenix_kit_publishing/slug_helpers.ex` | `html_input_pattern/0` (Batch 3) |
-| `test/phoenix_kit_publishing/ai_translatable_test.exs` | new — 7 adapter tests (incl. slug-conflict) |
+| `test/phoenix_kit_publishing/ai_translatable_test.exs` | new — 7 adapter tests (incl. slug-conflict); pins `source_fields` key casing `["Content","Title"]` (Batch 4) |
 | `test/phoenix_kit_publishing/slug_helpers_test.exs` | +6 slug-engine / style tests; +`html_input_pattern/0` (Batch 3) |
+| `test/phoenix_kit_publishing/editor_translation_test.exs` | new — `source_content_blank?/1` source-language regression (Batch 4) |
 
 ## Verification
 

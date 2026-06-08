@@ -1,8 +1,8 @@
 defmodule PhoenixKitPublishing.AITranslatable do
   @moduledoc """
-  `PhoenixKit.Modules.AI.Translatable` adapter for publishing posts — the
-  per-module hook into core's generic AI-translation pipeline
-  (`PhoenixKit.Modules.AI.{Translations,TranslateWorker}`).
+  `PhoenixKitAI.Translatable` adapter for publishing posts — the
+  per-module hook into PhoenixKitAI's generic AI-translation pipeline
+  (`PhoenixKitAI.{Translations,TranslateWorker}`).
 
   Replaces the bespoke `Workers.TranslatePostWorker`, which translated every
   language **sequentially in a single Oban job**. `Translations.enqueue_all_missing/2`
@@ -13,13 +13,15 @@ defmodule PhoenixKitPublishing.AITranslatable do
   ## Resource identity
 
   `resource_type` is `"publishing_post"`; `resource_uuid` is the post's uuid
-  (core validates it as a real UUID). Translations target the post's **active
-  version** — the version the editor normally works on.
+  (PhoenixKitAI validates it as a real UUID). Translations target the post's
+  **active version** — the version the editor normally works on.
 
   ## Fields
 
   `source_fields/2` returns `%{"title", "content"}` read in the source
-  language. `put_translation/4` creates the target-language content row (via
+  language — lowercase to match the `{{title}}`/`{{content}}` placeholders in
+  the publishing translation prompt, the same convention as the catalogue and
+  projects adapters (PhoenixKitAI's variable substitution is case-sensitive). `put_translation/4` creates the target-language content row (via
   `add_language_to_post` when absent) and writes the translated title/content,
   **generating the per-language `url_slug` locally** from the translated title
   via `SlugHelpers.slugify/1`. That honors the configured slug style and avoids
@@ -34,13 +36,13 @@ defmodule PhoenixKitPublishing.AITranslatable do
 
   ## Events
 
-  `pubsub_topics/1` returns the post's translations topic, so core's
+  `pubsub_topics/1` returns the post's translations topic, so PhoenixKitAI's
   `{:ai_translation, …}` lifecycle events reach the editor LiveView (already
   subscribed to that topic). Per-language content creation also emits
   publishing's own `:translation_created` via `add_language_to_post`.
   """
 
-  @behaviour PhoenixKit.Modules.AI.Translatable
+  @behaviour PhoenixKitAI.Translatable
 
   alias PhoenixKit.Modules.Publishing
   alias PhoenixKit.Modules.Publishing.Constants
@@ -62,18 +64,27 @@ defmodule PhoenixKitPublishing.AITranslatable do
         }
 
   @impl true
-  def fetch(@resource_type, post_uuid) when is_binary(post_uuid) do
-    case Publishing.read_post_by_uuid(post_uuid, LanguageHelpers.get_primary_language()) do
+  # Required arity — delegates with a nil scope, i.e. the post's active version
+  # (the historical fetch/2 behavior).
+  def fetch(resource_type, post_uuid), do: fetch(resource_type, post_uuid, nil)
+
+  @impl true
+  def fetch(@resource_type, post_uuid, scope) when is_binary(post_uuid) do
+    # `scope` is the version number (as a string from the Oban args) the editor
+    # was on; nil → active version. Pin the resolved version and thread it
+    # through the read (source_fields) and the write (ensure_language_row) so a
+    # published post with a newer draft can't read one version and write another
+    # — and so translating a draft targets THAT draft, not the active version.
+    version = parse_scope(scope)
+
+    case Publishing.read_post_by_uuid(post_uuid, LanguageHelpers.get_primary_language(), version) do
       {:ok, post} ->
-        # Pin the version we resolved here and thread it through both the read
-        # (source_fields) and the write (ensure_language_row), so a published
-        # post with a newer draft can't read one version and write another.
         {:ok,
          %__MODULE__{
            post_uuid: post_uuid,
            group_slug: post.group,
            post_slug: post.slug,
-           version: Map.get(post, :version)
+           version: version || Map.get(post, :version)
          }}
 
       _ ->
@@ -81,12 +92,33 @@ defmodule PhoenixKitPublishing.AITranslatable do
     end
   end
 
-  def fetch(other, _uuid), do: {:error, {:unknown_resource_type, other}}
+  def fetch(other, _uuid, _scope), do: {:error, {:unknown_resource_type, other}}
+
+  # resource_scope carries the version number as a decimal string (or nil).
+  defp parse_scope(nil), do: nil
+  defp parse_scope(v) when is_integer(v), do: v
+
+  defp parse_scope(v) when is_binary(v) do
+    case Integer.parse(v) do
+      {n, ""} -> n
+      _ -> nil
+    end
+  end
+
+  defp parse_scope(_), do: nil
 
   @impl true
   def source_fields(%__MODULE__{} = resource, source_lang) do
     case Publishing.read_post_by_uuid(resource.post_uuid, source_lang, resource.version) do
       {:ok, post} ->
+        # Lowercase keys ("title"/"content") match the prompt's {{title}}/
+        # {{content}} placeholders — the same convention as the catalogue and
+        # projects adapters. Core's prompt substitution is case-SENSITIVE
+        # (PhoenixKitAI.Prompt.get_variable_value) and these keys also drive
+        # response parsing (markers are upcased either way), so they must line
+        # up with the prompt placeholders or the model gets a literal {{title}}
+        # and hallucinates. editor_translation_test.exs pins the default
+        # prompt's placeholders against these keys.
         %{}
         |> put_nonempty("title", extract_title(post))
         |> put_nonempty("content", post.content || "")
@@ -146,6 +178,9 @@ defmodule PhoenixKitPublishing.AITranslatable do
   end
 
   defp build_params(fields, resource, target_lang) do
+    # `fields` comes back from core's parser keyed by the SAME names
+    # source_fields/2 emitted ("title"/"content"), which are already the
+    # lowercase content-schema field names.
     title = Map.get(fields, "title")
 
     %{}

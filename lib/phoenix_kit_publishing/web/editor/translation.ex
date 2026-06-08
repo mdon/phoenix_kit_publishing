@@ -10,29 +10,28 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor.Translation do
 
   import Ecto.Query, only: [from: 2]
 
-  alias PhoenixKit.Modules.AI.Translations
   alias PhoenixKit.Modules.Publishing
+  alias PhoenixKit.Modules.Publishing.Constants
   alias PhoenixKit.Modules.Publishing.LanguageHelpers
   alias PhoenixKit.Modules.Publishing.PresenceHelpers
   alias PhoenixKit.Modules.Publishing.PubSub, as: PublishingPubSub
-  alias PhoenixKit.Settings
+  alias PhoenixKit.Modules.Publishing.TranslationManager
   alias PhoenixKitAI, as: AI
+  alias PhoenixKitAI.Translations
   alias PhoenixKitPublishing.AITranslatable
 
-  @translation_prompt_slug "translate-publishing-posts"
-
-  # Core's generic-pipeline Oban worker. Referenced as a module (not a bare
-  # string) so the name stays in sync with core and the coupling is greppable;
+  # PhoenixKitAI's generic translation worker. Referenced as a module (not a bare
+  # string) so the name stays in sync and the coupling is greppable;
   # `Oban.Job.worker` stores `inspect/1` of the worker module.
-  @translate_worker PhoenixKit.Modules.AI.TranslateWorker
+  @translate_worker PhoenixKitAI.TranslateWorker
 
   # ============================================================================
   # Availability Checks
   # ============================================================================
 
   # Availability + endpoint/prompt listing are generic across every
-  # AI-translation consumer, so they delegate to core
-  # `PhoenixKit.Modules.AI.Translations` — the canonical implementation —
+  # AI-translation consumer, so they delegate to
+  # `PhoenixKitAI.Translations` — the canonical implementation —
   # rather than re-deriving the same `{uuid, name}` shape here. (Catalogue
   # and projects share the same core helpers.) Publishing keeps its own
   # *default* endpoint/prompt resolution below, since those read
@@ -42,8 +41,6 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor.Translation do
   Checks if AI translation is available (AI module installed + enabled + endpoints configured).
   """
   def ai_translation_available?, do: Translations.available?()
-
-  defp ai_module_available?, do: Code.ensure_loaded?(PhoenixKitAI)
 
   @doc """
   Lists available AI endpoints for translation as `[{uuid, name}]`.
@@ -55,45 +52,60 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor.Translation do
   """
   def list_ai_prompts, do: Translations.list_prompts()
 
+  # Default endpoint/prompt resolution is domain logic shared with the
+  # programmatic bulk API — TranslationManager owns it so the two paths can't
+  # drift. These stay as the editor's entry points but just delegate.
+
   @doc """
   Gets the default AI endpoint UUID from settings.
   """
-  def get_default_ai_endpoint_uuid do
-    case Settings.get_setting("publishing_translation_endpoint_uuid") do
-      nil -> nil
-      "" -> nil
-      id -> id
-    end
-  end
+  def get_default_ai_endpoint_uuid, do: TranslationManager.default_endpoint_uuid()
 
   @doc """
-  Gets the default AI prompt UUID for translation from settings.
+  Gets the default AI prompt UUID for translation (setting, then slug fallback).
   """
-  def get_default_ai_prompt_uuid do
-    case Settings.get_setting("publishing_translation_prompt_uuid") do
-      nil -> fallback_prompt_uuid()
-      "" -> fallback_prompt_uuid()
-      id -> id
-    end
-  end
-
-  defp fallback_prompt_uuid do
-    if ai_module_available?() and AI.enabled?() do
-      case AI.get_prompt_by_slug(@translation_prompt_slug) do
-        nil -> nil
-        prompt -> prompt.uuid
-      end
-    else
-      nil
-    end
-  end
+  def get_default_ai_prompt_uuid, do: TranslationManager.default_prompt_uuid()
 
   @doc """
   Checks if the default translation prompt already exists.
   """
-  def default_translation_prompt_exists? do
-    ai_module_available?() and AI.enabled?() and
-      AI.get_prompt_by_slug(@translation_prompt_slug) != nil
+  def default_translation_prompt_exists?, do: TranslationManager.default_prompt_exists?()
+
+  @doc """
+  Whether the persisted default prompt is **stale** — it exists but predates the
+  lowercase-placeholder standardization, so it still references `{{Title}}`/
+  `{{Content}}` and would not bind the adapter's `title`/`content` keys (the
+  model would hallucinate). Drives a "Regenerate default prompt" affordance so a
+  stale row isn't a dead end (the "Generate" button hides once a prompt exists).
+  """
+  def default_translation_prompt_stale? do
+    case persisted_default_prompt() do
+      %{content: content} when is_binary(content) ->
+        not (String.contains?(content, "{{title}}") and String.contains?(content, "{{content}}"))
+
+      _ ->
+        false
+    end
+  end
+
+  @doc """
+  Repairs a stale default prompt by rewriting its content to the current
+  template **in place** (preserving its uuid + any endpoint wiring), or creates
+  it if absent. Returns `{:ok, prompt}` or `{:error, reason}`.
+  """
+  def regenerate_default_translation_prompt do
+    case persisted_default_prompt() do
+      nil -> generate_default_translation_prompt()
+      prompt -> AI.update_prompt(prompt, %{content: default_prompt_content()})
+    end
+  end
+
+  defp persisted_default_prompt do
+    if Code.ensure_loaded?(PhoenixKitAI) and AI.enabled?() do
+      AI.get_prompt_by_slug(TranslationManager.translation_prompt_slug())
+    else
+      nil
+    end
   end
 
   @doc """
@@ -101,46 +113,69 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor.Translation do
   Returns {:ok, prompt} or {:error, changeset}.
   """
   def generate_default_translation_prompt do
-    attrs = %{
+    AI.create_prompt(%{
       name: "Translate Publishing Posts",
       description: "Default prompt for translating publishing posts between languages",
-      content: """
-      Translate the following content from {{SourceLanguage}} to {{TargetLanguage}}.
+      content: default_prompt_content()
+    })
+  end
 
-      RULES:
-      - Preserve the EXACT formatting of the original (headings, line breaks, spacing, etc.)
-      - If the original has a # heading, keep it. If it doesn't, don't add one.
-      - Preserve all Markdown formatting (bold, italic, links, code blocks, lists)
-      - Do NOT translate text inside code blocks or inline code
-      - Translate naturally and idiomatically
-      - Keep HTML tags and special syntax unchanged
+  @doc """
+  The shipped translation prompt template.
 
-      OUTPUT FORMAT - respond with ONLY this format, nothing else before or after:
+  The `{{title}}` / `{{content}}` placeholders are **lowercase on purpose** —
+  they must match, byte-for-byte, the keys `AITranslatable.source_fields/2`
+  binds (the same lowercase convention as the catalogue and projects prompts),
+  because core's prompt-variable substitution (`PhoenixKitAI.Prompt.render`) is
+  case-sensitive and silently leaves an unmatched `{{Var}}` literal in the
+  prompt. The defensive "skip a value that is still a literal placeholder"
+  rule makes a binding mismatch **fail closed** (the field is skipped, the job
+  fails cleanly on a missing marker) rather than producing a hallucinated
+  translation. `editor_translation_test.exs` pins the placeholder↔key invariant
+  so the two can't drift apart again. Exposed (not inlined) so that test can
+  read the template without writing a DB row.
+  """
+  @spec default_prompt_content() :: String.t()
+  def default_prompt_content do
+    """
+    Translate the following content from {{SourceLanguage}} to {{TargetLanguage}}.
 
-      ---TITLE---
-      [translated title - just the title text, no # symbol]
-      ---SLUG---
-      [url-friendly-slug-in-target-language]
-      ---CONTENT---
-      [translated content - preserve EXACT original formatting]
+    RULES:
+    - Preserve the EXACT formatting of the original (headings, line breaks, spacing, etc.)
+    - If the original has a # heading, keep it. If it doesn't, don't add one.
+    - Preserve all Markdown formatting (bold, italic, links, code blocks, lists)
+    - Do NOT translate text inside code blocks or inline code
+    - Translate naturally and idiomatically
+    - Keep HTML tags and special syntax unchanged
 
-      SLUG RULES:
-      - Lowercase letters only (a-z)
-      - Numbers allowed (0-9)
-      - Use hyphens (-) to separate words
-      - No spaces, accents, or special characters
-      - Keep it short and SEO-friendly
-      - Example: "getting-started" -> "primeros-pasos" (Spanish)
+    OUTPUT FORMAT - respond with ONLY this format, nothing else before or after:
 
-      === SOURCE CONTENT ===
+    ---TITLE---
+    [translated title - just the title text, no # symbol]
+    ---SLUG---
+    [url-friendly-slug-in-target-language]
+    ---CONTENT---
+    [translated content - preserve EXACT original formatting]
 
-      Title: {{Title}}
+    Skip any field whose source value below is missing, blank, or still a
+    literal placeholder (e.g. a value that looks like `{{title}}` means the
+    caller did not bind it) — do NOT emit its marker, and do NOT translate the
+    placeholder text itself.
 
-      {{Content}}
-      """
-    }
+    SLUG RULES:
+    - Lowercase letters only (a-z)
+    - Numbers allowed (0-9)
+    - Use hyphens (-) to separate words
+    - No spaces, accents, or special characters
+    - Keep it short and SEO-friendly
+    - Example: "getting-started" -> "primeros-pasos" (Spanish)
 
-    AI.create_prompt(attrs)
+    === SOURCE CONTENT ===
+
+    Title: {{title}}
+
+    {{content}}
+    """
   end
 
   # ============================================================================
@@ -151,23 +186,26 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor.Translation do
   Gets target languages for translation (missing languages only).
   """
   def get_target_languages_for_translation(socket) do
-    post = socket.assigns.post
-    # Use post's stored primary language for translation source
-    primary_language = LanguageHelpers.get_primary_language()
-    available_languages = post.available_languages || []
-
-    Publishing.enabled_language_codes()
-    |> Enum.reject(&(&1 == primary_language or &1 in available_languages))
+    # Core owns the "enabled minus primary minus already-translated" rule
+    # (same helper catalogue/projects use) — don't re-derive it here.
+    Translations.missing_languages(
+      Publishing.enabled_language_codes(),
+      LanguageHelpers.get_primary_language(),
+      socket.assigns.post.available_languages || []
+    )
   end
 
   @doc """
   Gets all target languages for translation (all except primary).
   """
   def get_all_target_languages(_socket) do
-    primary_language = LanguageHelpers.get_primary_language()
-
-    Publishing.enabled_language_codes()
-    |> Enum.reject(&(&1 == primary_language))
+    # "All enabled except primary" is the missing-languages rule with an empty
+    # existing-set.
+    Translations.missing_languages(
+      Publishing.enabled_language_codes(),
+      LanguageHelpers.get_primary_language(),
+      []
+    )
   end
 
   # ============================================================================
@@ -232,7 +270,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor.Translation do
     # source used by build_translation_warnings/2.
     source_language = source_language_for_translation(socket)
 
-    # One Oban job per target language (core's generic pipeline) so they run
+    # One Oban job per target language (PhoenixKitAI's generic pipeline) so they run
     # in parallel — replaces the legacy single-job sequential worker.
     base_params = %{
       resource_type: AITranslatable.resource_type(),
@@ -240,7 +278,11 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor.Translation do
       endpoint_uuid: socket.assigns.ai_selected_endpoint_uuid,
       prompt_uuid: socket.assigns[:ai_selected_prompt_uuid],
       source_lang: source_language,
-      actor_uuid: user_uuid
+      actor_uuid: user_uuid,
+      # Translate the version the editor is on (a draft, not always the active
+      # one). Core threads this scope to AITranslatable.fetch/3 and keys job
+      # dedup on it, so v1 and v2 translate independently.
+      resource_scope: version_scope(socket)
     }
 
     case Translations.enqueue_all_missing(base_params, target_languages) do
@@ -248,11 +290,13 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor.Translation do
         {:noreply, translation_error_socket(socket)}
 
       {:ok, %{in_flight: in_flight}} ->
-        # Tell every editor session (incl. this one) to show progress + lock.
+        # Tell every editor session on THIS version (incl. this one) to show
+        # progress + lock; other-version editors ignore it (scope mismatch).
         PublishingPubSub.broadcast_translation_started(
           socket.assigns.group_slug,
           post.uuid,
-          in_flight
+          in_flight,
+          version_scope(socket)
         )
 
         {:noreply, translation_success_socket(socket, in_flight)}
@@ -293,15 +337,35 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor.Translation do
   def build_translation_warnings(socket, target_languages) do
     warnings = []
 
-    # Check if source content is blank
+    # Warn about a blank source, distinguishing which field is missing. The
+    # source has two translatable fields (title + body content), so a blanket
+    # "content is empty" misleads when only the title is filled — that title
+    # still translates fine.
     warnings =
-      if source_content_blank?(socket) do
-        [
-          {:warning, gettext("The source content is empty. This will create empty translations.")}
-          | warnings
-        ]
-      else
-        warnings
+      case source_blank_state(socket) do
+        {true, true} ->
+          [
+            {:warning,
+             gettext("The source has no title or content — the translations will be empty.")}
+            | warnings
+          ]
+
+        {false, true} ->
+          [
+            {:warning,
+             gettext("The source has no body content — only the title will be translated.")}
+            | warnings
+          ]
+
+        {true, false} ->
+          [
+            {:warning,
+             gettext("The source has no title — only the body content will be translated.")}
+            | warnings
+          ]
+
+        {false, false} ->
+          warnings
       end
 
     # Check if any target languages have existing content that will be overwritten
@@ -370,6 +434,16 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor.Translation do
   """
   def source_language_for_translation(_socket) do
     LanguageHelpers.get_primary_language()
+  end
+
+  # The version the editor is on, as the string `resource_scope` the core
+  # pipeline threads to `AITranslatable.fetch/3` and keys job dedup on. `nil`
+  # (no current version) → the post's active version.
+  defp version_scope(socket) do
+    case socket.assigns[:current_version] do
+      nil -> nil
+      version -> to_string(version)
+    end
   end
 
   defp check_source_language_editor(socket, warnings) do
@@ -452,35 +526,70 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor.Translation do
   end
 
   @doc """
-  Checks if the source content is blank.
+  Checks if the source body content is blank. Kept for callers that only care
+  about the body; `source_blank_state/1` is the richer title+content variant.
   """
   def source_content_blank?(socket) do
-    post = socket.assigns.post
+    {_title_blank, content_blank} = source_blank_state(socket)
+    content_blank
+  end
 
-    # Source is ALWAYS the primary language (the content actually fed to the
-    # translator), never the language the editor happens to be viewing — same
-    # invariant as do_enqueue_translation/2 and build_translation_warnings/2.
-    # Checking the viewed language here would warn "source is empty" about a
-    # translation, or stay silent while the real (primary) source is blank.
+  @doc """
+  Returns `{title_blank?, content_blank?}` for the translation source.
+
+  The source feeds two translatable fields — the title and the body content —
+  so the confirmation modal can warn precisely (nothing, only-title, or
+  only-content) instead of a blanket "content is empty". The effective title
+  mirrors the adapter's `extract_title/1`: the first `# heading` of the body,
+  else the stored/typed title (the default `"Untitled"` counts as no title).
+  """
+  def source_blank_state(socket) do
+    {title, content} = source_title_and_content(socket)
+    {blank_title?(title, content), String.trim(content) == ""}
+  end
+
+  # Source is ALWAYS the primary language (the content actually fed to the
+  # translator), never the language the editor happens to be viewing — same
+  # invariant as do_enqueue_translation/2 and build_translation_warnings/2.
+  # When viewing the source language the live buffer is authoritative;
+  # otherwise read the primary row from the database.
+  defp source_title_and_content(socket) do
+    post = socket.assigns.post
     source_language = source_language_for_translation(socket)
     current_version = socket.assigns[:current_version]
 
-    # If we're already viewing the source language, the live buffer is
-    # authoritative; otherwise read the primary content from the database.
     if socket.assigns[:current_language] == source_language do
-      content = socket.assigns.content || ""
-      String.trim(content) == ""
+      {live_form_title(socket), socket.assigns.content || ""}
     else
       case Publishing.read_post_by_uuid(post.uuid, source_language, current_version) do
         {:ok, source_post} ->
-          content = source_post.content || ""
-          String.trim(content) == ""
+          {db_metadata_title(source_post), source_post.content || ""}
 
-        {:error, _} ->
-          # Can't read source - assume it's blank to be safe
-          true
+        # Can't read source - treat as fully blank to be safe.
+        _ ->
+          {"", ""}
       end
     end
+  end
+
+  defp live_form_title(socket) do
+    socket.assigns |> Map.get(:form, %{}) |> Map.get("title", "")
+  end
+
+  defp db_metadata_title(post) do
+    post |> Map.get(:metadata, %{}) |> Map.get(:title, "")
+  end
+
+  # Mirrors AITranslatable.extract_title/1: a `# heading` in the body wins,
+  # otherwise the metadata/form title; the default "Untitled" is not a title.
+  defp blank_title?(title_meta, content) do
+    effective =
+      case Regex.run(~r/^#\s+(.+)$/m, content || "") do
+        [_, heading] -> String.trim(heading)
+        nil -> title_meta |> to_string() |> String.trim()
+      end
+
+    effective == "" or effective == Constants.default_title()
   end
 
   # ============================================================================
@@ -542,7 +651,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor.Translation do
     post = socket.assigns[:post]
 
     if post && post[:uuid] do
-      case in_flight_translation_languages(post.uuid) do
+      case in_flight_translation_languages(post.uuid, version_scope(socket)) do
         [] ->
           socket
 
@@ -567,10 +676,14 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor.Translation do
     end
   end
 
-  # Target languages with a non-terminal generic-pipeline translation job for
-  # any version of this post. Lets the editor restore the in-progress banner
-  # across a page refresh. Fails open (empty) on any query error.
-  defp in_flight_translation_languages(post_uuid) do
+  # Target languages with a non-terminal PhoenixKitAI translation job for
+  # THIS post AND THIS version (`scope`). Scoping by version matters now that
+  # each version translates independently — otherwise a v2 editor would restore
+  # v1's in-progress banner. `scope` is nil (active version) or the version
+  # string; a job matches when its stored `resource_scope` equals it (both nil
+  # ↔ unscoped/legacy jobs). Lets the editor restore the banner across a page
+  # refresh. Fails open (empty) on any query error.
+  defp in_flight_translation_languages(post_uuid, scope) do
     repo = PhoenixKit.RepoHelper.repo()
 
     query =
@@ -584,7 +697,8 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor.Translation do
     |> repo.all()
     |> Enum.filter(fn args ->
       args["resource_type"] == AITranslatable.resource_type() and
-        args["resource_uuid"] == post_uuid
+        args["resource_uuid"] == post_uuid and
+        args["resource_scope"] == scope
     end)
     |> Enum.map(& &1["target_lang"])
     |> Enum.reject(&is_nil/1)

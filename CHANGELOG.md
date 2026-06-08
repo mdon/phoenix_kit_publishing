@@ -2,18 +2,18 @@
 
 ## 0.1.14 - 2026-06-07
 
-PR #21 + PR #22 — editor UX, configurable slug style, and parallel AI translation (one Oban job per language via core's generic pipeline), plus a post-merge review sweep. Requires `phoenix_kit ~> 1.7.132`.
+PR #21 + PR #22 — editor UX, configurable slug style, and parallel AI translation (one Oban job per language via the shared translation pipeline), plus a post-merge review sweep. Requires `phoenix_kit ~> 1.7.132`.
 
 ### Added
 - **Configurable slug style** (`publishing_slug_style` setting + Settings dropdown). One style-aware `SlugHelpers.slugify/2` that every slug engine routes through: `transliterate` (default — Cyrillic → Latin, `Привет мир` → `privet-mir`), `unicode` (keep letters/numbers from any script, `привет-мир`), and `ascii` (legacy strip). Non-Latin titles no longer collapse to "untitled". Slugs are capped at 200 chars on a hyphen boundary.
-- **`PhoenixKitPublishing.AITranslatable`** — adapter onto core's generic AI-translation pipeline (`PhoenixKit.Modules.AI.{Translations,TranslateWorker}`), registered via `ai_translatables/0`. The per-language `url_slug` is generated locally from the translated title (honoring the slug style, never trusting an AI-returned slug) with a group+language uniqueness guard that omits the slug on conflict.
+- **`PhoenixKitPublishing.AITranslatable`** — adapter onto PhoenixKitAI's generic AI-translation pipeline (`PhoenixKitAI.{Translations,TranslateWorker}`), registered via `ai_translatables/0`. The per-language `url_slug` is generated locally from the translated title (honoring the slug style, never trusting an AI-returned slug) with a group+language uniqueness guard that omits the slug on conflict.
 - Editor UX: full-width layout matching the catalogue, aligned header rows, the public URL shown under the action buttons on published posts, and the re-enabled per-language URL Slug field with live preview.
 
 ### Changed
-- **AI translation now runs one Oban job per target language** (core's `Translations.enqueue_all_missing/2`) instead of translating every language sequentially in a single job — wall-clock drops from the sum of all languages to roughly the slowest one. The programmatic `translate_post_to_all_languages/3` routes through the same pipeline.
-- `ai_translation_available?/0`, `list_ai_endpoints/0`, and `list_ai_prompts/0` delegate to core `PhoenixKit.Modules.AI.Translations` instead of re-deriving the `{uuid, name}` shape a third time (PR #21). Publishing keeps its own default endpoint/prompt resolution and its `translate-publishing-posts` prompt.
+- **AI translation now runs one Oban job per target language** (`PhoenixKitAI.Translations.enqueue_all_missing/2`) instead of translating every language sequentially in a single job — wall-clock drops from the sum of all languages to roughly the slowest one. The programmatic `translate_post_to_all_languages/3` routes through the same pipeline.
+- `ai_translation_available?/0`, `list_ai_endpoints/0`, and `list_ai_prompts/0` delegate to `PhoenixKitAI.Translations` instead of re-deriving the `{uuid, name}` shape a third time (PR #21). Publishing keeps its own default endpoint/prompt resolution and its `translate-publishing-posts` prompt.
 - The `url_slug` uniqueness check now excludes the current post **in SQL**.
-- Bumped the `phoenix_kit` dependency floor to `~> 1.7.132` (first release with the generic AI-translation pipeline this module plugs into).
+- Added/updated the `phoenix_kit_ai` dependency for the generic AI-translation pipeline this module plugs into.
 
 ### Fixed
 - **Translation source is always the primary language**, never the language the editor happens to be viewing — "translate this language" on a non-primary page no longer enqueues a language into itself, and "translate all/missing" no longer sources from a translation. Covers the `source_content_blank?/1` blank-source confirmation warning.
@@ -22,7 +22,7 @@ PR #21 + PR #22 — editor UX, configurable slug style, and parallel AI translat
 - The in-flight translation query references the core worker module instead of a hardcoded string, and a dead `|| %{}` guard on the always-a-map `post.metadata` was removed (Dialyzer).
 
 ### Removed
-- The legacy `Workers.TranslatePostWorker` and its tests — superseded by the `AITranslatable` adapter + core pipeline (net −1.3k LOC).
+- The legacy `Workers.TranslatePostWorker` and its tests — superseded by the `AITranslatable` adapter + PhoenixKitAI pipeline (net −1.3k LOC).
 
 ## 0.1.13 - 2026-05-22
 
@@ -41,8 +41,8 @@ PR #20 — restore a defensive non-binary fallback in `TranslatePostWorker.parse
 PR #19 — unify the translation-response parser with core (paired with `phoenix_kit 1.7.117`).
 
 ### Changed
-- `TranslatePostWorker.parse_translated_response/1` now delegates to `PhoenixKit.Modules.AI.Translation.parse_response/2` (the canonical `---FIELD---` parser shared with `phoenix_kit_projects`, shipped in core PR #557) instead of a hand-rolled chained-regex matcher. It tries `["title", "slug", "content"]` first, retries with `["title", "content"]` on missing fields, and falls back to the publishing-specific `parse_markdown_response/1` salvage when no markers are present. The AI call sites, `extract_content/1`, and `sanitize_slug/1` are untouched.
-- Bumped the `phoenix_kit` dependency floor to `~> 1.7.117`, which is where `Modules.AI.Translation.parse_response/2` became available; the lock also picks up `etcher 0.4.6`, `fresco 0.5.4`, and `req 0.5.18`.
+- `TranslatePostWorker.parse_translated_response/1` now delegates to the shared `Translation.parse_response/2` helper (the canonical `---FIELD---` parser shared with `phoenix_kit_projects`) instead of a hand-rolled chained-regex matcher. It tries `["title", "slug", "content"]` first, retries with `["title", "content"]` on missing fields, and falls back to the publishing-specific `parse_markdown_response/1` salvage when no markers are present. The AI call sites, `extract_content/1`, and `sanitize_slug/1` are untouched.
+- Bumped the `phoenix_kit` dependency floor to `~> 1.7.117`, which is where the shared translation parser became available; the lock also picks up `etcher 0.4.6`, `fresco 0.5.4`, and `req 0.5.18`.
 
 ### Fixed
 - Translation responses with `---FIELD---` markers in any order, or with lower/mixed-case marker names, now parse correctly instead of falling through to the bare-markdown salvage path. Covered by new regression tests for marker order-independence, case-insensitive markers, and the TITLE-only fallback.

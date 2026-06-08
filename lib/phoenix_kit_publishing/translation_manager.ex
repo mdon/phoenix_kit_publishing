@@ -7,7 +7,6 @@ defmodule PhoenixKit.Modules.Publishing.TranslationManager do
 
   require Logger
 
-  alias PhoenixKit.Modules.AI.Translations
   alias PhoenixKit.Modules.Languages.DialectMapper
   alias PhoenixKit.Modules.Publishing.ActivityLog
   alias PhoenixKit.Modules.Publishing.Constants
@@ -19,7 +18,71 @@ defmodule PhoenixKit.Modules.Publishing.TranslationManager do
   alias PhoenixKit.Modules.Publishing.Shared
   alias PhoenixKit.Modules.Publishing.StaleFixer
   alias PhoenixKit.Settings
+  alias PhoenixKitAI.Translations
   alias PhoenixKitPublishing.AITranslatable
+
+  # Slug of the publishing-specific default translation prompt. Canonical here
+  # (domain) so the editor LiveView and the programmatic bulk API resolve the
+  # default endpoint/prompt the same way — the editor delegates to these.
+  @translation_prompt_slug "translate-publishing-posts"
+
+  @doc """
+  Resolves the default AI endpoint UUID for publishing translation.
+
+  Reads the `publishing_translation_endpoint_uuid` setting; `nil`/`""` → `nil`.
+  """
+  @spec default_endpoint_uuid() :: String.t() | nil
+  def default_endpoint_uuid do
+    case Settings.get_setting("publishing_translation_endpoint_uuid") do
+      nil -> nil
+      "" -> nil
+      id -> id
+    end
+  end
+
+  @doc """
+  Resolves the default AI prompt UUID for publishing translation.
+
+  Prefers the `publishing_translation_prompt_uuid` setting, then falls back to
+  the prompt with slug `#{@translation_prompt_slug}`. Both the editor and the
+  bulk API use this so they can't drift (the bulk API previously skipped the
+  slug fallback and could enqueue a `nil` prompt).
+  """
+  @spec default_prompt_uuid() :: String.t() | nil
+  def default_prompt_uuid do
+    case Settings.get_setting("publishing_translation_prompt_uuid") do
+      nil -> prompt_uuid_by_slug()
+      "" -> prompt_uuid_by_slug()
+      id -> id
+    end
+  end
+
+  @doc "Whether the publishing default translation prompt exists (by slug)."
+  @spec default_prompt_exists?() :: boolean()
+  def default_prompt_exists? do
+    ai_available?() and PhoenixKitAI.get_prompt_by_slug(@translation_prompt_slug) != nil
+  end
+
+  @doc "The slug of the publishing default translation prompt."
+  @spec translation_prompt_slug() :: String.t()
+  def translation_prompt_slug, do: @translation_prompt_slug
+
+  defp prompt_uuid_by_slug do
+    if ai_available?() do
+      case PhoenixKitAI.get_prompt_by_slug(@translation_prompt_slug) do
+        nil -> nil
+        prompt -> prompt.uuid
+      end
+    else
+      nil
+    end
+  end
+
+  # Guard the AI facade so callers degrade cleanly when the AI runtime is not
+  # installed, disabled, or not fully started.
+  defp ai_available? do
+    Code.ensure_loaded?(PhoenixKitAI) and PhoenixKitAI.enabled?()
+  end
 
   @doc """
   Adds a new language translation to an existing post.
@@ -43,7 +106,12 @@ defmodule PhoenixKit.Modules.Publishing.TranslationManager do
       broadcast_id = new_post.uuid
 
       if broadcast_id do
-        PublishingPubSub.broadcast_translation_created(group_slug, broadcast_id, language_code)
+        PublishingPubSub.broadcast_translation_created(
+          group_slug,
+          broadcast_id,
+          language_code,
+          content_version_scope(new_post)
+        )
       end
 
       ActivityLog.log_manual(
@@ -306,7 +374,7 @@ defmodule PhoenixKit.Modules.Publishing.TranslationManager do
 
   ## Returns
 
-  Delegates to core's generic pipeline, enqueuing one job per target language
+  Delegates to PhoenixKitAI's generic pipeline, enqueuing one job per target language
   (they run in parallel):
 
   - `{:ok, %{enqueued: n, conflicts: n, errors: [], in_flight: [lang]}}`
@@ -321,7 +389,7 @@ defmodule PhoenixKit.Modules.Publishing.TranslationManager do
   end
 
   @doc false
-  # Public for testing. Assembles core's generic-pipeline `base_params` and the
+  # Public for testing. Assembles PhoenixKitAI translation `base_params` and the
   # target-language list for `translate_post_to_all_languages/3`, resolving
   # defaults: source = primary language; targets = all enabled except source;
   # endpoint/prompt fall back to the publishing settings; actor is included only
@@ -338,11 +406,15 @@ defmodule PhoenixKit.Modules.Publishing.TranslationManager do
       %{
         resource_type: AITranslatable.resource_type(),
         resource_uuid: post_uuid,
-        endpoint_uuid:
-          opts[:endpoint_uuid] || Settings.get_setting("publishing_translation_endpoint_uuid"),
-        prompt_uuid:
-          opts[:prompt_uuid] || Settings.get_setting("publishing_translation_prompt_uuid"),
-        source_lang: source_lang
+        endpoint_uuid: opts[:endpoint_uuid] || default_endpoint_uuid(),
+        prompt_uuid: opts[:prompt_uuid] || default_prompt_uuid(),
+        source_lang: source_lang,
+        # Scope to the active version's number (not nil) so an editor open on
+        # that version still matches the lifecycle events — the editor always
+        # filters by a concrete version string. `opts[:resource_scope]` lets a
+        # caller target a specific version; otherwise the active version, or nil
+        # when it can't be resolved (fetch/3 falls back to active either way).
+        resource_scope: opts[:resource_scope] || active_version_scope(post_uuid)
       }
       |> maybe_put_actor(opts[:user_uuid])
 
@@ -351,4 +423,25 @@ defmodule PhoenixKit.Modules.Publishing.TranslationManager do
 
   defp maybe_put_actor(params, nil), do: params
   defp maybe_put_actor(params, actor_uuid), do: Map.put(params, :actor_uuid, actor_uuid)
+
+  # The version a read-back post map sits on, as the string the editor matches
+  # translation events against (mirrors the editor's current_version scope).
+  defp content_version_scope(post) do
+    case Map.get(post, :version) do
+      nil -> nil
+      version -> to_string(version)
+    end
+  end
+
+  # The post's active version number as a string, matching the editor's scope
+  # convention. nil (→ active via fetch/3) when there's no active version or the
+  # lookup fails.
+  defp active_version_scope(post_uuid) do
+    case DBStorage.get_post_by_uuid(post_uuid, [:active_version]) do
+      %{active_version: %{version_number: n}} when is_integer(n) -> Integer.to_string(n)
+      _ -> nil
+    end
+  rescue
+    _ -> nil
+  end
 end

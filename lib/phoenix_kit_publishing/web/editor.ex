@@ -143,6 +143,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
       |> assign(:ai_prompts, Translation.list_ai_prompts())
       |> assign(:ai_selected_prompt_uuid, Translation.get_default_ai_prompt_uuid())
       |> assign(:ai_default_prompt_exists, Translation.default_translation_prompt_exists?())
+      |> assign(:ai_default_prompt_stale, Translation.default_translation_prompt_stale?())
       |> assign(:ai_translation_status, nil)
       |> assign(:ai_translation_progress, nil)
       |> assign(:ai_translation_total, nil)
@@ -765,6 +766,27 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
     end
   end
 
+  def handle_event("regenerate_default_translation_prompt", _params, socket) do
+    case Translation.regenerate_default_translation_prompt() do
+      {:ok, prompt} ->
+        {:noreply,
+         socket
+         |> assign(:ai_prompts, Translation.list_ai_prompts())
+         |> assign(:ai_selected_prompt_uuid, prompt.uuid)
+         |> assign(:ai_default_prompt_exists, true)
+         |> assign(:ai_default_prompt_stale, false)
+         |> Phoenix.LiveView.put_flash(:info, gettext("Default translation prompt updated"))}
+
+      {:error, _changeset} ->
+        {:noreply,
+         Phoenix.LiveView.put_flash(
+           socket,
+           :error,
+           gettext("Failed to update the default prompt")
+         )}
+    end
+  end
+
   def handle_event("translate_to_all_languages", _params, socket) do
     target_languages = Translation.get_all_target_languages(socket)
     empty_opts = {:warning, gettext("No other languages enabled to translate to")}
@@ -1286,8 +1308,12 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
   # Handle Info - Translation Events
   # ============================================================================
 
-  def handle_info({:translation_started, group_slug, post_identifier, target_languages}, socket) do
-    if socket.assigns[:group_slug] == group_slug && post_matches?(socket, post_identifier) do
+  def handle_info(
+        {:translation_started, group_slug, post_identifier, target_languages, scope},
+        socket
+      ) do
+    if socket.assigns[:group_slug] == group_slug && post_matches?(socket, post_identifier) &&
+         scope == current_version_scope(socket) do
       current_lang = socket.assigns[:current_language]
       source_lang = source_language_for_translation(socket)
       should_lock = current_lang == source_lang or current_lang in target_languages
@@ -1305,15 +1331,15 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
     end
   end
 
-  # Per-language success from core's generic pipeline. Each parallel job
+  # Per-language success from PhoenixKitAI's generic pipeline. Each parallel job
   # broadcasts on this post's translations topic (AITranslatable.pubsub_topics/1),
   # so we count completions toward the progress bar the :translation_started
   # event primed.
   def handle_info(
-        {:ai_translation, :translation_completed, %{resource_uuid: resource_uuid}},
+        {:ai_translation, :translation_completed, %{resource_uuid: resource_uuid} = payload},
         socket
       ) do
-    if ai_event_for_this_post?(socket, resource_uuid) do
+    if ai_event_for_this_post?(socket, resource_uuid, Map.get(payload, :resource_scope)) do
       {:noreply, socket |> bump_translation_progress() |> maybe_finalize_translation()}
     else
       {:noreply, socket}
@@ -1321,10 +1347,10 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
   end
 
   def handle_info(
-        {:ai_translation, :translation_failed, %{resource_uuid: resource_uuid}},
+        {:ai_translation, :translation_failed, %{resource_uuid: resource_uuid} = payload},
         socket
       ) do
-    if ai_event_for_this_post?(socket, resource_uuid) do
+    if ai_event_for_this_post?(socket, resource_uuid, Map.get(payload, :resource_scope)) do
       socket =
         socket
         |> bump_translation_progress()
@@ -1342,8 +1368,11 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
   # the per-language content row refresh rides publishing's :translation_created.
   def handle_info({:ai_translation, _event, _payload}, socket), do: {:noreply, socket}
 
-  def handle_info({:translation_created, group_slug, post_identifier, language}, socket) do
-    if socket.assigns[:group_slug] == group_slug && post_matches?(socket, post_identifier) do
+  def handle_info({:translation_created, group_slug, post_identifier, language, version}, socket) do
+    # Only refresh when the new language landed on the version this editor is
+    # viewing — a different version's per-language content is independent.
+    if socket.assigns[:group_slug] == group_slug && post_matches?(socket, post_identifier) &&
+         version == current_version_scope(socket) do
       {:noreply, handle_translation_created_update(socket, language)}
     else
       {:noreply, socket}
@@ -1507,10 +1536,24 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
     post != nil && post[:uuid] == broadcast_id
   end
 
-  # Generic-pipeline events carry the post uuid as resource_uuid.
-  defp ai_event_for_this_post?(socket, resource_uuid) do
+  # Generic-pipeline events carry the post uuid as resource_uuid and the
+  # targeted version as resource_scope. Match BOTH so an editor viewing a
+  # different version of the same post ignores events for the other version.
+  defp ai_event_for_this_post?(socket, resource_uuid, resource_scope) do
     post = socket.assigns[:post]
-    is_binary(resource_uuid) and post != nil and post[:uuid] == resource_uuid
+
+    is_binary(resource_uuid) and post != nil and post[:uuid] == resource_uuid and
+      resource_scope == current_version_scope(socket)
+  end
+
+  # The version the editor is on, as the string the pipeline carries in
+  # `resource_scope` (nil → active version). Mirrors
+  # `Editor.Translation`'s enqueue scope so events match what was enqueued.
+  defp current_version_scope(socket) do
+    case socket.assigns[:current_version] do
+      nil -> nil
+      version -> to_string(version)
+    end
   end
 
   defp bump_translation_progress(socket) do
@@ -2098,11 +2141,11 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
             <p class="text-sm text-base-content/70">
               <%= if @current_language == @default_language do %>
                 {gettext(
-                  "Automatically translate this post to other languages using AI. The translation will be queued as a background job."
+                  "Automatically translate this post to other languages using AI. Each translation runs as a background job — you can keep editing while it finishes, or safely leave this page."
                 )}
               <% else %>
                 {gettext(
-                  "Translate the %{source} post to %{target} using AI. The translation will be queued as a background job.",
+                  "Translate the %{source} post to %{target} using AI. It runs as a background job — you can keep editing while it finishes, or safely leave this page.",
                   source: @default_language_name,
                   target: @current_language_name
                 )}
@@ -2129,6 +2172,14 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
               >
                 {gettext("Manage Endpoints")}
               </.link>
+              <p class="flex items-start gap-1 text-xs text-base-content/60">
+                <.icon name="hero-information-circle" class="w-3.5 h-3.5 shrink-0 mt-px" />
+                <span>
+                  {gettext(
+                    "Reasoning (\"thinking\") models are slower and may return unstructured output — a standard model is recommended for translation."
+                  )}
+                </span>
+              </p>
             </div>
 
             <%!-- Prompt Selection --%>
@@ -2160,6 +2211,17 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
                   >
                     <.icon name="hero-sparkles" class="w-3 h-3" />
                     {gettext("Generate Default Prompt")}
+                  </button>
+                <% end %>
+                <%= if @ai_default_prompt_exists and @ai_default_prompt_stale do %>
+                  <button
+                    type="button"
+                    class="btn btn-warning btn-outline btn-xs gap-1"
+                    phx-click="regenerate_default_translation_prompt"
+                    title={gettext("This prompt predates the current format and may mistranslate. Click to update it.")}
+                  >
+                    <.icon name="hero-arrow-path" class="w-3 h-3" />
+                    {gettext("Regenerate Default Prompt")}
                   </button>
                 <% end %>
               </div>
