@@ -1,7 +1,7 @@
 defmodule PhoenixKitPublishing.MixProject do
   use Mix.Project
 
-  @version "0.1.14"
+  @version "0.1.15"
   @source_url "https://github.com/BeamLabEU/phoenix_kit_publishing"
 
   def project do
@@ -84,7 +84,7 @@ defmodule PhoenixKitPublishing.MixProject do
       pk_dep(:phoenix_kit, "~> 1.7.132"),
       # PhoenixKitAI owns the generic AI-translation pipeline that this module's
       # `AITranslatable` adapter plugs into.
-      pk_dep(:phoenix_kit_ai, "~> 0.3"),
+      pk_dep(:phoenix_kit_ai, "~> 0.4"),
 
       # LiveView for admin pages
       {:phoenix_live_view, "~> 1.0"},

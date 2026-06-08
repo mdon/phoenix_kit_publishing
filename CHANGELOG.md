@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.1.15 - 2026-06-08
+
+PR #23 — AI translation moves onto the shared `phoenix_kit_ai` pipeline, version-scoped translation, and editor fixes. Requires `phoenix_kit_ai ~> 0.4`.
+
+### Changed
+- **AI translation now runs on the `phoenix_kit_ai` plugin** (bumped to `~> 0.4`). The adapter, translation manager, and editor translation flow are rewired from core's `PhoenixKit.Modules.AI.*` to `PhoenixKitAI.*`. The adapter is duck-typed via `ai_translatables/0` and discovered by `PhoenixKitAI.Translatables`.
+- **Translation targets the version the editor is on** (e.g. a draft), not always the active one — `resource_scope` threads through dedup, broadcasts, and `fetch/3` (F1). Default endpoint/prompt resolution is unified (F3), with a regenerate affordance for stale default prompts (F2).
+- Standardized on the lowercase `"title"`/`"content"` field convention (matching catalogue/projects).
+
+### Added
+- Env-gated `pk_dep/3` path override in `mix.exs`: build/test against a local `phoenix_kit*` checkout via `<APP>_PATH` (e.g. `PHOENIX_KIT_PATH=../phoenix_kit mix test`). Unset = the published pin, so `mix deps.get` / `mix hex.publish` / CI resolve exactly as before.
+
+### Fixed
+- **Field-case regression**: capitalized `{{Title}}` placeholders rendered literally and the model hallucinated; now resolved by the lowercase field convention.
+- **Duplicate-slug error** names the offending slug and notes uniqueness is within the group, across the create / in-place-update / version paths.
+- **AI-translation source warning** distinguishes *nothing* / *only-title* / *only-content* instead of a blanket "source content is empty".
+- **Translation modal** gained a reasoning-model hint under the endpoint selector and a clearer "runs in the background, you can keep editing or leave" line (parity with catalogue/projects).
+
 ## 0.1.14 - 2026-06-07
 
 PR #21 + PR #22 — editor UX, configurable slug style, and parallel AI translation (one Oban job per language via the shared translation pipeline), plus a post-merge review sweep. Requires `phoenix_kit ~> 1.7.132`.
