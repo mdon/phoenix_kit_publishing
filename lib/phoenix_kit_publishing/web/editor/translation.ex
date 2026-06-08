@@ -20,8 +20,8 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor.Translation do
   alias PhoenixKitAI.Translations
   alias PhoenixKitPublishing.AITranslatable
 
-  # Core's generic-pipeline Oban worker. Referenced as a module (not a bare
-  # string) so the name stays in sync with core and the coupling is greppable;
+  # PhoenixKitAI's generic translation worker. Referenced as a module (not a bare
+  # string) so the name stays in sync and the coupling is greppable;
   # `Oban.Job.worker` stores `inspect/1` of the worker module.
   @translate_worker PhoenixKitAI.TranslateWorker
 
@@ -30,7 +30,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor.Translation do
   # ============================================================================
 
   # Availability + endpoint/prompt listing are generic across every
-  # AI-translation consumer, so they delegate to core
+  # AI-translation consumer, so they delegate to
   # `PhoenixKitAI.Translations` — the canonical implementation —
   # rather than re-deriving the same `{uuid, name}` shape here. (Catalogue
   # and projects share the same core helpers.) Publishing keeps its own
@@ -270,7 +270,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor.Translation do
     # source used by build_translation_warnings/2.
     source_language = source_language_for_translation(socket)
 
-    # One Oban job per target language (core's generic pipeline) so they run
+    # One Oban job per target language (PhoenixKitAI's generic pipeline) so they run
     # in parallel — replaces the legacy single-job sequential worker.
     base_params = %{
       resource_type: AITranslatable.resource_type(),
@@ -676,7 +676,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor.Translation do
     end
   end
 
-  # Target languages with a non-terminal generic-pipeline translation job for
+  # Target languages with a non-terminal PhoenixKitAI translation job for
   # THIS post AND THIS version (`scope`). Scoping by version matters now that
   # each version translates independently — otherwise a v2 editor would restore
   # v1's in-progress banner. `scope` is nil (active version) or the version

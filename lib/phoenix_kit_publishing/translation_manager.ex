@@ -78,8 +78,8 @@ defmodule PhoenixKit.Modules.Publishing.TranslationManager do
     end
   end
 
-  # PhoenixKitAI is an optional plugin — guard the reference so this domain
-  # module compiles and runs when the plugin is absent.
+  # Guard the AI facade so callers degrade cleanly when the AI runtime is not
+  # installed, disabled, or not fully started.
   defp ai_available? do
     Code.ensure_loaded?(PhoenixKitAI) and PhoenixKitAI.enabled?()
   end
@@ -374,7 +374,7 @@ defmodule PhoenixKit.Modules.Publishing.TranslationManager do
 
   ## Returns
 
-  Delegates to core's generic pipeline, enqueuing one job per target language
+  Delegates to PhoenixKitAI's generic pipeline, enqueuing one job per target language
   (they run in parallel):
 
   - `{:ok, %{enqueued: n, conflicts: n, errors: [], in_flight: [lang]}}`
@@ -389,7 +389,7 @@ defmodule PhoenixKit.Modules.Publishing.TranslationManager do
   end
 
   @doc false
-  # Public for testing. Assembles core's generic-pipeline `base_params` and the
+  # Public for testing. Assembles PhoenixKitAI translation `base_params` and the
   # target-language list for `translate_post_to_all_languages/3`, resolving
   # defaults: source = primary language; targets = all enabled except source;
   # endpoint/prompt fall back to the publishing settings; actor is included only

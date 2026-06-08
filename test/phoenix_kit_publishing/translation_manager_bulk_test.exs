@@ -20,7 +20,7 @@ defmodule PhoenixKitPublishing.TranslationManagerBulkTest do
   @base_opts [endpoint_uuid: "ep-uuid", prompt_uuid: "pr-uuid", source_language: "en"]
 
   describe "build_bulk_translation_params/2" do
-    test "assembles core generic-pipeline params from explicit opts" do
+    test "assembles PhoenixKitAI translation params from explicit opts" do
       {base, targets} =
         TranslationManager.build_bulk_translation_params(
           @post,

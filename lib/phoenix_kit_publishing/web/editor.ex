@@ -1331,7 +1331,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
     end
   end
 
-  # Per-language success from core's generic pipeline. Each parallel job
+  # Per-language success from PhoenixKitAI's generic pipeline. Each parallel job
   # broadcasts on this post's translations topic (AITranslatable.pubsub_topics/1),
   # so we count completions toward the progress bar the :translation_started
   # event primed.

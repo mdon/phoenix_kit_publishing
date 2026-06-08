@@ -1,7 +1,7 @@
 defmodule PhoenixKitPublishing.AITranslatable do
   @moduledoc """
   `PhoenixKitAI.Translatable` adapter for publishing posts — the
-  per-module hook into core's generic AI-translation pipeline
+  per-module hook into PhoenixKitAI's generic AI-translation pipeline
   (`PhoenixKitAI.{Translations,TranslateWorker}`).
 
   Replaces the bespoke `Workers.TranslatePostWorker`, which translated every
@@ -13,15 +13,15 @@ defmodule PhoenixKitPublishing.AITranslatable do
   ## Resource identity
 
   `resource_type` is `"publishing_post"`; `resource_uuid` is the post's uuid
-  (core validates it as a real UUID). Translations target the post's **active
-  version** — the version the editor normally works on.
+  (PhoenixKitAI validates it as a real UUID). Translations target the post's
+  **active version** — the version the editor normally works on.
 
   ## Fields
 
   `source_fields/2` returns `%{"title", "content"}` read in the source
   language — lowercase to match the `{{title}}`/`{{content}}` placeholders in
   the publishing translation prompt, the same convention as the catalogue and
-  projects adapters (core's variable substitution is case-sensitive). `put_translation/4` creates the target-language content row (via
+  projects adapters (PhoenixKitAI's variable substitution is case-sensitive). `put_translation/4` creates the target-language content row (via
   `add_language_to_post` when absent) and writes the translated title/content,
   **generating the per-language `url_slug` locally** from the translated title
   via `SlugHelpers.slugify/1`. That honors the configured slug style and avoids
@@ -36,7 +36,7 @@ defmodule PhoenixKitPublishing.AITranslatable do
 
   ## Events
 
-  `pubsub_topics/1` returns the post's translations topic, so core's
+  `pubsub_topics/1` returns the post's translations topic, so PhoenixKitAI's
   `{:ai_translation, …}` lifecycle events reach the editor LiveView (already
   subscribed to that topic). Per-language content creation also emits
   publishing's own `:translation_created` via `add_language_to_post`.
