@@ -10,6 +10,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller.Language do
   alias PhoenixKit.Modules.Languages
   alias PhoenixKit.Modules.Languages.DialectMapper
   alias PhoenixKit.Modules.Publishing
+  alias PhoenixKit.Modules.Publishing.DBStorage
   alias PhoenixKit.Modules.Publishing.LanguageHelpers
   alias PhoenixKit.Modules.Publishing.ListingCache
 
@@ -322,8 +323,11 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller.Language do
         end)
 
       {:error, _} ->
-        # Cache miss - fall back to direct DB read
-        posts = Publishing.list_posts(group_slug, nil)
+        # Cache miss — fall back to the SAME source the cache is built from
+        # (active/published version), not list_posts/2 (latest, incl. drafts).
+        # This keeps "does this public group serve content for <language>?"
+        # answering on published content whether the cache is warm or not.
+        posts = DBStorage.list_posts_for_listing(group_slug)
 
         Enum.any?(posts, fn post ->
           language in (post.available_languages || [])

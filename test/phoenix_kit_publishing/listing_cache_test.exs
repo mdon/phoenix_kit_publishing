@@ -171,10 +171,13 @@ defmodule PhoenixKit.Modules.Publishing.ListingCacheRegenerateTest do
 
   use PhoenixKitPublishing.DataCase, async: false
 
+  alias PhoenixKit.Modules.Publishing.DBStorage
   alias PhoenixKit.Modules.Publishing.Groups
   alias PhoenixKit.Modules.Publishing.ListingCache
   alias PhoenixKit.Modules.Publishing.Posts
   alias PhoenixKit.Modules.Publishing.Versions
+  alias PhoenixKit.Modules.Publishing.Web.Controller.Listing
+  alias PhoenixKit.Modules.Publishing.Web.Controller.PostFetching
   alias PhoenixKit.Settings
 
   setup do
@@ -256,6 +259,35 @@ defmodule PhoenixKit.Modules.Publishing.ListingCacheRegenerateTest do
       :ok = ListingCache.invalidate(group_slug)
       result = ListingCache.load_into_memory(group_slug)
       assert result in [:ok] or match?({:error, _}, result)
+    end
+  end
+
+  describe "public cache-miss fallback uses the active/published listing source" do
+    test "a published post with a newer DRAFT version stays published on a cache miss",
+         %{group_slug: group_slug} do
+      # Regression: on a cache miss the public listing fell back to list_posts/2
+      # (LATEST version), so a published post whose latest version is an
+      # unpublished draft would surface with draft status — dropped by
+      # filter_published — and vanish from the public listing during cold-start
+      # or concurrent regeneration. The fallback now mirrors the cache source
+      # (list_posts_for_listing/1 — the ACTIVE/published version).
+      {:ok, _} = Settings.update_boolean_setting("publishing_memory_cache_enabled", false)
+
+      {:ok, post} =
+        Posts.create_post(group_slug, %{title: "Live", slug: "live", content: "Published body"})
+
+      :ok = Versions.publish_version(group_slug, post.uuid, 1)
+      # v2 becomes the LATEST version and is an unpublished draft.
+      {:ok, _v2} = DBStorage.create_version_from(post.uuid, 1)
+
+      posts = PostFetching.fetch_posts_with_cache(group_slug)
+      published = Listing.filter_published(posts)
+
+      # The post is still listed (active version is published)...
+      assert Enum.any?(published, &(&1.slug == post.slug))
+      # ...and surfaces with published status, not the latest draft's.
+      listed = Enum.find(posts, &(&1.slug == post.slug))
+      assert listed.metadata.status == "published"
     end
   end
 end
