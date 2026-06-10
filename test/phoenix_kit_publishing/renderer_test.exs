@@ -538,6 +538,16 @@ defmodule PhoenixKit.Modules.Publishing.RendererTest do
       refute html =~ "<img"
     end
 
+    test "a component in a ~~~ tilde-fenced code block renders as visible code" do
+      html =
+        Renderer.render_markdown(
+          ~s|Example:\n\n~~~\n<Image file_uuid="#{@uuid}" alt="x"/>\n~~~\n|
+        )
+
+      assert html =~ "&lt;Image"
+      refute html =~ "<img"
+    end
+
     test "a component in inline code renders as visible code, not a live component" do
       html = Renderer.render_markdown("Use `<Image file_uuid=\"#{@uuid}\"/>` to embed.")
 

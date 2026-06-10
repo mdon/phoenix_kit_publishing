@@ -42,10 +42,12 @@ defmodule PhoenixKit.Modules.Publishing.Renderer do
   @component_regex ~r/<(Image|Hero|CTA|Headline|Subheadline|Video|EntityForm)\s+([^>]*?)\/>/s
   @component_block_regex ~r/<(Hero|CTA|Headline|Subheadline|Video|EntityForm)\s*([^>]*)>(.*?)<\/\1>/s
 
-  # Fenced (```…```) and inline (`…`) code spans — masked out before the
-  # component scan so a literal component example inside a code block isn't
-  # rendered as a real component. Fenced first so it wins at a ``` boundary.
-  @code_region_regex ~r/```.*?```|`[^`\n]*`/s
+  # Fenced (```…``` or ~~~…~~~) and inline (`…`) code spans — masked out before
+  # the component scan so a literal component example inside a code block isn't
+  # rendered as a real component. Fenced first so it wins at a fence boundary.
+  # Known limitation: 4+ backtick fences and backslash-escaped backticks (rare
+  # CommonMark corners) aren't matched and would still be scanned for components.
+  @code_region_regex ~r/```.*?```|~~~.*?~~~|`[^`\n]*`/s
 
   # Tailwind/daisyUI classes for post-processing Earmark HTML output.
   # Code blocks (pre, code) are handled separately in style_code_blocks/1.

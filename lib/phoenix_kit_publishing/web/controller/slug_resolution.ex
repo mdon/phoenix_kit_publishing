@@ -95,7 +95,11 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller.SlugResolution do
   # ============================================================================
 
   @doc """
-  Builds redirect URL for 301 redirects from cached post data.
+  Builds a 301 redirect URL from a resolved post map.
+
+  Accepts both the cache-shaped map (carries :mode/:date/:time/:language_slugs)
+  and the DB-shaped map from `db_content_to_post_map/1` (only :slug/:url_slug/
+  :language/:metadata), reading the cache-only fields defensively.
   """
   def build_post_redirect_url(group_slug, cached_post, language, url_slug) do
     # Build post struct with minimal fields needed for URL generation.
