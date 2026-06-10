@@ -37,8 +37,8 @@ defmodule PhoenixKit.Modules.Publishing.Web.ListingLiveTest do
       |> live("/admin/publishing/#{group["slug"]}")
 
     assert html =~ group["name"]
-    # Post body should be reachable in the rendered listing
-    assert html =~ post[:slug] || html =~ "Sample post"
+    # The post's title renders as its link in the listing.
+    assert html =~ "Sample post for listing"
   end
 
   test "switch_post_view toggles between active and trashed", %{conn: conn, group: group} do

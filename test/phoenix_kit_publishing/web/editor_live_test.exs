@@ -288,7 +288,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.EditorLiveTest do
       _ = render_change(view, "update_meta", %{"title" => "", "_target" => ["title"]})
 
       html = render_click(view, "save", %{})
-      assert html =~ "required" || is_binary(html)
+      assert html =~ "Title is required to save."
     end
 
     test "switch_version to the same current version is a no-op",

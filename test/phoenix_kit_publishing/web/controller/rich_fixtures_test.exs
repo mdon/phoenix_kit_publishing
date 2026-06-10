@@ -75,7 +75,9 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller.RichFixturesTest do
     test "renders show page for translated language (de-DE base 'de')",
          %{conn: conn, group_slug: group_slug, post: post} do
       conn = get(conn, "/de/#{group_slug}/#{post.slug}")
-      assert conn.status in [200, 301, 302, 404]
+      # The de-DE translation is in the published version, so it must be
+      # reachable — render or canonical-redirect, never 404.
+      assert conn.status in [200, 301, 302]
     end
 
     test "language fallback fires for unsupported language",
