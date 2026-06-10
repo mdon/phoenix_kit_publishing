@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.1.16 - 2026-06-10
+
+PR #24 — editor & public-rendering sweep: stable inline images, legacy image-URL healing at render, automatic in-page OpenGraph, descriptive error flashes, and slug-cap safety. Plus a post-merge crash fix. Built against `phoenix_kit ~> 1.7.138` and `phoenix_live_view 1.2`.
+
+### Added
+- **Automatic in-page OpenGraph + Twitter Card tags** on public listing + post pages (`publishing_render_og_tags`, default on) so social previews work with zero host `<head>` setup; a Settings toggle disables the in-page copy when the host renders the forwarded `:og` assign itself. The `:og` builder is hardened — relative SEO images normalize to absolute (no more `https://hostimages/...`), and `og:locale` is emitted in OpenGraph's `language_TERRITORY` form.
+- **Auto-slug truncation warning** — a non-blocking flash when an automatic slug is shortened to fit the cap (e.g. a long Cyrillic title that transliteration expands, `щ → shch`), transition-gated so live typing past the cap doesn't spam it.
+
+### Changed
+- **Inline post images insert as `<Image file_uuid="…"/>` components**, not a frozen signed URL — resolved to a URL at render time, so they survive `url_prefix` changes and `secret_key_base` rotation (the same late resolution the featured image already used). Alt text derives from the file's original name. Drops the client-side `eval()` used for image insertion in favour of a typed `phx:insert-media` event.
+- **Editor & admin error flashes are descriptive** — generic catch-alls now route through `Publishing.Errors` (e.g. "Couldn't save this post. Database update failed.") instead of flat "Failed to …" strings, including an `%Ecto.Changeset{}` clause that renders a humanized, capped field summary.
+- **The auto-generated slug cap is derived from the save limit** — `min(SEO 200, Constants.max_slug_length)`, so a generated slug provably can't exceed what save accepts.
+- Bumped dependencies: `phoenix_kit` 1.7.138, `phoenix_live_view` 1.2, `phoenix_kit_ai` 0.8, `phoenix` 1.8.8, `leaf` 0.2.23. Added `hex.audit` to `mix precommit`.
+
+### Fixed
+- **Legacy signed-file image URLs heal at render time** — posts authored before the `<Image>` change stored a fully-resolved `/<old-prefix>/file/…` URL that 404s after a prefix change or secret rotation. The renderer recovers the UUID + variant and re-signs against the current prefix/secret — no data migration, idempotent for current output, external/protocol-relative URLs untouched. The render cache key is now prefix- and secret-aware (bumped to `v3`).
+- **`Errors.message/1` no longer crashes the flash** on a changeset whose error opt carries a list value (e.g. an inclusion/subset `enum`): `to_string/1` raises `ArgumentError` there, which is now caught alongside the existing tuple/`Protocol.UndefinedError` case.
+
 ## 0.1.15 - 2026-06-08
 
 PR #23 — AI translation moves onto the shared `phoenix_kit_ai` pipeline, version-scoped translation, and editor fixes. Requires `phoenix_kit_ai ~> 0.4`.

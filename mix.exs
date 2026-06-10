@@ -1,7 +1,7 @@
 defmodule PhoenixKitPublishing.MixProject do
   use Mix.Project
 
-  @version "0.1.15"
+  @version "0.1.16"
   @source_url "https://github.com/BeamLabEU/phoenix_kit_publishing"
 
   def project do
@@ -59,6 +59,10 @@ defmodule PhoenixKitPublishing.MixProject do
       precommit: [
         "compile --force --warnings-as-errors",
         "deps.unlock --check-unused",
+        # Scan for retired Hex deps. Run via `cmd` so Hex bootstraps in a fresh
+        # process — the hex.* archive tasks aren't resolvable via Mix.Task.run
+        # inside an alias.
+        "cmd mix hex.audit",
         "quality.ci"
       ]
     ]
