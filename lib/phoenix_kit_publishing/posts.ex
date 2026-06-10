@@ -490,6 +490,12 @@ defmodule PhoenixKit.Modules.Publishing.Posts do
       slug: post.slug,
       url_slug: content.url_slug,
       language: content.language,
+      # Routing fields, mirroring the cache shape (Mapper.to_listing_map/4) so a
+      # 301 redirect built from this map resolves to the right canonical URL for
+      # both slug- and timestamp-mode posts instead of guessing the mode.
+      mode: post.mode,
+      date: post.post_date,
+      time: post.post_time,
       metadata: %{
         title: content.title,
         status: version.status,

@@ -102,12 +102,11 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller.SlugResolution do
   :language/:metadata), reading the cache-only fields defensively.
   """
   def build_post_redirect_url(group_slug, cached_post, language, url_slug) do
-    # Build post struct with minimal fields needed for URL generation.
-    # `cached_post` may be cache-shaped (carries :mode/:date/:time/:language_slugs)
-    # or DB-shaped (db_content_to_post_map/1 — only :slug/:url_slug/:language/:metadata),
-    # so read the cache-only fields with bracket access + sane fallbacks. This path
-    # is only reached for slug-mode resolution, so "slug" is the correct default mode
-    # and a nil date/time is never consulted by build_post_url/4 in that branch.
+    # Build post struct with minimal fields needed for URL generation. Both the
+    # cache shape and the DB shape (db_content_to_post_map/1) now carry
+    # :mode/:date/:time, so the redirect resolves to the correct canonical URL
+    # for timestamp-mode posts too. Bracket access + a "slug" fallback are kept
+    # purely as defence against an unexpectedly sparse map.
     post = %{
       slug: cached_post.slug,
       url_slug: url_slug,
