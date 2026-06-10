@@ -6,12 +6,14 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor.Helpers do
   virtual post creation, and other common operations.
   """
 
+  require Logger
+
   alias PhoenixKit.Modules.Publishing
   alias PhoenixKit.Modules.Publishing.Constants
   alias PhoenixKit.Modules.Publishing.LanguageHelpers
   alias PhoenixKit.Modules.Publishing.Web.Editor.Translation
   alias PhoenixKit.Modules.Publishing.Web.HTML, as: PublishingHTML
-  alias PhoenixKit.Modules.Storage.URLSigner
+  alias PhoenixKit.Modules.Storage
   alias PhoenixKit.Utils.Routes
 
   # ============================================================================
@@ -171,10 +173,60 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor.Helpers do
   end
 
   @doc """
-  Gets the URL for a media asset from storage.
+  Builds the inline `<Image>` PHK component markup for a storage file.
+
+  The component carries the **file UUID**, not a resolved URL — the renderer
+  (`PhoenixKit.Modules.Shared.Components.Image`) resolves it to a URL at render
+  time via `Storage.get_public_url_by_uuid/2`. Storing the UUID instead of a
+  signed URL keeps the reference stable across `url_prefix` changes,
+  `secret_key_base` rotation, and content moved between environments — the same
+  late-resolution the featured image already uses.
+
+  Alt text is derived from the file's original name (falling back to `"Image"`),
+  sanitised so it can't break out of the XML attribute.
   """
-  def get_file_url(file_uuid) do
-    URLSigner.signed_url(file_uuid, "original")
+  def image_component_markup(file_uuid) when is_binary(file_uuid) do
+    ~s(\n<Image file_uuid="#{file_uuid}" alt="#{alt_from_file(file_uuid)}"/>\n)
+  end
+
+  defp alt_from_file(file_uuid) do
+    case safe_get_file(file_uuid) do
+      %{original_file_name: name} when is_binary(name) and name != "" ->
+        alt_from_filename(name)
+
+      _ ->
+        "Image"
+    end
+  end
+
+  # Turn a stored filename into human-ish alt text, stripped of any characters
+  # that would terminate the `alt="..."` attribute or the component tag.
+  defp alt_from_filename(name) do
+    name
+    |> Path.rootname()
+    |> String.replace(~r/[_-]+/u, " ")
+    |> String.replace(~r/["'<>\r\n]/u, "")
+    |> String.replace(~r/\s+/u, " ")
+    |> String.trim()
+    |> String.slice(0, 100)
+    |> case do
+      "" -> "Image"
+      alt -> alt
+    end
+  end
+
+  # Best-effort: a storage/repo hiccup must never block inserting an image —
+  # we just fall back to a generic alt. Logged at debug so a persistent failure
+  # (every image degrading to alt="Image") is still diagnosable.
+  defp safe_get_file(file_uuid) do
+    Storage.get_file(file_uuid)
+  rescue
+    error ->
+      Logger.debug(
+        "Publishing: failed to resolve file #{file_uuid} for alt text: #{inspect(error)}"
+      )
+
+      nil
   end
 
   # ============================================================================

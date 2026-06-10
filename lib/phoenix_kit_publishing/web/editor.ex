@@ -1766,17 +1766,14 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
     {socket, autosave?} =
       cond do
         file_uuid && inserting_image_component ->
-          file_url = Helpers.get_file_url(file_uuid)
-
-          js_code =
-            "window.publishingEditorInsertMedia && window.publishingEditorInsertMedia(#{Jason.encode!(file_url)}, 'image')"
+          markup = Helpers.image_component_markup(file_uuid)
 
           {
             socket
             |> assign(:show_media_selector, false)
             |> assign(:inserting_image_component, false)
             |> put_flash(:info, gettext("Image component inserted"))
-            |> push_event("exec-js", %{js: js_code}),
+            |> push_event("insert-media", %{text: markup}),
             false
           }
 
@@ -1882,13 +1879,29 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
         }
       });
 
-      // Listen for exec-js events from LiveView (for media insertion)
-      window.addEventListener("phx:exec-js", (e) => {
-        try {
-          eval(e.detail.js);
-        } catch (err) {
-          console.error("[ContentEditor] Error executing JS:", err);
-        }
+      // Insert raw text at the textarea cursor and notify LiveView.
+      window.publishingEditorInsertText = function(text) {
+        const textarea = document.getElementById('content-editor-textarea');
+        if (!textarea || !text) return;
+
+        const start = textarea.selectionStart || 0;
+        const currentValue = textarea.value;
+        const newValue = currentValue.substring(0, start) + text + currentValue.substring(start);
+        textarea.value = newValue;
+
+        // Move cursor after inserted text
+        const newPos = start + text.length;
+        textarea.selectionStart = textarea.selectionEnd = newPos;
+        textarea.focus();
+
+        // Trigger keyup event to update LiveView (matches phx-keyup binding on textarea)
+        textarea.dispatchEvent(new KeyboardEvent("keyup", { bubbles: true }));
+      };
+
+      // Listen for media markup pushed from LiveView (image components, etc.).
+      // The server builds the exact text to insert, so no client-side eval.
+      window.addEventListener("phx:insert-media", (e) => {
+        window.publishingEditorInsertText(e.detail.text);
       });
 
       // Listen for video prompt event
@@ -1899,12 +1912,9 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
         }
       });
 
-      // Function to insert standard markdown media syntax at cursor position
+      // Build standard markdown media syntax and insert it (video path; image
+      // insertion now flows through the phx:insert-media event above).
       window.publishingEditorInsertMedia = function(fileUrl, mediaType, videoUrl) {
-        const textarea = document.getElementById('content-editor-textarea');
-        if (!textarea) return;
-
-        // Build standard markdown syntax: ![alt](url)
         let template;
         if (mediaType === 'image' && fileUrl) {
           template = '\n![Image description](' + fileUrl + ')\n';
@@ -1915,18 +1925,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
           return;
         }
 
-        const start = textarea.selectionStart || 0;
-        const currentValue = textarea.value;
-        const newValue = currentValue.substring(0, start) + template + currentValue.substring(start);
-        textarea.value = newValue;
-
-        // Move cursor after inserted text
-        const newPos = start + template.length;
-        textarea.selectionStart = textarea.selectionEnd = newPos;
-        textarea.focus();
-
-        // Trigger keyup event to update LiveView (matches phx-keyup binding on textarea)
-        textarea.dispatchEvent(new KeyboardEvent("keyup", { bubbles: true }));
+        window.publishingEditorInsertText(template);
       };
     })();
     </script>

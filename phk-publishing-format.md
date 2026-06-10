@@ -38,7 +38,7 @@ Standard **Markdown** lives here. Use `##` for subheadings, `-` for bullet lists
 
 Inline PHK components can appear anywhere in the Markdown body:
 
-<Image file_id="019a6f96-e895-74e2-a745-1b596ee235af" file_variant="medium" alt="Screenshot" />
+<Image file_uuid="019a6f96-e895-74e2-a745-1b596ee235af" file_variant="medium" alt="Screenshot" />
 
 Continue writing Markdown below the component.
 ```
@@ -79,7 +79,7 @@ You can mix **bold text** and inline components:
 
 | Component | Notes |
 |-----------|-------|
-| `<Image … />` | Works with either `src="/path/to/file.jpg"` or `file_id="…"`. Optional `file_variant="thumbnail" | "small" | "medium" | "large"` picks a specific variant from PhoenixKit Storage. The renderer now always returns the natural dimensions; add your own `class` if you want to constrain width. |
+| `<Image … />` | Works with either `src="/path/to/file.jpg"` or `file_uuid="…"`. Optional `file_variant="thumbnail" | "small" | "medium" | "large"` picks a specific variant from PhoenixKit Storage. The renderer now always returns the natural dimensions; add your own `class` if you want to constrain width. |
 | `<Hero variant="split-image|centered|minimal"> … </Hero>` | A layout block that can wrap `<Headline>`, `<Subheadline>`, `<CTA />`, `<Image />`. Use sparingly inside Markdown (usually near the top). |
 | `<Headline>…</Headline>` | Renders a hero-style heading. |
 | `<Subheadline>…</Subheadline>` | Medium-sized supporting text. |
@@ -92,7 +92,7 @@ Additional components can be introduced by adding Phoenix components under `lib/
 
 ## Storage integration & variants
 
-When an `<Image>` references `file_id="…"`, the renderer calls `PhoenixKit.Storage.get_public_url_by_id/2`. The storage layer:
+When an `<Image>` references `file_uuid="…"`, the renderer calls `PhoenixKit.Storage.get_public_url_by_uuid/2`. The storage layer:
 
 1. Looks for a matching file + variant (`original`, `thumbnail`, `small`, `medium`, `large`, etc.).
 2. Returns the provider’s public URL if available (S3, R2, CDN…).
@@ -120,7 +120,7 @@ Thanks for building with PhoenixKit! Here are the highlights from this month.
   <Headline>Maintenance Mode v2</Headline>
   <Subheadline>Plan downtime with confidence.</Subheadline>
   <CTA primary="true" action="/admin/modules">Enable Module</CTA>
-  <Image file_id="018e3c4a-9f6b-7890-abcd-ef1234567890" alt="Maintenance Mode Screenshot" />
+  <Image file_uuid="018e3c4a-9f6b-7890-abcd-ef1234567890" alt="Maintenance Mode Screenshot" />
 </Hero>
 
 ## New referral analytics
@@ -130,7 +130,7 @@ Thanks for building with PhoenixKit! Here are the highlights from this month.
 - Improved fraud detection
 
 <Image
-  file_id="019a6f96-e895-74e2-a745-1b596ee235af"
+  file_uuid="019a6f96-e895-74e2-a745-1b596ee235af"
   file_variant="thumbnail"
   class="w-full"
   alt="Referral dashboard"
@@ -159,20 +159,20 @@ published_at: 2025-07-01T10:00:00Z
   <Image src="/assets/dashboard-preview.png" alt="Dashboard Preview" />
 </Hero>
 
-<!-- Example 2: Using file_id -->
+<!-- Example 2: Using file_uuid -->
 <Hero variant="centered">
   <Headline>Storage File ID Example</Headline>
   <Subheadline>This pulls from PhoenixKit Storage.</Subheadline>
   <CTA primary="true" action="/upload">Upload Image</CTA>
-  <Image file_id="018e3c4a-9f6b-7890-abcd-ef1234567890" alt="Uploaded Image" />
+  <Image file_uuid="018e3c4a-9f6b-7890-abcd-ef1234567890" alt="Uploaded Image" />
 </Hero>
 
-<!-- Example 3: Using file_id with variant -->
+<!-- Example 3: Using file_uuid with variant -->
 <Hero variant="minimal">
   <Headline>Thumbnail Variant</Headline>
   <Subheadline>Great for small inline previews.</Subheadline>
   <Image
-    file_id="018e3c4a-9f6b-7890-abcd-ef1234567890"
+    file_uuid="018e3c4a-9f6b-7890-abcd-ef1234567890"
     file_variant="thumbnail"
     alt="Thumbnail Image"
   />
@@ -183,7 +183,7 @@ published_at: 2025-07-01T10:00:00Z
   <Headline>Custom Styling</Headline>
   <Subheadline>Combine variants with Tailwind utility classes.</Subheadline>
   <Image
-    file_id="018e3c4a-9f6b-7890-abcd-ef1234567890"
+    file_uuid="018e3c4a-9f6b-7890-abcd-ef1234567890"
     file_variant="medium"
     class="border-4 border-primary"
     alt="Styled Image"
