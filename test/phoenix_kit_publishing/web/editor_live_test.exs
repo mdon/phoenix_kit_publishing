@@ -255,6 +255,27 @@ defmodule PhoenixKit.Modules.Publishing.Web.EditorLiveTest do
       assert is_binary(html)
     end
 
+    test "save failure surfaces a descriptive flash, not a bare generic one",
+         %{conn: conn, group: group, post: post} do
+      {:ok, view, _html} =
+        conn
+        |> put_test_scope(fake_scope())
+        |> live("/admin/publishing/#{group["slug"]}/#{post[:uuid]}/edit")
+
+      _ = render_change(view, "update_meta", %{"title" => "Saved Title", "_target" => ["title"]})
+      _ = render_change(view, "update_content", %{"content" => "## Body"})
+
+      html = render_click(view, "save", %{})
+
+      # fake_scope's actor uuid is not a real user row, so the audit FK fails
+      # and the save errors. The flash must carry the reason via Errors.message,
+      # never the old bare "Failed to save post". (The apostrophe in "Couldn't"
+      # is HTML-escaped in the rendered output, so match the unambiguous tail.)
+      assert html =~ "save this post."
+      assert html =~ "does not exist"
+      refute html =~ "Failed to save post"
+    end
+
     test "save with empty title flashes warning (Persistence guard)",
          %{conn: conn, group: group, post: post} do
       {:ok, view, _html} =
@@ -675,6 +696,43 @@ defmodule PhoenixKit.Modules.Publishing.Web.EditorLiveTest do
 
       assert html =~ "American Title"
       refute html =~ "British Title"
+    end
+  end
+
+  describe "auto-slug truncation warning" do
+    test "warns when a too-long title shortens the auto-generated slug", %{
+      conn: conn,
+      group: group
+    } do
+      {:ok, view, _html} =
+        conn
+        |> put_test_scope(fake_scope())
+        |> live("/admin/publishing/#{group["slug"]}/new")
+
+      # A long Russian title transliterates (щ -> shch) far past the slug cap,
+      # so auto-generation truncates it — and must warn rather than error.
+      html =
+        render_change(view, "update_meta", %{
+          "title" => String.duplicate("щ", 200),
+          "_target" => ["title"]
+        })
+
+      assert html =~ "shortened"
+    end
+
+    test "does not warn for a title that fits", %{conn: conn, group: group} do
+      {:ok, view, _html} =
+        conn
+        |> put_test_scope(fake_scope())
+        |> live("/admin/publishing/#{group["slug"]}/new")
+
+      html =
+        render_change(view, "update_meta", %{
+          "title" => "A Short Title",
+          "_target" => ["title"]
+        })
+
+      refute html =~ "shortened"
     end
   end
 end

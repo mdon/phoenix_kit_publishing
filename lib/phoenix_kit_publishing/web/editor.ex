@@ -27,6 +27,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
 
   alias Phoenix.LiveView.JS
   alias PhoenixKit.Modules.Publishing
+  alias PhoenixKit.Modules.Publishing.Errors
   alias PhoenixKit.Modules.Publishing.LanguageHelpers
   alias PhoenixKit.Modules.Publishing.PubSub, as: PublishingPubSub
   alias PhoenixKit.Modules.Publishing.Shared
@@ -101,6 +102,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
       |> assign(:last_auto_slug, "")
       |> assign(:url_slug_manually_set, false)
       |> assign(:last_auto_url_slug, "")
+      |> assign(:slug_truncated, false)
       |> assign(:live_source, live_source)
       |> assign(:form_key, nil)
       |> assign(:lock_owner?, true)
@@ -523,6 +525,10 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
     if socket.assigns.readonly? or socket.assigns.translation_locked? do
       {:noreply, socket}
     else
+      # Clear stale flashes up front so a fresh slug-truncation warning set by
+      # the slug-update step below survives this render (it used to be wiped by
+      # a clear_flash at the END of the handler).
+      socket = clear_flash(socket)
       target = Map.get(params, "_target", [])
       params = prepare_meta_params(params, target, socket)
 
@@ -636,7 +642,14 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
   rescue
     e ->
       Logger.error("Editor save failed: #{Exception.message(e)}")
-      {:noreply, put_flash(socket, :error, gettext("Something went wrong. Please try again."))}
+
+      {:noreply,
+       put_flash(
+         socket,
+         :error,
+         gettext("Something went wrong while saving this post.") <>
+           " " <> Errors.truncate_for_log(Exception.message(e), 200)
+       )}
   end
 
   def handle_event("noop", _params, socket), do: {:noreply, socket}
@@ -756,12 +769,13 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
          |> assign(:ai_default_prompt_exists, true)
          |> Phoenix.LiveView.put_flash(:info, gettext("Default translation prompt created"))}
 
-      {:error, _changeset} ->
+      {:error, changeset} ->
         {:noreply,
          Phoenix.LiveView.put_flash(
            socket,
            :error,
-           gettext("Failed to create prompt. It may already exist.")
+           gettext("Couldn't create the default translation prompt.") <>
+             " " <> Errors.message(changeset)
          )}
     end
   end
@@ -777,12 +791,13 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
          |> assign(:ai_default_prompt_stale, false)
          |> Phoenix.LiveView.put_flash(:info, gettext("Default translation prompt updated"))}
 
-      {:error, _changeset} ->
+      {:error, changeset} ->
         {:noreply,
          Phoenix.LiveView.put_flash(
            socket,
            :error,
-           gettext("Failed to update the default prompt")
+           gettext("Couldn't update the default translation prompt.") <>
+             " " <> Errors.message(changeset)
          )}
     end
   end
@@ -1007,8 +1022,13 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
         {:noreply,
          put_flash(socket, :error, gettext("Cannot remove the last language from a post"))}
 
-      {:error, _reason} ->
-        {:noreply, put_flash(socket, :error, gettext("Failed to clear translation"))}
+      {:error, reason} ->
+        {:noreply,
+         put_flash(
+           socket,
+           :error,
+           gettext("Couldn't clear this translation.") <> " " <> Errors.message(reason)
+         )}
     end
   end
 
@@ -1034,8 +1054,13 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
          |> assign(:post, saved_post)
          |> put_flash(:info, flash_msg)}
 
-      {:error, _reason} ->
-        {:noreply, put_flash(socket, :error, gettext("Failed to update version access setting"))}
+      {:error, reason} ->
+        {:noreply,
+         put_flash(
+           socket,
+           :error,
+           gettext("Couldn't update the version-access setting.") <> " " <> Errors.message(reason)
+         )}
     end
   end
 
@@ -1114,7 +1139,6 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
     |> assign(:url_slug_manually_set, socket.assigns.url_slug_manually_set)
     |> assign(:has_pending_changes, has_changes)
     |> assign(:public_url, public_url)
-    |> clear_flash()
     |> push_event("changes-status", %{has_changes: has_changes})
     |> Forms.push_slug_events(slug_events)
   end
@@ -1766,17 +1790,14 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
     {socket, autosave?} =
       cond do
         file_uuid && inserting_image_component ->
-          file_url = Helpers.get_file_url(file_uuid)
-
-          js_code =
-            "window.publishingEditorInsertMedia && window.publishingEditorInsertMedia(#{Jason.encode!(file_url)}, 'image')"
+          markup = Helpers.image_component_markup(file_uuid)
 
           {
             socket
             |> assign(:show_media_selector, false)
             |> assign(:inserting_image_component, false)
             |> put_flash(:info, gettext("Image component inserted"))
-            |> push_event("exec-js", %{js: js_code}),
+            |> push_event("insert-media", %{text: markup}),
             false
           }
 
@@ -1882,13 +1903,29 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
         }
       });
 
-      // Listen for exec-js events from LiveView (for media insertion)
-      window.addEventListener("phx:exec-js", (e) => {
-        try {
-          eval(e.detail.js);
-        } catch (err) {
-          console.error("[ContentEditor] Error executing JS:", err);
-        }
+      // Insert raw text at the textarea cursor and notify LiveView.
+      window.publishingEditorInsertText = function(text) {
+        const textarea = document.getElementById('content-editor-textarea');
+        if (!textarea || !text) return;
+
+        const start = textarea.selectionStart || 0;
+        const currentValue = textarea.value;
+        const newValue = currentValue.substring(0, start) + text + currentValue.substring(start);
+        textarea.value = newValue;
+
+        // Move cursor after inserted text
+        const newPos = start + text.length;
+        textarea.selectionStart = textarea.selectionEnd = newPos;
+        textarea.focus();
+
+        // Trigger keyup event to update LiveView (matches phx-keyup binding on textarea)
+        textarea.dispatchEvent(new KeyboardEvent("keyup", { bubbles: true }));
+      };
+
+      // Listen for media markup pushed from LiveView (image components, etc.).
+      // The server builds the exact text to insert, so no client-side eval.
+      window.addEventListener("phx:insert-media", (e) => {
+        window.publishingEditorInsertText(e.detail.text);
       });
 
       // Listen for video prompt event
@@ -1899,12 +1936,9 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
         }
       });
 
-      // Function to insert standard markdown media syntax at cursor position
+      // Build standard markdown media syntax and insert it (video path; image
+      // insertion now flows through the phx:insert-media event above).
       window.publishingEditorInsertMedia = function(fileUrl, mediaType, videoUrl) {
-        const textarea = document.getElementById('content-editor-textarea');
-        if (!textarea) return;
-
-        // Build standard markdown syntax: ![alt](url)
         let template;
         if (mediaType === 'image' && fileUrl) {
           template = '\n![Image description](' + fileUrl + ')\n';
@@ -1915,18 +1949,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
           return;
         }
 
-        const start = textarea.selectionStart || 0;
-        const currentValue = textarea.value;
-        const newValue = currentValue.substring(0, start) + template + currentValue.substring(start);
-        textarea.value = newValue;
-
-        // Move cursor after inserted text
-        const newPos = start + template.length;
-        textarea.selectionStart = textarea.selectionEnd = newPos;
-        textarea.focus();
-
-        // Trigger keyup event to update LiveView (matches phx-keyup binding on textarea)
-        textarea.dispatchEvent(new KeyboardEvent("keyup", { bubbles: true }));
+        window.publishingEditorInsertText(template);
       };
     })();
     </script>

@@ -170,4 +170,35 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor.HelpersTest do
       assert Helpers.build_public_url(post, "en") == nil
     end
   end
+
+  describe "image_component_markup/1" do
+    # No DB here, so the storage lookup is rescued to nil and alt falls back to
+    # "Image". The point of these tests is the *shape*: a UUID-carrying <Image>
+    # component, NOT a frozen signed URL baked into the markdown.
+    test "builds a self-closing <Image> carrying the file UUID" do
+      markup = Helpers.image_component_markup(@post_uuid)
+
+      assert markup =~ ~s(<Image file_uuid="#{@post_uuid}")
+      assert markup =~ "/>"
+      assert markup =~ ~s(alt=")
+    end
+
+    test "stores the UUID reference, not a resolved /file/ URL" do
+      markup = Helpers.image_component_markup(@post_uuid)
+
+      refute markup =~ "/file/"
+      refute markup =~ "!["
+    end
+
+    test "falls back to a generic alt when the file can't be resolved" do
+      assert Helpers.image_component_markup(@post_uuid) =~ ~s(alt="Image")
+    end
+
+    test "is detected as an embedded component by the renderer" do
+      markup = Helpers.image_component_markup(@post_uuid)
+
+      # The mixed-content renderer keys off the literal "<Image " marker.
+      assert markup =~ "<Image "
+    end
+  end
 end
