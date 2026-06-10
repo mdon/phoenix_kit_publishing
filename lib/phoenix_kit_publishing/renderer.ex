@@ -21,10 +21,13 @@ defmodule PhoenixKit.Modules.Publishing.Renderer do
   @compile {:no_warn_undefined, @entity_form_mod}
 
   @cache_name :publishing_posts
-  # v3: render output now heals legacy signed-file URLs against the current
-  # url_prefix/secret (see heal_signed_file_urls/1) — bump drops stale v2
-  # entries that still carry an old prefix baked into <img src>.
-  @cache_version "v3"
+  # Bump whenever render OUTPUT changes for unchanged source content, so already
+  # cached HTML is dropped instead of served stale.
+  # v3: heal legacy signed-file URLs against the current url_prefix/secret.
+  # v4: escape PHK component tags inside code regions (```/~~~/inline) so they
+  #     render as literal text — without the bump, posts cached under v3 keep
+  #     rendering the component live from inside the code block.
+  @cache_version "v4"
 
   # Matches the internal signed-file route — `<prefix>/file/<uuid>/<variant>/<token>`
   # — embedded as an `<img src>`. The prefix is bounded to plain path segments
