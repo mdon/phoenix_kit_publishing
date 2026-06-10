@@ -522,4 +522,36 @@ defmodule PhoenixKit.Modules.Publishing.RendererTest do
       assert html =~ "/proxy?next=/file/"
     end
   end
+
+  describe "render_markdown/1 — PHK components inside code blocks" do
+    @uuid "018e3c4a-9f6b-7890-abcd-ef1234567890"
+
+    test "a component in a fenced code block renders as visible code, not a live component" do
+      html =
+        Renderer.render_markdown(
+          ~s|Example:\n\n```\n<Image file_uuid="#{@uuid}" alt="x"/>\n```\n|
+        )
+
+      # The literal tag is shown as escaped text inside the code block...
+      assert html =~ "&lt;Image"
+      # ...and was NOT turned into a real image.
+      refute html =~ "<img"
+    end
+
+    test "a component in inline code renders as visible code, not a live component" do
+      html = Renderer.render_markdown("Use `<Image file_uuid=\"#{@uuid}\"/>` to embed.")
+
+      assert html =~ "&lt;Image"
+      refute html =~ "<img"
+    end
+
+    test "a component OUTSIDE code blocks still renders as a component" do
+      html =
+        Renderer.render_markdown(~s|Before\n\n<Image file_uuid="#{@uuid}" alt="x"/>\n\nAfter|)
+
+      # Resolved to a real <img> (or the "Image not available" fallback when the
+      # file is absent in test) — NOT left as escaped literal text.
+      refute html =~ "&lt;Image"
+    end
+  end
 end

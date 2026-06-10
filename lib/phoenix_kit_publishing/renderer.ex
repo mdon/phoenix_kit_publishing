@@ -42,6 +42,11 @@ defmodule PhoenixKit.Modules.Publishing.Renderer do
   @component_regex ~r/<(Image|Hero|CTA|Headline|Subheadline|Video|EntityForm)\s+([^>]*?)\/>/s
   @component_block_regex ~r/<(Hero|CTA|Headline|Subheadline|Video|EntityForm)\s*([^>]*)>(.*?)<\/\1>/s
 
+  # Fenced (```…```) and inline (`…`) code spans — masked out before the
+  # component scan so a literal component example inside a code block isn't
+  # rendered as a real component. Fenced first so it wins at a ``` boundary.
+  @code_region_regex ~r/```.*?```|`[^`\n]*`/s
+
   # Tailwind/daisyUI classes for post-processing Earmark HTML output.
   # Code blocks (pre, code) are handled separately in style_code_blocks/1.
   @pre_classes "bg-base-300 p-4 rounded-lg overflow-x-auto my-4"
@@ -356,10 +361,28 @@ defmodule PhoenixKit.Modules.Publishing.Renderer do
   defp render_mixed_content(content) when content == "" or is_nil(content), do: ""
 
   defp render_mixed_content(content) do
+    # Escape HTML inside fenced/inline code spans BEFORE scanning for components,
+    # so a `<Image>`/`<Hero>`/… shown literally inside a code block (a docs post
+    # demonstrating the PHK syntax) (a) no longer matches the component regex
+    # (it's now `&lt;Image`) and (b) renders as visible code text — `escape:
+    # false` would otherwise leave the raw tag in `<code>`, where the browser
+    # swallows it. Components OUTSIDE code blocks are untouched and still render.
     content
+    |> escape_code_regions()
     |> render_mixed_segments([])
     |> Enum.reverse()
     |> Enum.join()
+  end
+
+  # Escape <, >, & inside ```fenced``` and `inline` code spans, leaving the
+  # fence/backtick delimiters intact so the markdown still parses as code.
+  defp escape_code_regions(content) do
+    Regex.replace(@code_region_regex, content, fn match ->
+      match
+      |> String.replace("&", "&amp;")
+      |> String.replace("<", "&lt;")
+      |> String.replace(">", "&gt;")
+    end)
   end
 
   defp render_mixed_segments("", acc), do: acc
