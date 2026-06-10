@@ -195,15 +195,17 @@ defmodule PhoenixKit.Modules.Publishing.Errors do
     |> Enum.take(2)
   end
 
-  # Ecto error opts can carry values with no String.Chars implementation
-  # (e.g. a `{:array, :string}` type, or arbitrary `add_error/4` metadata).
-  # Building the flash must never crash, so fall back to inspect/1.
+  # Ecto error opts can carry values that don't convert to a string: tuples
+  # like a `{:array, :string}` type raise Protocol.UndefinedError, and lists
+  # (e.g. an inclusion/subset `enum: [:draft, :published]`) raise ArgumentError.
+  # Building the flash must never crash, so fall back to inspect/1 on anything
+  # to_string/1 rejects.
   defp safe_to_string(value) when is_binary(value), do: value
 
   defp safe_to_string(value) do
     to_string(value)
   rescue
-    Protocol.UndefinedError -> inspect(value)
+    _ -> inspect(value)
   end
 
   # "active_version_uuid" -> "Active version" — strip the internal *_uuid

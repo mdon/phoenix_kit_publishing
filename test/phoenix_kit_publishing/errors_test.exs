@@ -163,6 +163,21 @@ defmodule PhoenixKit.Modules.Publishing.ErrorsTest do
       assert is_binary(msg)
       assert msg =~ "Title is invalid"
     end
+
+    test "does not crash on list-valued error opts" do
+      # to_string([:draft, :published]) raises ArgumentError (not
+      # Protocol.UndefinedError) — common for inclusion/subset validations.
+      # The formatter must fall back to inspect rather than crash the flash.
+      msg =
+        Errors.message(
+          changeset_with([
+            {:status, "must be one of %{allowed}", [allowed: [:draft, :published]]}
+          ])
+        )
+
+      assert is_binary(msg)
+      assert msg =~ "Status must be one of"
+    end
   end
 
   describe "truncate_for_log/2" do
