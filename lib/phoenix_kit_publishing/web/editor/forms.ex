@@ -6,6 +6,8 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor.Forms do
   and form state management.
   """
 
+  use Gettext, backend: PhoenixKitWeb.Gettext
+
   alias PhoenixKit.Modules.Publishing
   alias PhoenixKit.Modules.Publishing.Constants
   alias PhoenixKit.Modules.Publishing.LanguageHelpers
@@ -268,6 +270,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor.Forms do
     if not force? and slug_manually_set? do
       no_slug_update(socket)
     else
+      socket = maybe_warn_slug_truncated(socket, title)
       current_slug = socket.assigns.post.slug || Map.get(socket.assigns.form, "slug", "")
 
       case Publishing.generate_unique_slug(socket.assigns.group_slug, title, nil,
@@ -287,6 +290,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor.Forms do
     if not force? and url_slug_manually_set? do
       no_slug_update(socket)
     else
+      socket = maybe_warn_slug_truncated(socket, title)
       new_url_slug = Publishing.slugify(title)
       current_url_slug = Map.get(socket.assigns.form, "url_slug", "")
 
@@ -299,6 +303,33 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor.Forms do
   end
 
   defp no_slug_update(socket), do: {socket, socket.assigns.form, []}
+
+  # Auto-generated slugs never error — they truncate to fit. When the title was
+  # too long to fully fit, warn ONCE (a false->true transition on
+  # `:slug_truncated`) so live typing past the cap doesn't spam a flash on every
+  # keystroke. The warning clears when the title shrinks back under the cap.
+  defp maybe_warn_slug_truncated(socket, title) do
+    truncated? = Publishing.slug_truncated?(title)
+    already? = Map.get(socket.assigns, :slug_truncated, false)
+
+    cond do
+      truncated? and not already? ->
+        socket
+        |> Phoenix.Component.assign(:slug_truncated, true)
+        |> Phoenix.LiveView.put_flash(
+          :warning,
+          gettext(
+            "The title was too long for a URL, so the slug was shortened. Edit it manually if you'd like a different one."
+          )
+        )
+
+      not truncated? ->
+        Phoenix.Component.assign(socket, :slug_truncated, false)
+
+      true ->
+        socket
+    end
+  end
 
   defp apply_new_slug(socket, new_slug) do
     current_slug = Map.get(socket.assigns.form, "slug", "")

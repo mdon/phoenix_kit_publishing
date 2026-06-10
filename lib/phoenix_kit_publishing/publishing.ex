@@ -412,6 +412,14 @@ defmodule PhoenixKit.Modules.Publishing do
   end
 
   @doc """
+  Returns true when slugifying `text` would be shortened to fit the slug cap —
+  i.e. the full title didn't fit. Auto-generation never errors (it truncates);
+  this lets the editor warn that not all of the title became the slug.
+  """
+  @spec slug_truncated?(String.t() | nil) :: boolean()
+  defdelegate slug_truncated?(text), to: SlugHelpers
+
+  @doc """
   Returns true when the slug matches the allowed lowercase letters, numbers, and hyphen pattern,
   and is not a reserved language code.
 

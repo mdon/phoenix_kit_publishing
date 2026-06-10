@@ -8,7 +8,36 @@ defmodule PhoenixKit.Modules.Publishing.SlugHelpersTest do
 
   use ExUnit.Case, async: true
 
+  alias PhoenixKit.Modules.Publishing.Constants
   alias PhoenixKit.Modules.Publishing.SlugHelpers
+
+  describe "slug length cap + truncation" do
+    test "caps a long slug at or below the save limit" do
+      slug = SlugHelpers.slugify(String.duplicate("word ", 200), style: :ascii)
+
+      assert String.length(slug) <= Constants.max_slug_length()
+      # never cuts mid-word: ends on a complete segment
+      refute String.ends_with?(slug, "-")
+    end
+
+    test "cap: false returns the uncapped slug" do
+      uncapped = SlugHelpers.slugify(String.duplicate("word ", 200), style: :ascii, cap: false)
+
+      assert String.length(uncapped) > 200
+    end
+
+    test "slug_truncated? is true when the title overflows the cap" do
+      assert SlugHelpers.slug_truncated?(String.duplicate("word ", 200), style: :ascii)
+      # Cyrillic transliteration EXPANDS (щ -> shch), so a long Russian title
+      # also overflows — the exact reported scenario.
+      assert SlugHelpers.slug_truncated?(String.duplicate("щ", 200), style: :transliterate)
+    end
+
+    test "slug_truncated? is false for short titles and nil" do
+      refute SlugHelpers.slug_truncated?("Short Title", style: :ascii)
+      refute SlugHelpers.slug_truncated?(nil)
+    end
+  end
 
   describe "validate_slug/1" do
     test "accepts a simple lowercase slug" do

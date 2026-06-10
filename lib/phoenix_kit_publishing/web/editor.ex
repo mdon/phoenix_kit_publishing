@@ -102,6 +102,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
       |> assign(:last_auto_slug, "")
       |> assign(:url_slug_manually_set, false)
       |> assign(:last_auto_url_slug, "")
+      |> assign(:slug_truncated, false)
       |> assign(:live_source, live_source)
       |> assign(:form_key, nil)
       |> assign(:lock_owner?, true)
@@ -524,6 +525,10 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
     if socket.assigns.readonly? or socket.assigns.translation_locked? do
       {:noreply, socket}
     else
+      # Clear stale flashes up front so a fresh slug-truncation warning set by
+      # the slug-update step below survives this render (it used to be wiped by
+      # a clear_flash at the END of the handler).
+      socket = clear_flash(socket)
       target = Map.get(params, "_target", [])
       params = prepare_meta_params(params, target, socket)
 
@@ -1134,7 +1139,6 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
     |> assign(:url_slug_manually_set, socket.assigns.url_slug_manually_set)
     |> assign(:has_pending_changes, has_changes)
     |> assign(:public_url, public_url)
-    |> clear_flash()
     |> push_event("changes-status", %{has_changes: has_changes})
     |> Forms.push_slug_events(slug_events)
   end

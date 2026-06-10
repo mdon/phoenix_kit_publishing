@@ -698,4 +698,41 @@ defmodule PhoenixKit.Modules.Publishing.Web.EditorLiveTest do
       refute html =~ "British Title"
     end
   end
+
+  describe "auto-slug truncation warning" do
+    test "warns when a too-long title shortens the auto-generated slug", %{
+      conn: conn,
+      group: group
+    } do
+      {:ok, view, _html} =
+        conn
+        |> put_test_scope(fake_scope())
+        |> live("/admin/publishing/#{group["slug"]}/new")
+
+      # A long Russian title transliterates (щ -> shch) far past the slug cap,
+      # so auto-generation truncates it — and must warn rather than error.
+      html =
+        render_change(view, "update_meta", %{
+          "title" => String.duplicate("щ", 200),
+          "_target" => ["title"]
+        })
+
+      assert html =~ "shortened"
+    end
+
+    test "does not warn for a title that fits", %{conn: conn, group: group} do
+      {:ok, view, _html} =
+        conn
+        |> put_test_scope(fake_scope())
+        |> live("/admin/publishing/#{group["slug"]}/new")
+
+      html =
+        render_change(view, "update_meta", %{
+          "title" => "A Short Title",
+          "_target" => ["title"]
+        })
+
+      refute html =~ "shortened"
+    end
+  end
 end

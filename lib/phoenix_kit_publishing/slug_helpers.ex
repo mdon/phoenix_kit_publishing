@@ -6,6 +6,7 @@ defmodule PhoenixKit.Modules.Publishing.SlugHelpers do
   URL slug validation for per-language slugs, and slug generation.
   """
 
+  alias PhoenixKit.Modules.Publishing.Constants
   alias PhoenixKit.Modules.Publishing.DBStorage
   alias PhoenixKit.Modules.Publishing.LanguageHelpers
   alias PhoenixKit.Modules.Publishing.ListingCache
@@ -17,12 +18,15 @@ defmodule PhoenixKit.Modules.Publishing.SlugHelpers do
   @slug_style_key "publishing_slug_style"
   @default_slug_style "transliterate"
 
-  # Hard cap on generated slug length. The DB columns allow 500 chars; we cap
-  # well under that because (a) transliteration can EXPAND text (щ -> shch),
-  # so a long non-Latin title could otherwise overflow, and (b) a malformed/
-  # over-long AI-returned slug should never reach an insert. 200 is generous
-  # for SEO while leaving headroom.
-  @max_slug_length 200
+  # SEO-preferred slug length. The actual cap is `effective_max_slug_length/0`
+  # — the SMALLER of this and the real save limit (`Constants.max_slug_length`).
+  # `slugify/2` caps its output to that, so the slugified BASE of any automatic
+  # path (title -> slug, AI translation, Cyrillic transliteration which EXPANDS
+  # text — щ -> shch) is always <= the save limit and never errors on save.
+  # `generate_unique_slug/4` may append a short "-N" uniqueness suffix on top of
+  # the capped base; with the 200-vs-500 headroom that stays far under the
+  # column limit. 200 is generous for SEO and well under the 500-char columns.
+  @seo_slug_length 200
 
   # ASCII slug shape — produced by the :transliterate and :ascii styles.
   @ascii_slug_pattern ~r/^[a-z0-9]+(?:-[a-z0-9]+)*$/
@@ -104,21 +108,44 @@ defmodule PhoenixKit.Modules.Publishing.SlugHelpers do
   def slugify(nil, _opts), do: ""
 
   def slugify(text, opts) when is_binary(text) do
-    text
-    |> do_slugify(Keyword.get(opts, :style) || slug_style())
-    |> cap_length()
+    slug = do_slugify(text, Keyword.get(opts, :style) || slug_style())
+    if Keyword.get(opts, :cap, true), do: cap_length(slug), else: slug
   end
 
   def slugify(_text, _opts), do: ""
 
-  # Truncate to @max_slug_length at a hyphen boundary so we never cut a word in
-  # half and never overflow the DB column.
+  @doc """
+  Returns true when slugifying `text` would be truncated to fit the cap — i.e.
+  the full title did NOT fully fit into the generated slug.
+
+  Lets interactive callers warn the user that not all of the title became the
+  slug (automatic generation never errors — it just shortens).
+  """
+  @spec slug_truncated?(String.t() | nil, keyword()) :: boolean()
+  def slug_truncated?(text, opts \\ [])
+  def slug_truncated?(nil, _opts), do: false
+
+  def slug_truncated?(text, opts) when is_binary(text) do
+    uncapped = slugify(text, Keyword.put(opts, :cap, false))
+    String.length(uncapped) > effective_max_slug_length()
+  end
+
+  def slug_truncated?(_text, _opts), do: false
+
+  # The effective slug cap: never larger than the save limit, so a generated
+  # slug can't fail `validate_length(:slug/:url_slug, max: max_slug_length)`.
+  defp effective_max_slug_length, do: min(@seo_slug_length, Constants.max_slug_length())
+
+  # Truncate to the effective cap at a hyphen boundary so we never cut a word in
+  # half and never overflow what save accepts.
   defp cap_length(slug) do
-    if String.length(slug) <= @max_slug_length do
+    max = effective_max_slug_length()
+
+    if String.length(slug) <= max do
       slug
     else
       slug
-      |> String.slice(0, @max_slug_length)
+      |> String.slice(0, max)
       |> String.replace(~r/-[^-]*$/, "")
       |> String.trim("-")
     end
