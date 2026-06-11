@@ -246,6 +246,15 @@ defmodule PhoenixKit.Modules.Publishing.ListingCache do
         # Lock exists - check if it's stale
         handle_existing_lock(group_slug, now)
     end
+  rescue
+    ArgumentError ->
+      # The lock table vanished mid-operation — e.g. a transient process recreated
+      # it during a LockTableOwner restart gap and then died. A public read must
+      # never 500 over this; recreate the table and report "in progress" so the
+      # caller falls back to a direct DB read (a harmless extra regeneration at
+      # worst). Backstop for the supervised-owner fix (M8).
+      ensure_lock_table_exists()
+      :already_in_progress
   end
 
   # Handle case where lock already exists - check staleness
