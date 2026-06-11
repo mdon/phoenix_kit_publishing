@@ -1,5 +1,44 @@
 # Changelog
 
+## 0.2.0 - 2026-06-11
+
+PR #25 — a full-module adversarial audit: **9 High / 16 Medium / 12 Low** findings fixed across public routing, the listing cache, publishing atomicity, the editor, and markdown rendering, each pinned by a regression test. Plus a post-audit fix to listing-cache invalidation. No public API breaks; the minor bump reflects the breadth of behavioral hardening (redirects, slug-collision precedence, cache/clustering semantics). Built against `phoenix_kit ~> 1.7.144`.
+
+### Fixed
+
+**High**
+- **301 redirects from renamed posts now fire** — `previous_url_slugs` are actually persisted, so an old URL redirects to the current one instead of 404ing.
+- **Router host-route hijack closed** — segment-0 is only treated as a locale when it's an enabled/resolvable language, and a `GET`/`HEAD` method gate stops the publishing router from shadowing a host app's `POST`/form/webhook routes on the same path.
+- **Two infinite-redirect loops closed** (canonical-language ping-pong and a future-dated-timestamp fallback loop).
+- **Render cache is supervised** — started in the supervision tree instead of being born in a transient request process.
+- **Spectator/read-only write guards** on every mutating editor event; editor reloads are pinned to the version being edited.
+- **Public version dropdown restored.**
+
+**Medium**
+- **Publishing is atomic** and `StaleFixer` heals orphaned published versions — closes the "admin shows published / public 404s" split.
+- **Transactional post updates and blank-version creation** (content-wipe + version promotion can no longer half-apply).
+- **Timestamp-collision retry** matches by constraint name (won't swallow a slug-uniqueness violation); **trashed timestamp slots** are counted for availability so the retry converges.
+- **Cross-group UUID access rejected** — a post UUID from another group returns not-found.
+- **Clustering**: cross-node cache invalidation and remote-pid-safe presence checks.
+- **Supervised lock table** + crash-proof regeneration guard (a vanished ETS table can't 500 a read).
+- **Empty / featured-image-only posts are trashed, not hard-deleted**, with ActivityLog entries.
+- **Markdown safety**: code-region integrity, multi-line `<Image>` detection, and consistent HTML escaping across paths.
+- **url_slug collisions**: the incumbent post wins and the loser is auto-renamed; claiming another post's previous slug is blocked; the editor shows an explain-and-link conflict modal instead of silently clearing.
+- **Admin-insight cache consistency** and **stale translation-lock** clearing.
+
+**Low**
+- `switch_version` crash on a junk param; preview save-failure handling; unpublish pre-lock re-read; transactional blank version; timestamp posts stamped in the **site time zone**; group-rename cache invalidation; whole-cache erase on memory-cache disable; double-backtick code spans masked; unresolved `{{placeholder}}` preserved; token-scoped lock release; narrowed update-error rescue; folded the listing-cache timestamps into one term to cut `:persistent_term` churn; title `phx-debounce`; canonical/302 redirects preserve the query string; reserved route words rejected as post/group slugs.
+
+**Post-audit (listing-cache invalidation storm)**
+- The `:cache_changed` LiveView handler no longer calls `regenerate/1`, which re-broadcast `:cache_changed` and — because the view subscribes to its own group's cache topic — looped into a self-sustaining, cluster-wide regeneration storm. The handler now **invalidates** the node-local term; the next public read rebuilds it fresh and **silently**. Mutation sites are the only `:cache_changed` announcers; read-miss repopulation is silent. This also removes a stale-hit window and a redundant per-event DB read, and erases stale terms on every node regardless of whether an admin view is mounted.
+
+### Removed
+- Dead per-post SEO/OpenGraph override scaffolding, and the `<Hero>` / `<Page>` components (resolved to core modules that were deleted with the Pages module).
+
+### Changed
+- Built against `phoenix_kit ~> 1.7.144` (`leaf` 0.2.23 transitively); the declared floor stays `~> 1.7.132`.
+- `humanize_field/1` keeps acronyms uppercased ("URL slug", "SEO title"); the slug-truncation warning persists while the title stays over the URL cap.
+
 ## 0.1.16 - 2026-06-10
 
 PR #24 — editor & public-rendering sweep: stable inline images, legacy image-URL healing at render, automatic in-page OpenGraph, descriptive error flashes, and slug-cap safety. Plus a post-merge crash fix. Built against `phoenix_kit ~> 1.7.138` and `phoenix_live_view 1.2`.
