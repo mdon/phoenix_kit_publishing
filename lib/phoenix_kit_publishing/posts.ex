@@ -1233,10 +1233,15 @@ defmodule PhoenixKit.Modules.Publishing.Posts do
       |> maybe_put_version_field("seo", Map.get(params, "seo"))
       |> maybe_put_version_field("excerpt", Map.get(params, "excerpt"))
 
-    # Also update version-level status and published_at if provided
+    # Also update version-level status and published_at if provided.
+    # "published" is NEVER written here — it is set atomically with
+    # active_version_uuid by Versions.publish_version/4. Writing it here (a
+    # separate transaction) let a save commit status=published while the paired
+    # publish rolled back (e.g. empty primary title), leaving a post that reads
+    # "published" with no active version — admin shows published, public 404s (M4).
     version_attrs =
       %{data: new_data}
-      |> maybe_put(:status, Map.get(params, "status"))
+      |> maybe_put(:status, deferred_publish_status(Map.get(params, "status")))
       |> maybe_put(:published_at, parse_published_at_from_params(params))
 
     case DBStorage.update_version(version, version_attrs) do
@@ -1247,6 +1252,12 @@ defmodule PhoenixKit.Modules.Publishing.Posts do
 
   defp maybe_put_version_field(data, _key, nil), do: data
   defp maybe_put_version_field(data, key, value), do: Map.put(data, key, value)
+
+  # Drop a "published" status so it is never written outside publish_version/4's
+  # atomic transaction (see update_version_defaults/4). draft/archived/nil pass
+  # through unchanged.
+  defp deferred_publish_status("published"), do: nil
+  defp deferred_publish_status(status), do: status
 
   defp parse_published_at_from_params(params) do
     case Map.get(params, "published_at") do

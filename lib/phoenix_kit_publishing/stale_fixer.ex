@@ -121,6 +121,7 @@ defmodule PhoenixKit.Modules.Publishing.StaleFixer do
       post = apply_stale_fix(post, build_post_fixes(post, ctx), &DBStorage.update_post/2)
 
       # Fix version/content-level issues
+      demote_orphaned_published_versions(post, ctx)
       fix_multiple_published_versions(post, ctx)
 
       for version <- ctx.versions do
@@ -711,6 +712,27 @@ defmodule PhoenixKit.Modules.Publishing.StaleFixer do
     ctx = build_post_context(post)
     fix_multiple_published_versions(post, ctx)
   end
+
+  # M4 heal: a save can no longer mark a version "published" without
+  # publish_version atomically activating it, but a legacy or interrupted publish
+  # can leave a version with status "published" while the post has NO active
+  # version — the admin list shows it published while the public page 404s.
+  # Demote those orphans back to draft so the two views agree.
+  defp demote_orphaned_published_versions(%{active_version_uuid: nil} = post, ctx) do
+    orphans = Enum.filter(ctx.versions, &(&1.status == "published"))
+
+    for v <- orphans do
+      Logger.info(
+        "[Publishing] Demoting orphaned published v#{v.version_number} of post " <>
+          "#{post.uuid} to draft (post has no active version)"
+      )
+
+      DBStorage.update_version(v, %{status: "draft"})
+      DBStorage.update_content_status(v.uuid, "draft")
+    end
+  end
+
+  defp demote_orphaned_published_versions(_post, _ctx), do: :ok
 
   defp fix_multiple_published_versions(post, ctx) do
     published = Enum.filter(ctx.versions, &(&1.status == "published"))

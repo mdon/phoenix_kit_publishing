@@ -186,4 +186,24 @@ defmodule PhoenixKit.Integration.Publishing.StaleFixerTest do
     [version] = DBStorage.list_versions(post.uuid)
     assert Enum.map(DBStorage.list_contents(version.uuid), & &1.language) == ["en-US"]
   end
+
+  test "demotes a published version that has no active version back to draft (M4 heal)" do
+    {:ok, _} = Settings.update_setting("content_language", "en-US")
+    {:ok, group} = Groups.add_group(unique_name(), mode: "slug")
+    {:ok, post} = Posts.create_post(group["slug"], %{title: "Orphan Published", content: "body"})
+
+    [v1] = DBStorage.list_versions(post.uuid)
+
+    # Simulate the M4 inconsistency: the version is marked published, but the post
+    # was never activated (the publish transaction rolled back after the status
+    # write under the old non-atomic flow).
+    {:ok, _} = DBStorage.update_version(v1, %{status: "published"})
+    db_post = DBStorage.get_post_by_uuid(post.uuid, [:group])
+    assert db_post.active_version_uuid == nil
+
+    StaleFixer.fix_stale_post(db_post)
+
+    [healed] = DBStorage.list_versions(post.uuid)
+    assert healed.status == "draft"
+  end
 end
