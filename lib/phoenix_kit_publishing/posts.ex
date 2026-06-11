@@ -933,9 +933,28 @@ defmodule PhoenixKit.Modules.Publishing.Posts do
     end
   rescue
     e ->
-      Logger.warning("[Publishing] update_post_in_db failed: #{inspect(e)}")
-      {:error, :db_update_failed}
+      if db_exception?(e) do
+        Logger.warning("[Publishing] update_post_in_db DB error: #{inspect(e)}")
+        {:error, :db_update_failed}
+      else
+        # Don't swallow programmer errors as a generic DB failure — surface them
+        # (with a stacktrace) so real bugs aren't masked as "save failed" (L11).
+        Logger.error(
+          "[Publishing] update_post_in_db bug: " <> Exception.format(:error, e, __STACKTRACE__)
+        )
+
+        reraise(e, __STACKTRACE__)
+      end
   end
+
+  # True for the database-level exceptions an update can legitimately raise (so
+  # they degrade to {:error, :db_update_failed}); everything else is a code bug.
+  defp db_exception?(%Postgrex.Error{}), do: true
+  defp db_exception?(%DBConnection.ConnectionError{}), do: true
+  defp db_exception?(%Ecto.StaleEntryError{}), do: true
+  defp db_exception?(%Ecto.ConstraintError{}), do: true
+  defp db_exception?(%Ecto.Query.CastError{}), do: true
+  defp db_exception?(_), do: false
 
   # Find the DB post record for update, using UUID, date/time, or slug as available
   defp find_db_post_for_update(group_slug, post) do

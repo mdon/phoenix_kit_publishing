@@ -1022,28 +1022,20 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
     # Save first if there are pending changes (autosave is 500ms but user might click fast).
     # Never save for a read-only spectator — they always read has_pending_changes: true
     # after a remote sync, so an unguarded save here would clobber the lock owner's work.
-    socket =
-      if socket.assigns.has_pending_changes and not socket.assigns[:readonly?] do
-        {:noreply, saved} = Persistence.perform_save(socket)
-        saved
+    if socket.assigns.has_pending_changes and not socket.assigns[:readonly?] do
+      {:noreply, saved} = Persistence.perform_save(socket)
+
+      # If the save didn't go through (a validation error or the url_slug-conflict
+      # modal left changes pending), stay on the editor and show that — don't
+      # navigate to a stale preview and silently drop the error/modal (L2).
+      if saved.assigns.has_pending_changes do
+        {:noreply, saved}
       else
-        socket
+        {:noreply, navigate_to_preview(saved)}
       end
-
-    group_slug = socket.assigns.group_slug
-    post = socket.assigns.post
-    post_uuid = post[:uuid]
-    language = socket.assigns.current_language
-    version = socket.assigns[:current_version]
-
-    query_params = %{"lang" => language}
-    query_params = if version, do: Map.put(query_params, "v", version), else: query_params
-    query = URI.encode_query(query_params)
-
-    {:noreply,
-     push_navigate(socket,
-       to: Routes.path("/admin/publishing/#{group_slug}/#{post_uuid}/preview?#{query}")
-     )}
+    else
+      {:noreply, navigate_to_preview(socket)}
+    end
   end
 
   def handle_event("attempt_cancel", _params, %{assigns: %{has_pending_changes: false}} = socket) do
@@ -1787,6 +1779,21 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
     # Save quickly — DB writes are ~5ms, no reason to delay
     timer_ref = Process.send_after(self(), :autosave, 500)
     assign(socket, :autosave_timer, timer_ref)
+  end
+
+  defp navigate_to_preview(socket) do
+    group_slug = socket.assigns.group_slug
+    post_uuid = socket.assigns.post[:uuid]
+    language = socket.assigns.current_language
+    version = socket.assigns[:current_version]
+
+    query_params = %{"lang" => language}
+    query_params = if version, do: Map.put(query_params, "v", version), else: query_params
+    query = URI.encode_query(query_params)
+
+    push_navigate(socket,
+      to: Routes.path("/admin/publishing/#{group_slug}/#{post_uuid}/preview?#{query}")
+    )
   end
 
   defp re_read_post(socket, language, version \\ nil) do
@@ -2609,6 +2616,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
                   id="title-input"
                   value={@form["title"] || ""}
                   maxlength="500"
+                  phx-debounce="300"
                   class={"input input-bordered w-full text-2xl font-semibold #{if edit_disabled? or @viewing_older_version, do: "input-disabled bg-base-200"}"}
                   placeholder={gettext("Post title")}
                   readonly={edit_disabled? or @viewing_older_version}
