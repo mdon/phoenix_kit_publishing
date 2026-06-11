@@ -5,6 +5,7 @@ defmodule PhoenixKit.Integration.Publishing.PostsTest do
   alias PhoenixKit.Modules.Publishing.Groups
   alias PhoenixKit.Modules.Publishing.Posts
   alias PhoenixKit.Modules.Publishing.Versions
+  alias PhoenixKit.Settings
 
   defp unique_name, do: "Posts Group #{System.unique_integer([:positive])}"
 
@@ -27,6 +28,24 @@ defmodule PhoenixKit.Integration.Publishing.PostsTest do
       assert post[:time]
       assert post[:version] == 1
       assert post[:mode] in ["timestamp", :timestamp]
+    end
+
+    test "stamps the timestamp in the configured site time zone (L5)" do
+      group = create_group("timestamp")
+
+      {:ok, _} = Settings.update_setting("time_zone", "0")
+      {:ok, utc_post} = Posts.create_post(group["slug"], %{})
+
+      {:ok, _} = Settings.update_setting("time_zone", "5")
+      {:ok, plus5_post} = Posts.create_post(group["slug"], %{})
+
+      utc_dt = NaiveDateTime.new!(utc_post[:date], utc_post[:time])
+      plus5_dt = NaiveDateTime.new!(plus5_post[:date], plus5_post[:time])
+
+      # The +5 post is stamped ~5h ahead of the UTC one (both created seconds
+      # apart), so creation now matches the editor's naive wall clock + display.
+      diff_minutes = NaiveDateTime.diff(plus5_dt, utc_dt, :second) / 60
+      assert_in_delta diff_minutes, 300, 1.5
     end
 
     test "creates post with title" do

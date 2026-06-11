@@ -25,6 +25,7 @@ defmodule PhoenixKit.Modules.Publishing.Posts do
   alias PhoenixKit.Modules.Publishing.Shared
   alias PhoenixKit.Modules.Publishing.SlugHelpers
   alias PhoenixKit.Modules.Publishing.StaleFixer
+  alias PhoenixKit.Settings
   alias PhoenixKit.Utils.Date, as: UtilsDate
 
   # Suppress dialyzer false positives for pattern matches
@@ -683,12 +684,28 @@ defmodule PhoenixKit.Modules.Publishing.Posts do
   end
 
   defp maybe_add_initial_timestamp(post_attrs, "timestamp", now) do
-    date = DateTime.to_date(now)
-    time = %Time{hour: now.hour, minute: now.minute, second: 0, microsecond: {0, 0}}
+    # Stamp the post's date/time in the configured site time zone, NOT raw UTC.
+    # Timestamp-mode post_date/post_time are pure Date/Time values shown as-is
+    # (no display conversion), and an edit stores the editor's naive wall clock —
+    # so stamping creation in UTC made a freshly-created post disagree with an
+    # edited one about which day it lives under (L5). No-op when time_zone is "0".
+    local_now = shift_to_site_timezone(now)
+    date = DateTime.to_date(local_now)
+    time = %Time{hour: local_now.hour, minute: local_now.minute, second: 0, microsecond: {0, 0}}
     Map.merge(post_attrs, %{post_date: date, post_time: time})
   end
 
   defp maybe_add_initial_timestamp(post_attrs, _mode, _now), do: post_attrs
+
+  # Shift a UTC datetime by the configured site `time_zone` (integer-hour offset,
+  # default "0"). Mirrors the offset the display/edit layers use, so create/edit/
+  # display all agree on a timestamp post's wall clock. Bad/missing setting → UTC.
+  defp shift_to_site_timezone(datetime) do
+    case Integer.parse(Settings.get_setting("time_zone", "0")) do
+      {offset_hours, ""} -> DateTime.add(datetime, offset_hours * 3600, :second)
+      _ -> datetime
+    end
+  end
 
   defp resolve_timestamp_in_transaction(post_attrs, "timestamp", group_slug) do
     {date, time} =
