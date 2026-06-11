@@ -115,8 +115,7 @@ defmodule PhoenixKit.Modules.Publishing.StaleFixer do
     # restore → auto-trash loop. Skip recently created posts to avoid killing
     # posts before the editor has had a chance to autosave.
     if empty_post?(ctx) and past_grace_period?(post) do
-      Logger.info("[Publishing] Deleting empty post #{post.uuid} (no content in any version)")
-      DBStorage.delete_post(post)
+      delete_empty_post(post)
       post
     else
       post = apply_stale_fix(post, build_post_fixes(post, ctx), &DBStorage.update_post/2)
@@ -132,6 +131,19 @@ defmodule PhoenixKit.Modules.Publishing.StaleFixer do
 
       DBStorage.get_post_by_uuid(post.uuid, [:group]) || post
     end
+  end
+
+  # `fix_stale_post/1` runs on the read path, so two concurrent requests can both
+  # decide to delete the same empty post — the loser hits Ecto.StaleEntryError.
+  # A read must never 500 over that benign race; the post is gone either way.
+  defp delete_empty_post(post) do
+    Logger.info("[Publishing] Deleting empty post #{post.uuid} (no content in any version)")
+    DBStorage.delete_post(post)
+  rescue
+    Ecto.StaleEntryError ->
+      Logger.debug("[Publishing] Empty post #{post.uuid} already removed by a concurrent request")
+
+      :ok
   end
 
   defp empty_post?(ctx) do

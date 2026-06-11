@@ -988,16 +988,53 @@ defmodule PhoenixKit.Modules.Publishing.Posts do
       # save; promotion runs once per legacy row and is logged via Activity.
       legacy_promotions = collect_legacy_content_promotions(version, language)
 
+      write_ctx = %{
+        language: language,
+        new_title: new_title,
+        content: content,
+        params: params,
+        post: post,
+        db_post: db_post,
+        audit_meta: audit_meta,
+        legacy_promotions: legacy_promotions
+      }
+
       with :ok <- validate_title_for_publish(language, new_status, new_title),
-           :ok <- upsert_post_content(version, language, new_title, content, params, post),
-           :ok <- update_version_defaults(version, params, post, legacy_promotions),
-           {:ok, db_post} <- maybe_sync_datetime_and_audit(db_post, params, audit_meta) do
+           {:ok, db_post} <- persist_post_update(version, write_ctx) do
         log_legacy_metadata_promoted(legacy_promotions, version, language)
         read_updated_post(db_post, group_slug, final_slug, language, version_number)
       end
     else
       {:error, :not_found}
     end
+  end
+
+  # Persist the three coupled writes of a post update in ONE transaction.
+  # `upsert_post_content/6` strips the legacy V1 keys (description,
+  # featured_image_uuid, seo_title, excerpt) from the content row that
+  # `update_version_defaults/4` then re-persists at the version level. Without the
+  # transaction, a failure in between committed the wipe but not the promotion —
+  # destroying those values permanently (M3).
+  defp persist_post_update(version, ctx) do
+    repo = PhoenixKit.RepoHelper.repo()
+
+    repo.transaction(fn ->
+      with :ok <-
+             upsert_post_content(
+               version,
+               ctx.language,
+               ctx.new_title,
+               ctx.content,
+               ctx.params,
+               ctx.post
+             ),
+           :ok <- update_version_defaults(version, ctx.params, ctx.post, ctx.legacy_promotions),
+           {:ok, synced} <- maybe_sync_datetime_and_audit(ctx.db_post, ctx.params, ctx.audit_meta) do
+        synced
+      else
+        {:error, reason} -> repo.rollback(reason)
+      end
+    end)
   end
 
   @default_title Constants.default_title()
