@@ -358,6 +358,26 @@ defmodule PhoenixKit.Modules.Publishing.DBStorage.MapperTest do
       assert result.content == nil
     end
 
+    test "listing metadata carries allow_version_access (public version dropdown)" do
+      group = build_group()
+      post = build_post(group)
+
+      # Regression: the cached listing map dropped this field, so the public
+      # version dropdown only appeared on a cache miss. It must mirror the full
+      # post map and reflect the version's setting.
+      on_version = build_version(post, %{data: %{"allow_version_access" => true}})
+      off_version = build_version(post, %{data: %{}})
+
+      on_result =
+        Mapper.to_listing_map(post, on_version, [build_content(on_version)], [on_version])
+
+      off_result =
+        Mapper.to_listing_map(post, off_version, [build_content(off_version)], [off_version])
+
+      assert on_result.metadata.allow_version_access == true
+      assert off_result.metadata.allow_version_access == false
+    end
+
     test "falls back to first content when site default language not found" do
       group = build_group()
       post = build_post(group)

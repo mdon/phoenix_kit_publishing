@@ -37,6 +37,24 @@ defmodule PhoenixKit.Modules.Publishing.FacadeCallbacksTest do
       children = Publishing.children()
       assert PhoenixKit.Modules.Publishing.Presence in children
     end
+
+    test "children declares the :publishing_posts render cache with a bounded size" do
+      # Regression: the render cache (Renderer.render_post_cached/1) was never
+      # supervised, so caching silently no-op'd and every published view
+      # re-rendered. The child must be declared with a name and a max_size bound.
+      children = Publishing.children()
+
+      cache_spec =
+        Enum.find(children, fn
+          %{start: {PhoenixKit.Cache, :start_link, _}} -> true
+          _ -> false
+        end)
+
+      assert cache_spec, "expected a PhoenixKit.Cache child in Publishing.children/0"
+      [opts] = elem(cache_spec.start, 2)
+      assert opts[:name] == :publishing_posts
+      assert is_integer(opts[:max_size]) and opts[:max_size] > 0
+    end
   end
 
   describe "permission_metadata/0" do

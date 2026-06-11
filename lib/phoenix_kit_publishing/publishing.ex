@@ -381,7 +381,19 @@ defmodule PhoenixKit.Modules.Publishing do
   end
 
   @impl PhoenixKit.Module
-  def children, do: [PhoenixKit.Modules.Publishing.Presence]
+  def children do
+    [
+      PhoenixKit.Modules.Publishing.Presence,
+      # Per-post render cache (Renderer.render_post_cached/1). Without this the
+      # cache GenServer never starts, so every published view re-renders markdown
+      # and logs a per-request warning. max_size bounds growth — the cache key
+      # folds in a content hash, so each edit mints a new key (FIFO-evicted).
+      Supervisor.child_spec(
+        {PhoenixKit.Cache, name: :publishing_posts, ttl: :timer.hours(24), max_size: 2000},
+        id: :publishing_posts_cache
+      )
+    ]
+  end
 
   @impl PhoenixKit.Module
   def route_module, do: PhoenixKitPublishing.Routes

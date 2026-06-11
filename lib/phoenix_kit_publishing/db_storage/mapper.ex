@@ -170,6 +170,8 @@ defmodule PhoenixKit.Modules.Publishing.DBStorage.Mapper do
       description: nil,
       status: status,
       slug: nil,
+      # No version → no version-history access.
+      allow_version_access: false,
       published_at: nil,
       featured_image_uuid: nil
     }
@@ -181,6 +183,9 @@ defmodule PhoenixKit.Modules.Publishing.DBStorage.Mapper do
       description: PublishingVersion.get_description(version),
       status: status,
       slug: post.slug,
+      # Must mirror build_metadata/4 — the public version dropdown reads this
+      # from the cached listing map; omitting it hid the dropdown on a warm cache.
+      allow_version_access: PublishingVersion.get_allow_version_access(version),
       published_at: format_datetime(version.published_at),
       featured_image_uuid: PublishingVersion.get_featured_image_uuid(version)
     }
@@ -192,6 +197,8 @@ defmodule PhoenixKit.Modules.Publishing.DBStorage.Mapper do
       description: PublishingVersion.get_description(version),
       status: status,
       slug: post.slug,
+      # Must mirror build_metadata/4 — see the clause above.
+      allow_version_access: PublishingVersion.get_allow_version_access(version),
       published_at: format_datetime(version.published_at),
       featured_image_uuid: PublishingVersion.get_featured_image_uuid(version)
     }
