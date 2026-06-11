@@ -1040,7 +1040,10 @@ defmodule PhoenixKit.Modules.Publishing.Posts do
       end
 
     # Content data only holds content-row-specific metadata (previous_url_slugs, etc.)
-    content_data = preserve_content_data(existing_data, params, post)
+    content_data =
+      existing_data
+      |> preserve_content_data(params, post)
+      |> record_previous_url_slug(existing_url_slug, resolved_url_slug)
 
     case DBStorage.upsert_content(%{
            version_uuid: version.uuid,
@@ -1072,6 +1075,29 @@ defmodule PhoenixKit.Modules.Publishing.Posts do
   # legacy row and is logged via `ActivityLog.log/1`.
   defp preserve_content_data(existing_data, _params, _post) do
     Map.take(existing_data, @content_only_data_keys)
+  end
+
+  # When a content row's custom url_slug changes, record the OLD slug so the
+  # 301-redirect machinery (find_by_previous_url_slug/3) can forward its stale
+  # URLs to the new one. Without this writer the whole previous-slug system
+  # consumed data nothing produced — renaming a url_slug 404'd every old URL.
+  #
+  # The new slug is dropped from the history (so reverting A->B->A can't leave a
+  # previous-slug pointing at the current URL, which would 301-loop), and the
+  # list is deduped, newest-first.
+  defp record_previous_url_slug(data, old_slug, new_slug)
+       when old_slug in [nil, ""] or old_slug == new_slug,
+       do: data
+
+  defp record_previous_url_slug(data, old_slug, new_slug) do
+    previous = data["previous_url_slugs"] || []
+
+    updated =
+      [old_slug | previous]
+      |> Enum.reject(&(&1 in [nil, "", new_slug]))
+      |> Enum.uniq()
+
+    Map.put(data, "previous_url_slugs", updated)
   end
 
   # Reads the current content row and returns a map of legacy V1 keys that

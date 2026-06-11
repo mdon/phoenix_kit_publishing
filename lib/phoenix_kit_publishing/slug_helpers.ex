@@ -385,7 +385,17 @@ defmodule PhoenixKit.Modules.Publishing.SlugHelpers do
     # arbitrarily-ordered match is the post being edited.
     DBStorage.url_slug_taken_by_other_post?(group_slug, language, url_slug, exclude_post_slug)
   rescue
-    _ -> false
+    error ->
+      # Fail CLOSED on a uniqueness gate: a DB hiccup must reject the save, not
+      # silently approve a possibly-duplicate url_slug (there's no DB unique index
+      # backing this, so this check is the only guard). Logged so a persistent
+      # failure is diagnosable rather than silently blocking every save.
+      Logger.warning(
+        "[Slugs] url_slug uniqueness check failed for #{inspect(url_slug)}, " <>
+          "treating as taken: #{inspect(error)}"
+      )
+
+      true
   end
 
   defp slug_exists_for_generation?(_group_slug, candidate, current_slug)

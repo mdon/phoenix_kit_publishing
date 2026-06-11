@@ -226,6 +226,32 @@ defmodule PhoenixKit.Integration.Publishing.PostsTest do
       assert updated[:version]
       assert updated[:metadata]
     end
+
+    test "records the old url_slug for 301 redirects when the slug changes (H2)" do
+      group = create_group("slug")
+      {:ok, post} = Posts.create_post(group["slug"], %{title: "Reslug Me"})
+
+      # nil -> first-slug: nothing to record yet (no prior custom slug).
+      {:ok, v1} = Posts.update_post(group["slug"], post, %{"url_slug" => "first-slug"}, %{})
+      refute "first-slug" in (v1[:metadata][:previous_url_slugs] || [])
+
+      # first-slug -> second-slug: the old slug must be recorded for the 301.
+      {:ok, v2} = Posts.update_post(group["slug"], v1, %{"url_slug" => "second-slug"}, %{})
+      assert "first-slug" in (v2[:metadata][:previous_url_slugs] || [])
+
+      # Publish so the active-version-only 301 lookup can resolve the stale slug.
+      :ok = Versions.publish_version(group["slug"], post[:uuid], 1)
+
+      assert {:ok, found} =
+               Posts.find_by_previous_url_slug(group["slug"], v2[:language], "first-slug")
+
+      assert found.slug == post[:slug]
+
+      # Reverting to first-slug drops it from history so it can't 301 to itself.
+      {:ok, v3} = Posts.update_post(group["slug"], v2, %{"url_slug" => "first-slug"}, %{})
+      refute "first-slug" in (v3[:metadata][:previous_url_slugs] || [])
+      assert "second-slug" in (v3[:metadata][:previous_url_slugs] || [])
+    end
   end
 
   # ============================================================================
