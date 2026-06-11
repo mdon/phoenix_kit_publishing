@@ -555,6 +555,13 @@ defmodule PhoenixKit.Modules.Publishing.RendererTest do
       refute html =~ "<img"
     end
 
+    test "a component in double-backtick inline code renders as visible code (L8)" do
+      html = Renderer.render_markdown("Use ``<Image file_uuid=\"#{@uuid}\"/>`` to embed.")
+
+      assert html =~ "&lt;Image"
+      refute html =~ "<img"
+    end
+
     test "a component OUTSIDE code blocks still renders as a component" do
       html =
         Renderer.render_markdown(~s|Before\n\n<Image file_uuid="#{@uuid}" alt="x"/>\n\nAfter|)

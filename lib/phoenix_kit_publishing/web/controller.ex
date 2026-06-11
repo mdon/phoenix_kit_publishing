@@ -222,9 +222,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller do
         |> render(:index)
 
       {:redirect_301, url} ->
-        conn
-        |> put_status(301)
-        |> redirect(to: url)
+        redirect_301(conn, url)
 
       {:error, reason} ->
         handle_not_found(conn, reason)
@@ -259,9 +257,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller do
         |> render(:show)
 
       {:redirect_301, url} ->
-        conn
-        |> put_status(301)
-        |> redirect(to: url)
+        redirect_301(conn, url)
 
       {:error, reason} ->
         handle_not_found(conn, reason)
@@ -320,12 +316,10 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller do
         |> render(:show)
 
       {:redirect, url} ->
-        redirect(conn, to: url)
+        redirect(conn, to: with_query_string(conn, url))
 
       {:redirect_301, url} ->
-        conn
-        |> put_status(301)
-        |> redirect(to: url)
+        redirect_301(conn, url)
 
       {:error, reason} ->
         handle_not_found(conn, reason)
@@ -362,6 +356,22 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller do
   defp set_gettext_locale(language) do
     Gettext.put_locale(PhoenixKitWeb.Gettext, language)
   end
+
+  # Issue the canonical 301 while preserving the request's query string — a
+  # `?utm_source=…` link that hits a canonical/locale redirect must not have its
+  # campaign params stripped.
+  defp redirect_301(conn, url) do
+    conn
+    |> put_status(301)
+    |> redirect(to: with_query_string(conn, url))
+  end
+
+  defp with_query_string(%{query_string: qs}, url) when is_binary(qs) and qs != "" do
+    separator = if String.contains?(url, "?"), do: "&", else: "?"
+    url <> separator <> qs
+  end
+
+  defp with_query_string(_conn, url), do: url
 
   defp build_og_data(conn, post, canonical_url, language) do
     description = Map.get(post.metadata, :description)
