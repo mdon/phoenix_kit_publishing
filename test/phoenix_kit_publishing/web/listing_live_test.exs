@@ -15,7 +15,9 @@ defmodule PhoenixKit.Modules.Publishing.Web.ListingLiveTest do
   use PhoenixKitPublishing.LiveCase
 
   alias PhoenixKit.Modules.Publishing.Groups
+  alias PhoenixKit.Modules.Publishing.ListingCache
   alias PhoenixKit.Modules.Publishing.Posts
+  alias PhoenixKit.Modules.Publishing.PubSub, as: PublishingPubSub
   alias PhoenixKit.Settings
 
   setup do
@@ -201,6 +203,58 @@ defmodule PhoenixKit.Modules.Publishing.Web.ListingLiveTest do
 
     send(view.pid, {:cache_changed, group["slug"]})
     assert is_binary(render(view))
+  end
+
+  # Regression: the :cache_changed handler used to call `ListingCache.regenerate/1`,
+  # which re-broadcasts :cache_changed. Because the LiveView subscribes to its own
+  # group's cache topic, the echo re-entered the handler → regenerate → broadcast →
+  # … a self-sustaining, cluster-wide regeneration storm. The old smoke test above
+  # missed it: `render(view)`'s reply is delivered before the first echo is processed
+  # (FIFO mailbox), so it asserts one render round-trip and the loop only runs *after*
+  # the assertion, until test teardown kills the view. The handler now INVALIDATES
+  # (erases) the term instead, which emits nothing. This test pins the actual
+  # invariant: handling :cache_changed must NOT emit another :cache_changed.
+  test "handle_info {:cache_changed, _} invalidates silently — no re-broadcast (no storm)",
+       %{conn: conn, group: group} do
+    # Enable the memory cache so a regression back to `regenerate` would actually
+    # reach the broadcast (regenerate short-circuits to :ok when caching is off).
+    {:ok, _} = Settings.update_boolean_setting("publishing_memory_cache_enabled", true)
+
+    {:ok, view, _html} =
+      conn
+      |> put_test_scope(fake_scope())
+      |> live("/admin/publishing/#{group["slug"]}")
+
+    # Observe the group's cache topic from the test process. The LiveView is a
+    # subscriber too, so any echo it emits would also come back to us here.
+    PublishingPubSub.subscribe_to_cache(group["slug"])
+
+    send(view.pid, {:cache_changed, group["slug"]})
+
+    # The handler must refresh WITHOUT announcing :cache_changed. If it re-broadcast,
+    # we'd receive the echo (and the view would loop forever). Assert no echo arrives.
+    refute_receive {:cache_changed, _}, 300
+
+    # And the view is still alive and renders after handling the message.
+    assert is_binary(render(view))
+  end
+
+  # Pins the broadcast contract from the other direction: a *data mutation* that
+  # regenerates the cache (the default `broadcast: true`) MUST still announce
+  # :cache_changed so other nodes refresh their node-local cache. The silent path
+  # above is only for consumers reacting to that announcement.
+  test "ListingCache.regenerate/2 announces :cache_changed by default, stays silent on demand",
+       %{group: group} do
+    {:ok, _} = Settings.update_boolean_setting("publishing_memory_cache_enabled", true)
+    slug = group["slug"]
+    PublishingPubSub.subscribe_to_cache(slug)
+
+    # Pin the slug so the assertion can't pass on an unrelated echo.
+    assert :ok = ListingCache.regenerate(slug)
+    assert_receive {:cache_changed, ^slug}, 300
+
+    assert :ok = ListingCache.regenerate(slug, broadcast: false)
+    refute_receive {:cache_changed, ^slug}, 300
   end
 
   test "handle_info {:debounced_post_update, slug} fires the debounced refresh",

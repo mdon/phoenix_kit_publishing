@@ -7,7 +7,7 @@ defmodule PhoenixKit.Modules.Publishing.ListingCache do
 
   ## How It Works
 
-  1. When a post is created/updated/published, `regenerate/1` is called
+  1. When a post is created/updated/published, `regenerate/2` is called
   2. This queries the database and stores post metadata in :persistent_term
   3. `render_group_listing` reads from the in-memory cache
   4. Cache includes: title, slug, date, status, languages, versions (no content)
@@ -80,13 +80,19 @@ defmodule PhoenixKit.Modules.Publishing.ListingCache do
         hit
 
       :not_found ->
-        # Go through the in-progress guard, not `regenerate/1` directly, so a
+        # Go through the in-progress guard, not `regenerate/2` directly, so a
         # burst of concurrent misses (e.g. right after a restart) doesn't fire
         # N synchronous regenerations + N global `:persistent_term.put` GCs.
         # A loser sees `:already_in_progress`, reads an as-yet-empty term, and
         # returns `:cache_miss` — which every caller already handles with a
         # direct DB read (see PostFetching.handle_cache_miss/2).
-        regenerate_if_not_in_progress(group_slug)
+        #
+        # `broadcast: false`: a cold-cache repopulation means "my local copy was
+        # empty," not "the data changed," so it must NOT announce `:cache_changed`.
+        # Announcing would make every subscribed listing view invalidate the term
+        # this read just rebuilt, and the next read would repopulate-and-announce
+        # again — cache thrashing. Only mutation sites announce.
+        regenerate_if_not_in_progress(group_slug, broadcast: false)
         read_after_regenerate(term_key)
     end
   end
@@ -117,11 +123,22 @@ defmodule PhoenixKit.Modules.Publishing.ListingCache do
   - create_new_version
 
   Returns `:ok` on success or `{:error, reason}` on failure.
+
+  ## Options
+
+    * `:broadcast` (default `true`) — whether to emit `:cache_changed` after a
+      successful regeneration. Mutation sites leave this on so other nodes
+      refresh their node-local `:persistent_term`. Callers that are *reacting*
+      to a `:cache_changed` (e.g. the listing LiveView handler) MUST pass
+      `broadcast: false`: re-broadcasting from the handler that consumes the
+      message creates a self-sustaining, cluster-wide regeneration storm.
   """
-  @spec regenerate(String.t()) :: :ok | {:error, any()}
-  def regenerate(group_slug) do
+  @spec regenerate(String.t(), keyword()) :: :ok | {:error, any()}
+  def regenerate(group_slug, opts \\ []) do
+    broadcast? = Keyword.get(opts, :broadcast, true)
+
     if memory_cache_enabled?() do
-      do_regenerate(group_slug)
+      do_regenerate(group_slug, broadcast?)
     else
       :ok
     end
@@ -138,7 +155,7 @@ defmodule PhoenixKit.Modules.Publishing.ListingCache do
   # Groups exceeding this will still work but only cache the most recent posts.
   @max_cached_posts 5000
 
-  defp do_regenerate(group_slug) do
+  defp do_regenerate(group_slug, broadcast?) do
     start_time = System.monotonic_time(:millisecond)
 
     # Verify the group actually exists BEFORE writing anything to
@@ -157,7 +174,7 @@ defmodule PhoenixKit.Modules.Publishing.ListingCache do
         {:error, :group_not_found}
 
       _group ->
-        do_regenerate_existing_group(group_slug, start_time)
+        do_regenerate_existing_group(group_slug, start_time, broadcast?)
     end
   rescue
     error ->
@@ -168,7 +185,7 @@ defmodule PhoenixKit.Modules.Publishing.ListingCache do
       {:error, {:regenerate_failed, error}}
   end
 
-  defp do_regenerate_existing_group(group_slug, start_time) do
+  defp do_regenerate_existing_group(group_slug, start_time, broadcast?) do
     # Posts from to_listing_map are already atom-key maps with excerpts
     all_posts = DBStorage.list_posts_for_listing(group_slug)
 
@@ -197,7 +214,11 @@ defmodule PhoenixKit.Modules.Publishing.ListingCache do
       "[ListingCache] Regenerated cache from DB for #{group_slug} (#{length(posts)} posts) in #{elapsed}ms"
     )
 
-    PublishingPubSub.broadcast_cache_changed(group_slug)
+    # Only announce when this regeneration represents a fresh data change. A
+    # regeneration triggered by *receiving* `:cache_changed` must stay silent,
+    # otherwise the consumer that rebuilt its node-local cache re-broadcasts to
+    # every subscriber (itself included), which loops forever.
+    if broadcast?, do: PublishingPubSub.broadcast_cache_changed(group_slug)
     :ok
   end
 
@@ -223,16 +244,20 @@ defmodule PhoenixKit.Modules.Publishing.ListingCache do
 
   ## Usage
 
-  On cache miss in read paths, use this instead of `regenerate/1`:
+  On cache miss in read paths, use this instead of `regenerate/2`:
 
       case ListingCache.regenerate_if_not_in_progress(group_slug) do
         :ok -> # Cache is ready, read from it
         :already_in_progress -> # Another process is regenerating, try again later
         {:error, _} -> # Regeneration failed, query DB directly
       end
+
+  Accepts the same options as `regenerate/2` (notably `broadcast: false` for
+  callers reacting to a `:cache_changed`).
   """
-  @spec regenerate_if_not_in_progress(String.t()) :: :ok | :already_in_progress | {:error, any()}
-  def regenerate_if_not_in_progress(group_slug) do
+  @spec regenerate_if_not_in_progress(String.t(), keyword()) ::
+          :ok | :already_in_progress | {:error, any()}
+  def regenerate_if_not_in_progress(group_slug, opts \\ []) do
     ensure_lock_table_exists()
     now = System.monotonic_time(:millisecond)
     # Unique per-acquisition token so release only removes OUR lock, never a
@@ -245,11 +270,11 @@ defmodule PhoenixKit.Modules.Publishing.ListingCache do
     case :ets.insert_new(@lock_table, {group_slug, {now, token}}) do
       true ->
         # We acquired the lock - perform regeneration
-        do_regenerate_with_lock(group_slug, token)
+        do_regenerate_with_lock(group_slug, token, opts)
 
       false ->
         # Lock exists - check if it's stale
-        handle_existing_lock(group_slug, now)
+        handle_existing_lock(group_slug, now, opts)
     end
   rescue
     ArgumentError ->
@@ -263,7 +288,7 @@ defmodule PhoenixKit.Modules.Publishing.ListingCache do
   end
 
   # Handle case where lock already exists - check staleness
-  defp handle_existing_lock(group_slug, now) do
+  defp handle_existing_lock(group_slug, now, opts) do
     case :ets.lookup(@lock_table, group_slug) do
       [{^group_slug, {lock_timestamp, _token} = lock_value}] ->
         lock_age = now - lock_timestamp
@@ -278,17 +303,17 @@ defmodule PhoenixKit.Modules.Publishing.ListingCache do
         else
           # Lock is stale - previous process likely died
           # Try to take over by deleting and re-acquiring atomically
-          take_over_stale_lock(group_slug, lock_value, lock_age, now)
+          take_over_stale_lock(group_slug, lock_value, lock_age, now, opts)
         end
 
       [] ->
         # Lock was released between insert_new and lookup - try again
-        regenerate_if_not_in_progress(group_slug)
+        regenerate_if_not_in_progress(group_slug, opts)
     end
   end
 
   # Attempt to take over a stale lock using compare-and-delete
-  defp take_over_stale_lock(group_slug, stale_value, lock_age, now) do
+  defp take_over_stale_lock(group_slug, stale_value, lock_age, now, opts) do
     # Atomic compare-and-delete: only deletes if the exact {timestamp, token}
     # is still present (no one else already took over).
     case :ets.select_delete(@lock_table, [{{group_slug, stale_value}, [], [true]}]) do
@@ -302,7 +327,7 @@ defmodule PhoenixKit.Modules.Publishing.ListingCache do
 
         case :ets.insert_new(@lock_table, {group_slug, {now, token}}) do
           true ->
-            do_regenerate_with_lock(group_slug, token)
+            do_regenerate_with_lock(group_slug, token, opts)
 
           false ->
             # Another process beat us to it
@@ -316,8 +341,8 @@ defmodule PhoenixKit.Modules.Publishing.ListingCache do
   end
 
   # Perform regeneration while holding the lock
-  defp do_regenerate_with_lock(group_slug, token) do
-    result = regenerate(group_slug)
+  defp do_regenerate_with_lock(group_slug, token, opts) do
+    result = regenerate(group_slug, opts)
 
     case result do
       :ok -> :ok
@@ -371,31 +396,16 @@ defmodule PhoenixKit.Modules.Publishing.ListingCache do
   @doc """
   Loads the cache from the database into :persistent_term.
 
+  Thin alias for `regenerate/2` — kept for call-site readability. Going through
+  `regenerate/2` (rather than a private copy) means this path also gets the
+  unknown-group guard, the `@max_cached_posts` cap, and the `:broadcast` option,
+  so it can never re-open the unbounded-term leak or the broadcast storm.
+
   Returns `:ok` if successful or `{:error, reason}` on failure.
   """
-  @spec load_into_memory(String.t()) :: :ok | {:error, any()}
-  def load_into_memory(group_slug) do
-    load_into_memory_from_db(group_slug)
-  end
-
-  defp load_into_memory_from_db(group_slug) do
-    posts = DBStorage.list_posts_for_listing(group_slug)
-    generated_at = UtilsDate.utc_now() |> DateTime.to_iso8601()
-
-    safe_persistent_term_put(persistent_term_key(group_slug), posts)
-    safe_persistent_term_put(cache_generated_at_key(group_slug), generated_at)
-
-    Logger.debug(
-      "[ListingCache] Loaded #{group_slug} from DB into :persistent_term (#{length(posts)} posts)"
-    )
-
-    PublishingPubSub.broadcast_cache_changed(group_slug)
-    :ok
-  rescue
-    error ->
-      Logger.error("[ListingCache] Failed to load #{group_slug} from DB: #{inspect(error)}")
-
-      {:error, {:load_failed, error}}
+  @spec load_into_memory(String.t(), keyword()) :: :ok | {:error, any()}
+  def load_into_memory(group_slug, opts \\ []) do
+    regenerate(group_slug, opts)
   end
 
   @doc """

@@ -68,7 +68,11 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller.PostFetching do
       "[PublishingController] Cache MISS for #{group_slug} - regenerating cache synchronously"
     )
 
-    case ListingCache.regenerate_if_not_in_progress(group_slug) do
+    # `broadcast: false`: a cache MISS means this node's copy was cold, not that
+    # the data changed, so repopulating it must not announce `:cache_changed`
+    # (which would make listing views invalidate the term we just rebuilt and
+    # thrash the cache). Only mutation sites announce.
+    case ListingCache.regenerate_if_not_in_progress(group_slug, broadcast: false) do
       :ok ->
         elapsed_ms = Float.round((System.monotonic_time(:microsecond) - start_time) / 1000, 1)
 
