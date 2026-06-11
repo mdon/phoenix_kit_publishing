@@ -237,6 +237,12 @@ defmodule PhoenixKit.Modules.Publishing.SlugHelpers do
       LanguageHelpers.reserved_language_code?(slug) ->
         {:error, :reserved_language_code}
 
+      # Post/group slugs become URL segments too, so reject route words like
+      # "admin"/"api" the same way url_slugs do — a post slugged "admin" is
+      # unreachable behind the host's own routes.
+      slug in @reserved_route_words ->
+        {:error, :reserved_route_word}
+
       true ->
         {:ok, slug}
     end
