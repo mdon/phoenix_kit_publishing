@@ -138,6 +138,8 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
       |> assign(:viewing_older_version, false)
       |> assign(:show_new_version_modal, false)
       |> assign(:new_version_source, nil)
+      |> assign(:show_slug_conflict_modal, false)
+      |> assign(:slug_conflict_info, nil)
       |> assign(:show_ai_translation, false)
       |> assign(:ai_enabled, Code.ensure_loaded?(PhoenixKitAI) and AI.enabled?())
       |> assign(:ai_endpoints, Translation.list_ai_endpoints())
@@ -967,6 +969,13 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
      socket
      |> assign(:show_new_version_modal, false)
      |> assign(:new_version_source, nil)}
+  end
+
+  def handle_event("close_slug_conflict_modal", _params, socket) do
+    {:noreply,
+     socket
+     |> assign(:show_slug_conflict_modal, false)
+     |> assign(:slug_conflict_info, nil)}
   end
 
   def handle_event("set_new_version_source", %{"source" => "blank"}, socket) do
@@ -2997,6 +3006,50 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
         </div>
       </div>
       <div class="modal-backdrop bg-base-content/50" phx-click="close_new_version_modal"></div>
+    </div>
+    <% end %>
+
+    <%!-- URL Slug Conflict Modal --%>
+    <%= if @show_slug_conflict_modal and @slug_conflict_info do %>
+    <div class="modal modal-open">
+      <div class="modal-box max-w-md">
+        <h3 class="font-bold text-lg mb-2 flex items-center gap-2">
+          <.icon name="hero-exclamation-triangle" class="w-5 h-5 text-warning" />
+          {gettext("URL slug already in use")}
+        </h3>
+
+        <p class="text-sm text-base-content/80 mb-3">
+          {gettext("The URL slug %{slug} is already used by another post in this group:",
+            slug: "“#{@slug_conflict_info.slug}”"
+          )}
+        </p>
+
+        <div class="rounded-lg border border-base-300 bg-base-200 p-3 mb-4">
+          <p class="font-medium">
+            {@slug_conflict_info.title || gettext("Another post")}
+          </p>
+          <%= if @slug_conflict_info.edit_url do %>
+          <.link
+            navigate={@slug_conflict_info.edit_url}
+            class="link link-primary text-sm inline-flex items-center gap-1 mt-1"
+          >
+            <.icon name="hero-arrow-top-right-on-square" class="w-4 h-4" />
+            {gettext("Open that post")}
+          </.link>
+          <% end %>
+        </div>
+
+        <p class="text-sm text-base-content/70 mb-4">
+          {gettext("Choose a different URL slug for this post, or change the other post's slug.")}
+        </p>
+
+        <div class="modal-action">
+          <button type="button" class="btn btn-primary" phx-click="close_slug_conflict_modal">
+            {gettext("OK")}
+          </button>
+        </div>
+      </div>
+      <div class="modal-backdrop bg-base-content/50" phx-click="close_slug_conflict_modal"></div>
     </div>
     <% end %>
 

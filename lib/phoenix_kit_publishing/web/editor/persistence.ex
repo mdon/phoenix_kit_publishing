@@ -9,6 +9,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor.Persistence do
   use Gettext, backend: PhoenixKitWeb.Gettext
 
   alias PhoenixKit.Modules.Publishing
+  alias PhoenixKit.Modules.Publishing.DBStorage
   alias PhoenixKit.Modules.Publishing.Errors
   alias PhoenixKit.Modules.Publishing.ListingCache
   alias PhoenixKit.Modules.Publishing.PubSub, as: PublishingPubSub
@@ -88,6 +89,15 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor.Persistence do
         socket = Phoenix.LiveView.put_flash(socket, :info, notice)
         do_perform_save(socket, validated_params)
 
+      {:slug_conflict, info} ->
+        # Don't silently clear or save — show the user which post owns the slug
+        # (with a link) so they can rename theirs or jump to the other one. The
+        # form keeps their typed slug so they can edit it after closing.
+        {:noreply,
+         socket
+         |> Phoenix.Component.assign(:slug_conflict_info, info)
+         |> Phoenix.Component.assign(:show_slug_conflict_modal, true)}
+
       {:error, reason} ->
         error_message = url_slug_error_message(reason)
         {:noreply, Phoenix.LiveView.put_flash(socket, :error, error_message)}
@@ -110,20 +120,30 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor.Persistence do
           auto_clear_and_notify(params, group_slug, post_slug, url_slug, language, :conflicts)
 
         {:error, :slug_already_exists} ->
-          auto_clear_and_notify(
-            params,
-            group_slug,
-            post_slug,
-            url_slug,
-            language,
-            :already_exists
-          )
+          {:slug_conflict, build_slug_conflict_info(group_slug, url_slug, language)}
 
         {:error, reason} ->
           {:error, reason}
       end
     else
       {:ok, params}
+    end
+  end
+
+  # Look up the post that already owns `url_slug` so the conflict modal can name
+  # it and link to it (drafts included). Degrades to a title-less notice if the
+  # owner can't be resolved.
+  defp build_slug_conflict_info(group_slug, url_slug, language) do
+    case DBStorage.find_by_url_slug_any_version(group_slug, language, url_slug) do
+      %{title: title, version: %{post: %{uuid: uuid}}} ->
+        %{
+          slug: url_slug,
+          title: title,
+          edit_url: Helpers.build_edit_url(group_slug, %{uuid: uuid})
+        }
+
+      _ ->
+        %{slug: url_slug, title: nil, edit_url: nil}
     end
   end
 
@@ -145,22 +165,6 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor.Persistence do
   defp slug_cleared_notice(:conflicts, slug, language, _count) do
     gettext(
       "Custom URL slug '%{slug}' for %{language} was cleared because it conflicts with another post's post slug",
-      slug: slug,
-      language: language
-    )
-  end
-
-  defp slug_cleared_notice(:already_exists, slug, _language, count) when count > 1 do
-    gettext(
-      "Custom URL slug '%{slug}' was cleared from %{count} translations because it's already in use by another post",
-      slug: slug,
-      count: count
-    )
-  end
-
-  defp slug_cleared_notice(:already_exists, slug, language, _count) do
-    gettext(
-      "Custom URL slug '%{slug}' for %{language} was cleared because it's already in use by another post",
       slug: slug,
       language: language
     )

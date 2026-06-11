@@ -255,6 +255,32 @@ defmodule PhoenixKit.Modules.Publishing.Web.EditorLiveTest do
       assert is_binary(html)
     end
 
+    test "saving a url_slug owned by another post shows the conflict modal (M13)",
+         %{conn: conn, group: group, post: post} do
+      # Another post already owns "taken-url-slug" (published).
+      {:ok, owner} = Posts.create_post(group["slug"], %{title: "Owner Post", slug: "owner-post"})
+      {:ok, _} = Posts.update_post(group["slug"], owner, %{"url_slug" => "taken-url-slug"}, %{})
+      :ok = Publishing.publish_version(group["slug"], owner[:uuid], 1)
+
+      {:ok, view, _html} =
+        conn
+        |> put_test_scope(fake_scope())
+        |> live("/admin/publishing/#{group["slug"]}/#{post[:uuid]}/edit")
+
+      _ =
+        render_change(view, "update_meta", %{
+          "url_slug" => "taken-url-slug",
+          "_target" => ["url_slug"]
+        })
+
+      html = render_click(view, "save", %{})
+
+      # The conflict modal appears and names the owning post (rather than silently
+      # clearing the slug or blocking with a bare flash).
+      assert html =~ "URL slug already in use"
+      assert html =~ "Owner Post"
+    end
+
     test "save failure surfaces a descriptive flash, not a bare generic one",
          %{conn: conn, group: group, post: post} do
       {:ok, view, _html} =
