@@ -30,6 +30,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller.Fallback do
   use Gettext, backend: PhoenixKitWeb.Gettext
 
   alias PhoenixKit.Modules.Publishing
+  alias PhoenixKit.Modules.Publishing.Constants
   alias PhoenixKit.Modules.Publishing.Web.Controller.Language
   alias PhoenixKit.Modules.Publishing.Web.Controller.Listing
   alias PhoenixKit.Modules.Publishing.Web.HTML, as: PublishingHTML
@@ -100,6 +101,11 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller.Fallback do
   # manifests acutely when url_prefix == "/" and the catch-all sits at
   # the host's root, where /about, /contact, etc. would otherwise be hijacked).
   defp handle_fallback_case(:group_not_found, _path, _language), do: :no_fallback
+
+  # Module/public access disabled — render 404, never redirect. The group still
+  # exists in the DB, so the generic group-listing fallback below would 302 to the
+  # same disabled URL forever. Must precede the catch-all.
+  defp handle_fallback_case(:module_disabled, _path, _language), do: :no_fallback
 
   # Any post-level error with a 2+ segment path — fall back to group listing
   # Catches errors like :invalid_version, unknown reasons from read_post, etc.
@@ -323,14 +329,25 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller.Fallback do
     identifier = "#{date}/#{time}"
 
     Enum.find_value(languages, fn lang ->
-      case Publishing.read_post(group_slug, identifier, lang) do
-        {:ok, post} when post.metadata.status == "published" ->
-          {:ok, build_timestamp_url(group_slug, date, time, lang)}
-
-        _ ->
-          nil
-      end
+      published_timestamp_url(group_slug, identifier, date, time, lang)
     end) || :not_found
+  end
+
+  # A future-dated post is 404'd as :unpublished by the renderer, so it must NOT
+  # be a fallback target either — otherwise two languages of the same future post
+  # 302-ping-pong between each other forever.
+  defp published_timestamp_url(group_slug, identifier, date, time, lang) do
+    with {:ok, post} <- Publishing.read_post(group_slug, identifier, lang),
+         true <- post.metadata.status == "published" and not future_timestamp_post?(post) do
+      {:ok, build_timestamp_url(group_slug, date, time, lang)}
+    else
+      _ -> nil
+    end
+  end
+
+  defp future_timestamp_post?(post) do
+    Constants.timestamp_mode?(post[:mode]) and post[:date] != nil and
+      Date.compare(post[:date], Date.utc_today()) == :gt
   end
 
   # ============================================================================

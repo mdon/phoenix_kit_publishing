@@ -8,7 +8,11 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller.FallbackTest do
 
   use PhoenixKitPublishing.ConnCase, async: false
 
+  alias PhoenixKit.Modules.Publishing.DBStorage
   alias PhoenixKit.Modules.Publishing.Groups
+  alias PhoenixKit.Modules.Publishing.Posts
+  alias PhoenixKit.Modules.Publishing.PublishingPost
+  alias PhoenixKit.Modules.Publishing.Versions
   alias PhoenixKit.Modules.Publishing.Web.Controller.Fallback
   alias PhoenixKit.Settings
 
@@ -119,6 +123,16 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller.FallbackTest do
 
       assert path =~ "/" <> slug
     end
+
+    test "renders 404 (no redirect loop) for :module_disabled even when the group exists",
+         %{group_slug: slug} do
+      # Regression (H4): disabling the module routes requests here with reason
+      # :module_disabled. The group still exists in the DB, so the generic
+      # group-listing fallback would 302 to the same disabled URL forever.
+      conn = fake_conn(%{"group" => slug, "path" => []})
+
+      assert {:render_404} = Fallback.handle_not_found(conn, :module_disabled)
+    end
   end
 
   describe "find_any_available_language_version/3" do
@@ -137,6 +151,37 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller.FallbackTest do
                slug,
                "2026-04-27",
                "10:00",
+               ["en"]
+             ) == :not_found
+    end
+
+    test "skips a future-dated published post so two languages don't 302-loop (H5)" do
+      # Regression: a future-dated post is 404'd as :unpublished by the renderer,
+      # but the language fallback only checked status == "published" — so two
+      # languages of the same future post would 302-ping-pong forever. The future
+      # gate must apply here too.
+      {:ok, group} =
+        Groups.add_group("FutureTS #{System.unique_integer([:positive])}", mode: "timestamp")
+
+      {:ok, post} = Posts.create_post(group["slug"], %{title: "Future Post"})
+
+      # Move the post into the future, then publish it.
+      future = Date.add(Date.utc_today(), 30)
+      repo = PhoenixKit.RepoHelper.repo()
+
+      repo.get_by(PublishingPost, uuid: post[:uuid])
+      |> Ecto.Changeset.change(post_date: future)
+      |> repo.update!()
+
+      [version] = DBStorage.list_versions(post[:uuid])
+      :ok = Versions.publish_version(group["slug"], post[:uuid], version.version_number)
+
+      time = post[:time] |> Time.to_string() |> String.slice(0, 5)
+
+      assert Fallback.find_first_published_timestamp_version(
+               group["slug"],
+               Date.to_iso8601(future),
+               time,
                ["en"]
              ) == :not_found
     end
