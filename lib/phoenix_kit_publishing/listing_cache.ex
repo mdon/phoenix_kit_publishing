@@ -234,13 +234,17 @@ defmodule PhoenixKit.Modules.Publishing.ListingCache do
   def regenerate_if_not_in_progress(group_slug) do
     ensure_lock_table_exists()
     now = System.monotonic_time(:millisecond)
+    # Unique per-acquisition token so release only removes OUR lock, never a
+    # takeover holder's that replaced it (L10). The value is {timestamp, token}:
+    # timestamp drives staleness, token drives ownership.
+    token = make_ref()
 
     # Try to atomically acquire the lock using ETS insert_new
     # Returns true if inserted (lock acquired), false if key already exists
-    case :ets.insert_new(@lock_table, {group_slug, now}) do
+    case :ets.insert_new(@lock_table, {group_slug, {now, token}}) do
       true ->
         # We acquired the lock - perform regeneration
-        do_regenerate_with_lock(group_slug)
+        do_regenerate_with_lock(group_slug, token)
 
       false ->
         # Lock exists - check if it's stale
@@ -260,7 +264,7 @@ defmodule PhoenixKit.Modules.Publishing.ListingCache do
   # Handle case where lock already exists - check staleness
   defp handle_existing_lock(group_slug, now) do
     case :ets.lookup(@lock_table, group_slug) do
-      [{^group_slug, lock_timestamp}] ->
+      [{^group_slug, {lock_timestamp, _token} = lock_value}] ->
         lock_age = now - lock_timestamp
 
         if lock_age < @lock_timeout_ms do
@@ -273,7 +277,7 @@ defmodule PhoenixKit.Modules.Publishing.ListingCache do
         else
           # Lock is stale - previous process likely died
           # Try to take over by deleting and re-acquiring atomically
-          take_over_stale_lock(group_slug, lock_timestamp, lock_age, now)
+          take_over_stale_lock(group_slug, lock_value, lock_age, now)
         end
 
       [] ->
@@ -283,19 +287,21 @@ defmodule PhoenixKit.Modules.Publishing.ListingCache do
   end
 
   # Attempt to take over a stale lock using compare-and-delete
-  defp take_over_stale_lock(group_slug, old_timestamp, lock_age, now) do
-    # Use match_delete for atomic compare-and-delete
-    # Only deletes if the timestamp matches (no one else took over)
-    case :ets.select_delete(@lock_table, [{{group_slug, old_timestamp}, [], [true]}]) do
+  defp take_over_stale_lock(group_slug, stale_value, lock_age, now) do
+    # Atomic compare-and-delete: only deletes if the exact {timestamp, token}
+    # is still present (no one else already took over).
+    case :ets.select_delete(@lock_table, [{{group_slug, stale_value}, [], [true]}]) do
       1 ->
-        # Successfully deleted stale lock - now try to acquire
+        # Successfully deleted stale lock - now try to acquire with a fresh token
         Logger.warning(
           "[ListingCache] Found stale lock for #{group_slug} (#{lock_age}ms old), taking over regeneration"
         )
 
-        case :ets.insert_new(@lock_table, {group_slug, now}) do
+        token = make_ref()
+
+        case :ets.insert_new(@lock_table, {group_slug, {now, token}}) do
           true ->
-            do_regenerate_with_lock(group_slug)
+            do_regenerate_with_lock(group_slug, token)
 
           false ->
             # Another process beat us to it
@@ -309,7 +315,7 @@ defmodule PhoenixKit.Modules.Publishing.ListingCache do
   end
 
   # Perform regeneration while holding the lock
-  defp do_regenerate_with_lock(group_slug) do
+  defp do_regenerate_with_lock(group_slug, token) do
     result = regenerate(group_slug)
 
     case result do
@@ -317,8 +323,11 @@ defmodule PhoenixKit.Modules.Publishing.ListingCache do
       {:error, _} = error -> error
     end
   after
-    # Always release the lock when done (success or failure)
-    :ets.delete(@lock_table, group_slug)
+    # Release ONLY our own lock. Deleting by key alone would wipe a takeover
+    # holder's lock if our regeneration ran long and another process replaced us
+    # (with a new token) — letting a duplicate regeneration start (L10). The
+    # token match makes the release a no-op once we've been superseded.
+    :ets.select_delete(@lock_table, [{{group_slug, {:_, token}}, [], [true]}])
   end
 
   # Ensure the ETS table for locks exists (lazy initialization).

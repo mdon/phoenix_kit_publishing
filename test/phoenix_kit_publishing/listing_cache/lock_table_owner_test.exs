@@ -24,4 +24,25 @@ defmodule PhoenixKit.Modules.Publishing.ListingCache.LockTableOwnerTest do
     owner = :ets.info(@lock_table, :owner)
     assert is_pid(owner) and Process.alive?(owner)
   end
+
+  test "a superseded holder's token-scoped release leaves a takeover lock intact (L10)" do
+    # Pins the contract do_regenerate_with_lock/2's release relies on: the lock
+    # value is {timestamp, token}, and a release matched on a stale token is a
+    # no-op — so a slow original holder can't delete a takeover holder's lock.
+    PhoenixKit.Modules.Publishing.ListingCache.ensure_lock_table_exists()
+    group = "l10-#{System.unique_integer([:positive])}"
+    token_a = make_ref()
+    token_b = make_ref()
+
+    # B took over with a fresh token after A went stale.
+    :ets.insert(@lock_table, {group, {1, token_b}})
+
+    # A's release (token_a) must delete nothing and leave B's lock untouched.
+    assert :ets.select_delete(@lock_table, [{{group, {:_, token_a}}, [], [true]}]) == 0
+    assert :ets.lookup(@lock_table, group) == [{group, {1, token_b}}]
+
+    # B's own release cleanly removes its lock.
+    assert :ets.select_delete(@lock_table, [{{group, {:_, token_b}}, [], [true]}]) == 1
+    assert :ets.lookup(@lock_table, group) == []
+  end
 end
