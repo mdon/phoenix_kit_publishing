@@ -9,6 +9,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor.Persistence do
   use Gettext, backend: PhoenixKitWeb.Gettext
 
   alias PhoenixKit.Modules.Publishing
+  alias PhoenixKit.Modules.Publishing.DBStorage
   alias PhoenixKit.Modules.Publishing.Errors
   alias PhoenixKit.Modules.Publishing.ListingCache
   alias PhoenixKit.Modules.Publishing.PubSub, as: PublishingPubSub
@@ -88,6 +89,15 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor.Persistence do
         socket = Phoenix.LiveView.put_flash(socket, :info, notice)
         do_perform_save(socket, validated_params)
 
+      {:slug_conflict, info} ->
+        # Don't silently clear or save — show the user which post owns the slug
+        # (with a link) so they can rename theirs or jump to the other one. The
+        # form keeps their typed slug so they can edit it after closing.
+        {:noreply,
+         socket
+         |> Phoenix.Component.assign(:slug_conflict_info, info)
+         |> Phoenix.Component.assign(:show_slug_conflict_modal, true)}
+
       {:error, reason} ->
         error_message = url_slug_error_message(reason)
         {:noreply, Phoenix.LiveView.put_flash(socket, :error, error_message)}
@@ -110,20 +120,30 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor.Persistence do
           auto_clear_and_notify(params, group_slug, post_slug, url_slug, language, :conflicts)
 
         {:error, :slug_already_exists} ->
-          auto_clear_and_notify(
-            params,
-            group_slug,
-            post_slug,
-            url_slug,
-            language,
-            :already_exists
-          )
+          {:slug_conflict, build_slug_conflict_info(group_slug, url_slug, language)}
 
         {:error, reason} ->
           {:error, reason}
       end
     else
       {:ok, params}
+    end
+  end
+
+  # Look up the post that already owns `url_slug` so the conflict modal can name
+  # it and link to it (drafts included). Degrades to a title-less notice if the
+  # owner can't be resolved.
+  defp build_slug_conflict_info(group_slug, url_slug, language) do
+    case DBStorage.find_by_url_slug_any_version(group_slug, language, url_slug) do
+      %{title: title, version: %{post: %{uuid: uuid}}} ->
+        %{
+          slug: url_slug,
+          title: title,
+          edit_url: Helpers.build_edit_url(group_slug, %{uuid: uuid})
+        }
+
+      _ ->
+        %{slug: url_slug, title: nil, edit_url: nil}
     end
   end
 
@@ -150,22 +170,6 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor.Persistence do
     )
   end
 
-  defp slug_cleared_notice(:already_exists, slug, _language, count) when count > 1 do
-    gettext(
-      "Custom URL slug '%{slug}' was cleared from %{count} translations because it's already in use by another post",
-      slug: slug,
-      count: count
-    )
-  end
-
-  defp slug_cleared_notice(:already_exists, slug, language, _count) do
-    gettext(
-      "Custom URL slug '%{slug}' for %{language} was cleared because it's already in use by another post",
-      slug: slug,
-      language: language
-    )
-  end
-
   defp url_slug_error_message(:invalid_format),
     do: gettext("URL slug must be lowercase letters, numbers, and hyphens only")
 
@@ -174,6 +178,12 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor.Persistence do
 
   defp url_slug_error_message(:reserved_route_word),
     do: gettext("URL slug cannot be a reserved word (admin, api, assets, etc.)")
+
+  defp url_slug_error_message(:conflicts_with_previous_slug),
+    do:
+      gettext(
+        "URL slug is a previous address of another post — using it would hijack that post's redirect"
+      )
 
   defp do_perform_save(socket, params) do
     is_new_post = Map.get(socket.assigns, :is_new_post, false)
@@ -755,6 +765,12 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor.Persistence do
 
   defp re_read_post(socket, language \\ nil, version \\ nil) do
     post = socket.assigns.post
+    # Default to the editor's pinned version (current_version), not the latest —
+    # reload_post/reload_translated_content/refresh_available_languages all run
+    # while pinned to a specific version, and reading the latest would load the
+    # wrong version's content and misdirect the next save (commit 59381a3's bug,
+    # surviving in these sibling reload paths).
+    version = version || socket.assigns[:current_version]
     Publishing.read_post_by_uuid(post.uuid, language, version)
   end
 

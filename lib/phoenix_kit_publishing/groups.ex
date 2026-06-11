@@ -226,6 +226,10 @@ defmodule PhoenixKit.Modules.Publishing.Groups do
              {:ok, sanitized_slug} <- extract_and_validate_slug(db_group, params, name),
              {:ok, updated} <-
                DBStorage.update_group(db_group, %{name: name, slug: sanitized_slug}) do
+          # A slug rename orphans the old slug's listing cache entry — it leaks in
+          # :persistent_term and keeps serving stale data under the old key (L6).
+          if db_group.slug != updated.slug, do: ListingCache.invalidate(db_group.slug)
+
           group = db_group_to_map(updated)
           PublishingPubSub.broadcast_group_updated(group)
 

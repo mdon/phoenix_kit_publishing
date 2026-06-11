@@ -47,7 +47,6 @@ defmodule PhoenixKit.Modules.Publishing.ListingCache do
   require Logger
 
   @persistent_term_prefix :phoenix_kit_group_listing_cache
-  @persistent_term_loaded_at_prefix :phoenix_kit_group_listing_cache_loaded_at
   @persistent_term_cache_generated_at_prefix :phoenix_kit_group_listing_cache_generated_at
 
   # ETS table for regeneration locks (provides atomic test-and-set via insert_new)
@@ -81,7 +80,13 @@ defmodule PhoenixKit.Modules.Publishing.ListingCache do
         hit
 
       :not_found ->
-        regenerate(group_slug)
+        # Go through the in-progress guard, not `regenerate/1` directly, so a
+        # burst of concurrent misses (e.g. right after a restart) doesn't fire
+        # N synchronous regenerations + N global `:persistent_term.put` GCs.
+        # A loser sees `:already_in_progress`, reads an as-yet-empty term, and
+        # returns `:cache_miss` — which every caller already handles with a
+        # direct DB read (see PostFetching.handle_cache_miss/2).
+        regenerate_if_not_in_progress(group_slug)
         read_after_regenerate(term_key)
     end
   end
@@ -180,8 +185,10 @@ defmodule PhoenixKit.Modules.Publishing.ListingCache do
 
     generated_at = UtilsDate.utc_now() |> DateTime.to_iso8601()
 
+    # Two puts, not three: the loaded-at and generated-at timestamps were always
+    # written with the SAME value, and each :persistent_term.put triggers a global
+    # GC pass — wasteful under autosave traffic. Store the timestamp once (L12).
     safe_persistent_term_put(persistent_term_key(group_slug), posts)
-    safe_persistent_term_put(loaded_at_key(group_slug), generated_at)
     safe_persistent_term_put(cache_generated_at_key(group_slug), generated_at)
 
     elapsed = System.monotonic_time(:millisecond) - start_time
@@ -228,24 +235,37 @@ defmodule PhoenixKit.Modules.Publishing.ListingCache do
   def regenerate_if_not_in_progress(group_slug) do
     ensure_lock_table_exists()
     now = System.monotonic_time(:millisecond)
+    # Unique per-acquisition token so release only removes OUR lock, never a
+    # takeover holder's that replaced it (L10). The value is {timestamp, token}:
+    # timestamp drives staleness, token drives ownership.
+    token = make_ref()
 
     # Try to atomically acquire the lock using ETS insert_new
     # Returns true if inserted (lock acquired), false if key already exists
-    case :ets.insert_new(@lock_table, {group_slug, now}) do
+    case :ets.insert_new(@lock_table, {group_slug, {now, token}}) do
       true ->
         # We acquired the lock - perform regeneration
-        do_regenerate_with_lock(group_slug)
+        do_regenerate_with_lock(group_slug, token)
 
       false ->
         # Lock exists - check if it's stale
         handle_existing_lock(group_slug, now)
     end
+  rescue
+    ArgumentError ->
+      # The lock table vanished mid-operation — e.g. a transient process recreated
+      # it during a LockTableOwner restart gap and then died. A public read must
+      # never 500 over this; recreate the table and report "in progress" so the
+      # caller falls back to a direct DB read (a harmless extra regeneration at
+      # worst). Backstop for the supervised-owner fix (M8).
+      ensure_lock_table_exists()
+      :already_in_progress
   end
 
   # Handle case where lock already exists - check staleness
   defp handle_existing_lock(group_slug, now) do
     case :ets.lookup(@lock_table, group_slug) do
-      [{^group_slug, lock_timestamp}] ->
+      [{^group_slug, {lock_timestamp, _token} = lock_value}] ->
         lock_age = now - lock_timestamp
 
         if lock_age < @lock_timeout_ms do
@@ -258,7 +278,7 @@ defmodule PhoenixKit.Modules.Publishing.ListingCache do
         else
           # Lock is stale - previous process likely died
           # Try to take over by deleting and re-acquiring atomically
-          take_over_stale_lock(group_slug, lock_timestamp, lock_age, now)
+          take_over_stale_lock(group_slug, lock_value, lock_age, now)
         end
 
       [] ->
@@ -268,19 +288,21 @@ defmodule PhoenixKit.Modules.Publishing.ListingCache do
   end
 
   # Attempt to take over a stale lock using compare-and-delete
-  defp take_over_stale_lock(group_slug, old_timestamp, lock_age, now) do
-    # Use match_delete for atomic compare-and-delete
-    # Only deletes if the timestamp matches (no one else took over)
-    case :ets.select_delete(@lock_table, [{{group_slug, old_timestamp}, [], [true]}]) do
+  defp take_over_stale_lock(group_slug, stale_value, lock_age, now) do
+    # Atomic compare-and-delete: only deletes if the exact {timestamp, token}
+    # is still present (no one else already took over).
+    case :ets.select_delete(@lock_table, [{{group_slug, stale_value}, [], [true]}]) do
       1 ->
-        # Successfully deleted stale lock - now try to acquire
+        # Successfully deleted stale lock - now try to acquire with a fresh token
         Logger.warning(
           "[ListingCache] Found stale lock for #{group_slug} (#{lock_age}ms old), taking over regeneration"
         )
 
-        case :ets.insert_new(@lock_table, {group_slug, now}) do
+        token = make_ref()
+
+        case :ets.insert_new(@lock_table, {group_slug, {now, token}}) do
           true ->
-            do_regenerate_with_lock(group_slug)
+            do_regenerate_with_lock(group_slug, token)
 
           false ->
             # Another process beat us to it
@@ -294,7 +316,7 @@ defmodule PhoenixKit.Modules.Publishing.ListingCache do
   end
 
   # Perform regeneration while holding the lock
-  defp do_regenerate_with_lock(group_slug) do
+  defp do_regenerate_with_lock(group_slug, token) do
     result = regenerate(group_slug)
 
     case result do
@@ -302,12 +324,22 @@ defmodule PhoenixKit.Modules.Publishing.ListingCache do
       {:error, _} = error -> error
     end
   after
-    # Always release the lock when done (success or failure)
-    :ets.delete(@lock_table, group_slug)
+    # Release ONLY our own lock. Deleting by key alone would wipe a takeover
+    # holder's lock if our regeneration ran long and another process replaced us
+    # (with a new token) — letting a duplicate regeneration start (L10). The
+    # token match makes the release a no-op once we've been superseded.
+    :ets.select_delete(@lock_table, [{{group_slug, {:_, token}}, [], [true]}])
   end
 
-  # Ensure the ETS table for locks exists (lazy initialization)
-  defp ensure_lock_table_exists do
+  # Ensure the ETS table for locks exists (lazy initialization).
+  #
+  # Public so a supervised owner (LockTableOwner) can create it at startup. The
+  # table is otherwise born in whichever transient request process first misses
+  # the cache, and dies with that process — after which the lock ops here raise
+  # ArgumentError on the vanished table and 500 a public read (M8). The lazy path
+  # stays as a fallback for the brief window before/around an owner restart.
+  @doc false
+  def ensure_lock_table_exists do
     case :ets.whereis(@lock_table) do
       :undefined ->
         # Table doesn't exist - create it
@@ -351,7 +383,6 @@ defmodule PhoenixKit.Modules.Publishing.ListingCache do
     generated_at = UtilsDate.utc_now() |> DateTime.to_iso8601()
 
     safe_persistent_term_put(persistent_term_key(group_slug), posts)
-    safe_persistent_term_put(loaded_at_key(group_slug), generated_at)
     safe_persistent_term_put(cache_generated_at_key(group_slug), generated_at)
 
     Logger.debug(
@@ -385,18 +416,39 @@ defmodule PhoenixKit.Modules.Publishing.ListingCache do
     end
 
     try do
-      :persistent_term.erase(loaded_at_key(group_slug))
-    rescue
-      ArgumentError -> :ok
-    end
-
-    try do
       :persistent_term.erase(cache_generated_at_key(group_slug))
     rescue
       ArgumentError -> :ok
     end
 
     Logger.debug("[ListingCache] Invalidated cache for #{group_slug}")
+    :ok
+  end
+
+  @doc """
+  Erases EVERY listing-cache `:persistent_term` entry (all groups, this node).
+
+  Used when memory caching is toggled off, so a later re-enable can't serve
+  pre-disable data — `read/1` returns `:cache_miss` while disabled, but the stale
+  terms would otherwise still be present (under all three prefixes) the moment it's
+  re-enabled. `:persistent_term` has no prefix-scan, so this filters the full term
+  snapshot — fine for a rare admin toggle, never call it on a hot path.
+  """
+  @spec erase_all() :: :ok
+  def erase_all do
+    Enum.each(:persistent_term.get(), fn
+      {{prefix, _slug} = key, _value}
+      when prefix in [@persistent_term_prefix, @persistent_term_cache_generated_at_prefix] ->
+        try do
+          :persistent_term.erase(key)
+        rescue
+          ArgumentError -> :ok
+        end
+
+      _ ->
+        :ok
+    end)
+
     :ok
   end
 
@@ -618,22 +670,15 @@ defmodule PhoenixKit.Modules.Publishing.ListingCache do
   end
 
   @doc """
-  Returns the :persistent_term key for tracking when the memory cache was loaded.
-  """
-  @spec loaded_at_key(String.t()) :: tuple()
-  def loaded_at_key(group_slug) do
-    {@persistent_term_loaded_at_prefix, group_slug}
-  end
-
-  @doc """
   Returns when the memory cache was loaded (ISO 8601 string), or nil if not loaded.
+
+  Backed by the same `:persistent_term` entry as `cache_generated_at/1` — on this
+  node the cache is loaded exactly when it's generated, so the two are identical
+  and share one entry (L12).
   """
   @spec memory_loaded_at(String.t()) :: String.t() | nil
   def memory_loaded_at(group_slug) do
-    case safe_persistent_term_get(loaded_at_key(group_slug)) do
-      {:ok, loaded_at} -> loaded_at
-      :not_found -> nil
-    end
+    cache_generated_at(group_slug)
   end
 
   @doc """

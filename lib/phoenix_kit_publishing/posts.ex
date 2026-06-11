@@ -25,6 +25,7 @@ defmodule PhoenixKit.Modules.Publishing.Posts do
   alias PhoenixKit.Modules.Publishing.Shared
   alias PhoenixKit.Modules.Publishing.SlugHelpers
   alias PhoenixKit.Modules.Publishing.StaleFixer
+  alias PhoenixKit.Settings
   alias PhoenixKit.Utils.Date, as: UtilsDate
 
   # Suppress dialyzer false positives for pattern matches
@@ -490,6 +491,12 @@ defmodule PhoenixKit.Modules.Publishing.Posts do
       slug: post.slug,
       url_slug: content.url_slug,
       language: content.language,
+      # Routing fields, mirroring the cache shape (Mapper.to_listing_map/4) so a
+      # 301 redirect built from this map resolves to the right canonical URL for
+      # both slug- and timestamp-mode posts instead of guessing the mode.
+      mode: post.mode,
+      date: post.post_date,
+      time: post.post_time,
       metadata: %{
         title: content.title,
         status: version.status,
@@ -618,18 +625,25 @@ defmodule PhoenixKit.Modules.Publishing.Posts do
     end
   end
 
-  # The `(group_uuid, post_date, post_time)` unique-constraint
-  # violation lands here as a changeset error after `repo.rollback`.
-  # Both the field-level and constraint-name keys are checked because
-  # Ecto puts the error under whichever field is declared in the
-  # `unique_constraint/3` call (currently `:post_time`).
+  # The `(group_uuid, post_date, post_time)` unique-constraint violation lands
+  # here as a changeset error after `repo.rollback`. Ecto puts the error under
+  # the FIRST field of the `unique_constraint/3` list — `:group_uuid`, NOT
+  # `:post_time` — so matching only the date/time keys meant this never fired and
+  # concurrent same-minute creates surfaced "Group has already been taken". Match
+  # the constraint NAME (like StaleFixer.slug_conflict?/1) so a real FK error or
+  # the slug-uniqueness violation on the same `:group_uuid` key isn't mistaken
+  # for a timestamp collision.
   defp timestamp_collision?({:error, %Ecto.Changeset{errors: errors}}) do
-    Enum.any?(errors, fn
-      {field, {_msg, opts}} when field in [:post_time, :post_date] ->
-        opts[:constraint] == :unique
+    Enum.any?([:group_uuid, :post_date, :post_time], fn key ->
+      case Keyword.get(errors, key) do
+        {_msg, opts} ->
+          Keyword.get(opts, :constraint) == :unique and
+            Keyword.get(opts, :constraint_name) ==
+              "idx_publishing_posts_group_date_time_unique"
 
-      _ ->
-        false
+        _ ->
+          false
+      end
     end)
   end
 
@@ -670,12 +684,28 @@ defmodule PhoenixKit.Modules.Publishing.Posts do
   end
 
   defp maybe_add_initial_timestamp(post_attrs, "timestamp", now) do
-    date = DateTime.to_date(now)
-    time = %Time{hour: now.hour, minute: now.minute, second: 0, microsecond: {0, 0}}
+    # Stamp the post's date/time in the configured site time zone, NOT raw UTC.
+    # Timestamp-mode post_date/post_time are pure Date/Time values shown as-is
+    # (no display conversion), and an edit stores the editor's naive wall clock —
+    # so stamping creation in UTC made a freshly-created post disagree with an
+    # edited one about which day it lives under (L5). No-op when time_zone is "0".
+    local_now = shift_to_site_timezone(now)
+    date = DateTime.to_date(local_now)
+    time = %Time{hour: local_now.hour, minute: local_now.minute, second: 0, microsecond: {0, 0}}
     Map.merge(post_attrs, %{post_date: date, post_time: time})
   end
 
   defp maybe_add_initial_timestamp(post_attrs, _mode, _now), do: post_attrs
+
+  # Shift a UTC datetime by the configured site `time_zone` (integer-hour offset,
+  # default "0"). Mirrors the offset the display/edit layers use, so create/edit/
+  # display all agree on a timestamp post's wall clock. Bad/missing setting → UTC.
+  defp shift_to_site_timezone(datetime) do
+    case Integer.parse(Settings.get_setting("time_zone", "0")) do
+      {offset_hours, ""} -> DateTime.add(datetime, offset_hours * 3600, :second)
+      _ -> datetime
+    end
+  end
 
   defp resolve_timestamp_in_transaction(post_attrs, "timestamp", group_slug) do
     {date, time} =
@@ -697,7 +727,7 @@ defmodule PhoenixKit.Modules.Publishing.Posts do
   defp read_post_from_db(group_slug, identifier, language, version) do
     # If identifier is a UUID, resolve via UUID lookup (handles both modes)
     if Shared.uuid_format?(identifier) do
-      read_post_by_uuid(identifier, language, version)
+      read_uuid_post_in_group(group_slug, identifier, language, version)
     else
       case Publishing.get_group_mode(group_slug) do
         "timestamp" ->
@@ -706,6 +736,19 @@ defmodule PhoenixKit.Modules.Publishing.Posts do
         _ ->
           read_post_from_db_slug(group_slug, identifier, language, version)
       end
+    end
+  end
+
+  # Pin a UUID lookup to the requested group. read_post_by_uuid/3 resolves purely
+  # by UUID, so without this `GET /<any-group>/<uuid>` would serve a post from a
+  # DIFFERENT group under the wrong group's name + canonical URL (M6).
+  defp read_uuid_post_in_group(group_slug, identifier, language, version) do
+    case read_post_by_uuid(identifier, language, version) do
+      {:ok, post} ->
+        if post[:group] == group_slug, do: {:ok, post}, else: {:error, :not_found}
+
+      other ->
+        other
     end
   end
 
@@ -856,24 +899,29 @@ defmodule PhoenixKit.Modules.Publishing.Posts do
   end
 
   defp find_available_timestamp(group_slug, date, time, attempts) do
-    case DBStorage.get_post_by_datetime(group_slug, date, time) do
-      nil ->
-        {date, time}
+    # Trashed-INCLUSIVE check: the unique index includes trashed rows, so a
+    # version that only looked at live posts would keep handing back a slot the
+    # DB rejects, and the collision retry could never converge (see M2/M1).
+    if DBStorage.timestamp_slot_taken?(group_slug, date, time) do
+      bump_timestamp(group_slug, date, time, attempts)
+    else
+      {date, time}
+    end
+  end
 
-      _existing ->
-        # Bump by one minute
-        total_seconds = time.hour * 3600 + time.minute * 60 + 60
+  # Advance the candidate timestamp by one minute, rolling over to the next day
+  # at midnight, and retry the availability check.
+  defp bump_timestamp(group_slug, date, time, attempts) do
+    total_seconds = time.hour * 3600 + time.minute * 60 + 60
 
-        if total_seconds >= 86_400 do
-          # Rolled past midnight — advance to next day at 00:00
-          next_date = Date.add(date, 1)
-          find_available_timestamp(group_slug, next_date, ~T[00:00:00], attempts + 1)
-        else
-          next_hour = div(total_seconds, 3600)
-          next_minute = div(rem(total_seconds, 3600), 60)
-          next_time = %Time{hour: next_hour, minute: next_minute, second: 0, microsecond: {0, 0}}
-          find_available_timestamp(group_slug, date, next_time, attempts + 1)
-        end
+    if total_seconds >= 86_400 do
+      next_date = Date.add(date, 1)
+      find_available_timestamp(group_slug, next_date, ~T[00:00:00], attempts + 1)
+    else
+      next_hour = div(total_seconds, 3600)
+      next_minute = div(rem(total_seconds, 3600), 60)
+      next_time = %Time{hour: next_hour, minute: next_minute, second: 0, microsecond: {0, 0}}
+      find_available_timestamp(group_slug, date, next_time, attempts + 1)
     end
   end
 
@@ -902,9 +950,28 @@ defmodule PhoenixKit.Modules.Publishing.Posts do
     end
   rescue
     e ->
-      Logger.warning("[Publishing] update_post_in_db failed: #{inspect(e)}")
-      {:error, :db_update_failed}
+      if db_exception?(e) do
+        Logger.warning("[Publishing] update_post_in_db DB error: #{inspect(e)}")
+        {:error, :db_update_failed}
+      else
+        # Don't swallow programmer errors as a generic DB failure — surface them
+        # (with a stacktrace) so real bugs aren't masked as "save failed" (L11).
+        Logger.error(
+          "[Publishing] update_post_in_db bug: " <> Exception.format(:error, e, __STACKTRACE__)
+        )
+
+        reraise(e, __STACKTRACE__)
+      end
   end
+
+  # True for the database-level exceptions an update can legitimately raise (so
+  # they degrade to {:error, :db_update_failed}); everything else is a code bug.
+  defp db_exception?(%Postgrex.Error{}), do: true
+  defp db_exception?(%DBConnection.ConnectionError{}), do: true
+  defp db_exception?(%Ecto.StaleEntryError{}), do: true
+  defp db_exception?(%Ecto.ConstraintError{}), do: true
+  defp db_exception?(%Ecto.Query.CastError{}), do: true
+  defp db_exception?(_), do: false
 
   # Find the DB post record for update, using UUID, date/time, or slug as available
   defp find_db_post_for_update(group_slug, post) do
@@ -970,16 +1037,53 @@ defmodule PhoenixKit.Modules.Publishing.Posts do
       # save; promotion runs once per legacy row and is logged via Activity.
       legacy_promotions = collect_legacy_content_promotions(version, language)
 
+      write_ctx = %{
+        language: language,
+        new_title: new_title,
+        content: content,
+        params: params,
+        post: post,
+        db_post: db_post,
+        audit_meta: audit_meta,
+        legacy_promotions: legacy_promotions
+      }
+
       with :ok <- validate_title_for_publish(language, new_status, new_title),
-           :ok <- upsert_post_content(version, language, new_title, content, params, post),
-           :ok <- update_version_defaults(version, params, post, legacy_promotions),
-           {:ok, db_post} <- maybe_sync_datetime_and_audit(db_post, params, audit_meta) do
+           {:ok, db_post} <- persist_post_update(version, write_ctx) do
         log_legacy_metadata_promoted(legacy_promotions, version, language)
         read_updated_post(db_post, group_slug, final_slug, language, version_number)
       end
     else
       {:error, :not_found}
     end
+  end
+
+  # Persist the three coupled writes of a post update in ONE transaction.
+  # `upsert_post_content/6` strips the legacy V1 keys (description,
+  # featured_image_uuid, seo_title, excerpt) from the content row that
+  # `update_version_defaults/4` then re-persists at the version level. Without the
+  # transaction, a failure in between committed the wipe but not the promotion —
+  # destroying those values permanently (M3).
+  defp persist_post_update(version, ctx) do
+    repo = PhoenixKit.RepoHelper.repo()
+
+    repo.transaction(fn ->
+      with :ok <-
+             upsert_post_content(
+               version,
+               ctx.language,
+               ctx.new_title,
+               ctx.content,
+               ctx.params,
+               ctx.post
+             ),
+           :ok <- update_version_defaults(version, ctx.params, ctx.post, ctx.legacy_promotions),
+           {:ok, synced} <- maybe_sync_datetime_and_audit(ctx.db_post, ctx.params, ctx.audit_meta) do
+        synced
+      else
+        {:error, reason} -> repo.rollback(reason)
+      end
+    end)
   end
 
   @default_title Constants.default_title()
@@ -1034,7 +1138,10 @@ defmodule PhoenixKit.Modules.Publishing.Posts do
       end
 
     # Content data only holds content-row-specific metadata (previous_url_slugs, etc.)
-    content_data = preserve_content_data(existing_data, params, post)
+    content_data =
+      existing_data
+      |> preserve_content_data(params, post)
+      |> record_previous_url_slug(existing_url_slug, resolved_url_slug)
 
     case DBStorage.upsert_content(%{
            version_uuid: version.uuid,
@@ -1066,6 +1173,29 @@ defmodule PhoenixKit.Modules.Publishing.Posts do
   # legacy row and is logged via `ActivityLog.log/1`.
   defp preserve_content_data(existing_data, _params, _post) do
     Map.take(existing_data, @content_only_data_keys)
+  end
+
+  # When a content row's custom url_slug changes, record the OLD slug so the
+  # 301-redirect machinery (find_by_previous_url_slug/3) can forward its stale
+  # URLs to the new one. Without this writer the whole previous-slug system
+  # consumed data nothing produced — renaming a url_slug 404'd every old URL.
+  #
+  # The new slug is dropped from the history (so reverting A->B->A can't leave a
+  # previous-slug pointing at the current URL, which would 301-loop), and the
+  # list is deduped, newest-first.
+  defp record_previous_url_slug(data, old_slug, new_slug)
+       when old_slug in [nil, ""] or old_slug == new_slug,
+       do: data
+
+  defp record_previous_url_slug(data, old_slug, new_slug) do
+    previous = data["previous_url_slugs"] || []
+
+    updated =
+      [old_slug | previous]
+      |> Enum.reject(&(&1 in [nil, "", new_slug]))
+      |> Enum.uniq()
+
+    Map.put(data, "previous_url_slugs", updated)
   end
 
   # Reads the current content row and returns a map of legacy V1 keys that
@@ -1136,13 +1266,17 @@ defmodule PhoenixKit.Modules.Publishing.Posts do
       )
       |> maybe_put_version_field("seo_title", Map.get(params, "seo_title"))
       |> maybe_put_version_field("tags", Map.get(params, "tags"))
-      |> maybe_put_version_field("seo", Map.get(params, "seo"))
       |> maybe_put_version_field("excerpt", Map.get(params, "excerpt"))
 
-    # Also update version-level status and published_at if provided
+    # Also update version-level status and published_at if provided.
+    # "published" is NEVER written here — it is set atomically with
+    # active_version_uuid by Versions.publish_version/4. Writing it here (a
+    # separate transaction) let a save commit status=published while the paired
+    # publish rolled back (e.g. empty primary title), leaving a post that reads
+    # "published" with no active version — admin shows published, public 404s (M4).
     version_attrs =
       %{data: new_data}
-      |> maybe_put(:status, Map.get(params, "status"))
+      |> maybe_put(:status, deferred_publish_status(Map.get(params, "status")))
       |> maybe_put(:published_at, parse_published_at_from_params(params))
 
     case DBStorage.update_version(version, version_attrs) do
@@ -1153,6 +1287,12 @@ defmodule PhoenixKit.Modules.Publishing.Posts do
 
   defp maybe_put_version_field(data, _key, nil), do: data
   defp maybe_put_version_field(data, key, value), do: Map.put(data, key, value)
+
+  # Drop a "published" status so it is never written outside publish_version/4's
+  # atomic transaction (see update_version_defaults/4). draft/archived/nil pass
+  # through unchanged.
+  defp deferred_publish_status("published"), do: nil
+  defp deferred_publish_status(status), do: status
 
   defp parse_published_at_from_params(params) do
     case Map.get(params, "published_at") do

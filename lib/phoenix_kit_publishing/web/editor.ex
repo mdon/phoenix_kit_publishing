@@ -138,6 +138,8 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
       |> assign(:viewing_older_version, false)
       |> assign(:show_new_version_modal, false)
       |> assign(:new_version_source, nil)
+      |> assign(:show_slug_conflict_modal, false)
+      |> assign(:slug_conflict_info, nil)
       |> assign(:show_ai_translation, false)
       |> assign(:ai_enabled, Code.ensure_loaded?(PhoenixKitAI) and AI.enabled?())
       |> assign(:ai_endpoints, Translation.list_ai_endpoints())
@@ -192,18 +194,36 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
   # UUID-based route: /admin/publishing/:group/:post_uuid/edit
   def handle_params(%{"post_uuid" => post_uuid} = params, uri, socket)
       when not is_map_key(params, "preview_token") do
-    socket = assign(socket, :endpoint_url, extract_endpoint_url(uri))
+    socket =
+      socket
+      |> assign(:endpoint_url, extract_endpoint_url(uri))
+      |> reset_translation_state()
+
     handle_uuid_post_params(socket, post_uuid, params)
   end
 
   def handle_params(%{"path" => path} = params, uri, socket)
       when not is_map_key(params, "preview_token") do
-    socket = assign(socket, :endpoint_url, extract_endpoint_url(uri))
+    socket =
+      socket
+      |> assign(:endpoint_url, extract_endpoint_url(uri))
+      |> reset_translation_state()
+
     handle_path_post_params(socket, path, params)
   end
 
   def handle_params(_params, _uri, socket) do
     {:noreply, socket}
+  end
+
+  # Clear any in-flight translation lock/spinner when (re)loading a post scope.
+  # A version or language switch patches through handle_params, but completion
+  # events for the PREVIOUS scope are deliberately ignored — so without this the
+  # editor would stay locked behind a spinner until a full remount.
+  defp reset_translation_state(socket) do
+    socket
+    |> assign(:translation_locked?, false)
+    |> assign(:ai_translation_progress, nil)
   end
 
   # Derive the public-facing origin (scheme://host[:port]) from the current
@@ -223,6 +243,20 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
 
   defp extract_endpoint_url(_), do: ""
 
+  # Resolve a post by UUID but require it to belong to the group in the URL.
+  # read_post_by_uuid/3 resolves purely by UUID, so without this the editor would
+  # load a post from another group and then validate slug uniqueness against the
+  # wrong group — letting it mint duplicate slugs in the real group (M6).
+  defp read_post_by_uuid_in_group(post_uuid, group_slug, language, version) do
+    case Publishing.read_post_by_uuid(post_uuid, language, version) do
+      {:ok, post} ->
+        if post[:group] == group_slug, do: {:ok, post}, else: {:error, :wrong_group}
+
+      other ->
+        other
+    end
+  end
+
   defp handle_uuid_post_params(socket, post_uuid, params) do
     group_slug = socket.assigns.group_slug
     group_mode = Publishing.get_group_mode(group_slug)
@@ -230,7 +264,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
     version = parse_version_param(params["v"])
     language = params["lang"]
 
-    case Publishing.read_post_by_uuid(post_uuid, language, version) do
+    case read_post_by_uuid_in_group(post_uuid, group_slug, language, version) do
       {:ok, post} ->
         all_enabled_languages = Publishing.enabled_language_codes()
 
@@ -803,15 +837,23 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
   end
 
   def handle_event("translate_to_all_languages", _params, socket) do
-    target_languages = Translation.get_all_target_languages(socket)
-    empty_opts = {:warning, gettext("No other languages enabled to translate to")}
-    Translation.enqueue_translation(socket, target_languages, empty_opts)
+    if socket.assigns[:readonly?] do
+      {:noreply, socket}
+    else
+      target_languages = Translation.get_all_target_languages(socket)
+      empty_opts = {:warning, gettext("No other languages enabled to translate to")}
+      Translation.enqueue_translation(socket, target_languages, empty_opts)
+    end
   end
 
   def handle_event("translate_missing_languages", _params, socket) do
-    target_languages = Translation.get_target_languages_for_translation(socket)
-    empty_opts = {:info, gettext("All languages already have translations")}
-    Translation.enqueue_translation(socket, target_languages, empty_opts)
+    if socket.assigns[:readonly?] do
+      {:noreply, socket}
+    else
+      target_languages = Translation.get_target_languages_for_translation(socket)
+      empty_opts = {:info, gettext("All languages already have translations")}
+      Translation.enqueue_translation(socket, target_languages, empty_opts)
+    end
   end
 
   def handle_event("translate_to_this_language", _params, socket) do
@@ -820,6 +862,11 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
     else
       Translation.start_translation_to_current(socket)
     end
+  end
+
+  def handle_event("confirm_translation", _params, socket)
+      when socket.assigns.readonly? == true do
+    {:noreply, socket}
   end
 
   def handle_event("confirm_translation", _params, socket) do
@@ -861,41 +908,48 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
   end
 
   def handle_event("switch_version", %{"version" => version_str}, socket) do
-    version = String.to_integer(version_str)
+    # Parse defensively — a hand-crafted `?v=abc` would otherwise crash the LV on
+    # String.to_integer/1 (L1). parse_version_param/1 returns nil on junk.
+    version = parse_version_param(version_str)
 
-    if version == socket.assigns.current_version do
-      {:noreply, socket}
-    else
-      case Versions.read_version_post(socket, version) do
-        {:ok, version_post} ->
-          {socket, old_form_key, old_post_slug, new_form_key, actual_language} =
-            Versions.apply_version_switch(
-              socket,
-              version,
-              version_post,
-              &Forms.post_form_with_primary_status/3
-            )
+    cond do
+      is_nil(version) ->
+        {:noreply, put_flash(socket, :error, gettext("Version not found"))}
 
-          socket =
-            socket
-            |> Helpers.assign_current_language(actual_language)
-            |> Collaborative.cleanup_and_setup_collaborative_editing(old_form_key, new_form_key,
-              old_post_slug: old_post_slug
-            )
+      version == socket.assigns.current_version ->
+        {:noreply, socket}
 
-          post = socket.assigns.post
+      true ->
+        case Versions.read_version_post(socket, version) do
+          {:ok, version_post} ->
+            {socket, old_form_key, old_post_slug, new_form_key, actual_language} =
+              Versions.apply_version_switch(
+                socket,
+                version,
+                version_post,
+                &Forms.post_form_with_primary_status/3
+              )
 
-          url =
-            Helpers.build_edit_url(socket.assigns.group_slug, post,
-              version: version,
-              lang: actual_language
-            )
+            socket =
+              socket
+              |> Helpers.assign_current_language(actual_language)
+              |> Collaborative.cleanup_and_setup_collaborative_editing(old_form_key, new_form_key,
+                old_post_slug: old_post_slug
+              )
 
-          {:noreply, push_patch(socket, to: url, replace: true)}
+            post = socket.assigns.post
 
-        {:error, _reason} ->
-          {:noreply, put_flash(socket, :error, gettext("Version not found"))}
-      end
+            url =
+              Helpers.build_edit_url(socket.assigns.group_slug, post,
+                version: version,
+                lang: actual_language
+              )
+
+            {:noreply, push_patch(socket, to: url, replace: true)}
+
+          {:error, _reason} ->
+            {:noreply, put_flash(socket, :error, gettext("Version not found"))}
+        end
     end
   end
 
@@ -917,6 +971,13 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
      |> assign(:new_version_source, nil)}
   end
 
+  def handle_event("close_slug_conflict_modal", _params, socket) do
+    {:noreply,
+     socket
+     |> assign(:show_slug_conflict_modal, false)
+     |> assign(:slug_conflict_info, nil)}
+  end
+
   def handle_event("set_new_version_source", %{"source" => "blank"}, socket) do
     {:noreply, assign(socket, :new_version_source, nil)}
   end
@@ -926,6 +987,11 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
       {version, _} -> {:noreply, assign(socket, :new_version_source, version)}
       :error -> {:noreply, socket}
     end
+  end
+
+  def handle_event("create_version_from_source", _params, socket)
+      when socket.assigns.readonly? == true do
+    {:noreply, socket}
   end
 
   def handle_event("create_version_from_source", _params, socket) do
@@ -953,29 +1019,23 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
   # ============================================================================
 
   def handle_event("preview", _params, socket) do
-    # Save first if there are pending changes (autosave is 500ms but user might click fast)
-    socket =
-      if socket.assigns.has_pending_changes do
-        {:noreply, saved} = Persistence.perform_save(socket)
-        saved
+    # Save first if there are pending changes (autosave is 500ms but user might click fast).
+    # Never save for a read-only spectator — they always read has_pending_changes: true
+    # after a remote sync, so an unguarded save here would clobber the lock owner's work.
+    if socket.assigns.has_pending_changes and not socket.assigns[:readonly?] do
+      {:noreply, saved} = Persistence.perform_save(socket)
+
+      # If the save didn't go through (a validation error or the url_slug-conflict
+      # modal left changes pending), stay on the editor and show that — don't
+      # navigate to a stale preview and silently drop the error/modal (L2).
+      if saved.assigns.has_pending_changes do
+        {:noreply, saved}
       else
-        socket
+        {:noreply, navigate_to_preview(saved)}
       end
-
-    group_slug = socket.assigns.group_slug
-    post = socket.assigns.post
-    post_uuid = post[:uuid]
-    language = socket.assigns.current_language
-    version = socket.assigns[:current_version]
-
-    query_params = %{"lang" => language}
-    query_params = if version, do: Map.put(query_params, "v", version), else: query_params
-    query = URI.encode_query(query_params)
-
-    {:noreply,
-     push_navigate(socket,
-       to: Routes.path("/admin/publishing/#{group_slug}/#{post_uuid}/preview?#{query}")
-     )}
+    else
+      {:noreply, navigate_to_preview(socket)}
+    end
   end
 
   def handle_event("attempt_cancel", _params, %{assigns: %{has_pending_changes: false}} = socket) do
@@ -1002,9 +1062,13 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
     post = socket.assigns.post
     language = socket.assigns.current_language
     post_uuid = post[:uuid]
+    # Target the version the editor is actually on, not whatever is newest —
+    # otherwise clearing a translation while viewing/editing an older version
+    # hard-deletes the language row from the wrong (e.g. live) version.
+    version = socket.assigns[:current_version]
 
     result =
-      Publishing.clear_translation(group_slug, post_uuid, language,
+      Publishing.clear_translation(group_slug, post_uuid, language, version,
         actor_uuid: Shared.actor_uuid_from_socket(socket)
       )
 
@@ -1171,7 +1235,10 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
 
   @impl true
   def handle_info(:autosave, socket) do
-    if socket.assigns.has_pending_changes and not socket.assigns.translation_locked? do
+    # A read-only spectator must never autosave — their buffer is stale and would
+    # clobber the lock owner's work. translation_locked? alone didn't cover them.
+    if socket.assigns.has_pending_changes and not socket.assigns.translation_locked? and
+         not socket.assigns[:readonly?] do
       socket =
         socket
         |> assign(:is_autosaving, true)
@@ -1219,17 +1286,24 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
   end
 
   def handle_info({:editor_content_changed, %{content: content}}, socket) do
-    has_changes = Forms.dirty?(socket.assigns.post, socket.assigns.form, content)
+    # Ignore local editor changes for read-only spectators: their content arrives
+    # via remote sync, and marking pending / scheduling autosave here is a write
+    # path that would let a spectator's stale buffer overwrite the lock owner.
+    if socket.assigns[:readonly?] do
+      {:noreply, socket}
+    else
+      has_changes = Forms.dirty?(socket.assigns.post, socket.assigns.form, content)
 
-    socket =
-      socket
-      |> assign(:content, content)
-      |> assign(:has_pending_changes, has_changes)
-      |> push_event("changes-status", %{has_changes: has_changes})
+      socket =
+        socket
+        |> assign(:content, content)
+        |> assign(:has_pending_changes, has_changes)
+        |> push_event("changes-status", %{has_changes: has_changes})
 
-    socket = if has_changes, do: schedule_autosave(socket), else: socket
+      socket = if has_changes, do: schedule_autosave(socket), else: socket
 
-    {:noreply, socket}
+      {:noreply, socket}
+    end
   end
 
   def handle_info({:editor_insert_component, %{type: :image}}, socket) do
@@ -1707,11 +1781,36 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
     assign(socket, :autosave_timer, timer_ref)
   end
 
-  defp re_read_post(socket, language) do
+  defp navigate_to_preview(socket) do
+    group_slug = socket.assigns.group_slug
+    post_uuid = socket.assigns.post[:uuid]
+    language = socket.assigns.current_language
+    version = socket.assigns[:current_version]
+
+    query_params = %{"lang" => language}
+    query_params = if version, do: Map.put(query_params, "v", version), else: query_params
+    query = URI.encode_query(query_params)
+
+    push_navigate(socket,
+      to: Routes.path("/admin/publishing/#{group_slug}/#{post_uuid}/preview?#{query}")
+    )
+  end
+
+  defp re_read_post(socket, language, version \\ nil) do
     case socket.assigns[:post] do
-      nil -> {:error, :no_post}
-      %{uuid: nil} -> {:error, :no_uuid}
-      post -> Publishing.read_post_by_uuid(post.uuid, language)
+      nil ->
+        {:error, :no_post}
+
+      %{uuid: nil} ->
+        {:error, :no_uuid}
+
+      post ->
+        # Default to the version the editor is pinned to, not the latest — reloads
+        # (lock acquisition, translation-created updates) run while pinned to an
+        # older version, and reading the latest would load the wrong version's
+        # content under a URL claiming the pinned one and misdirect the next save.
+        version = version || socket.assigns[:current_version]
+        Publishing.read_post_by_uuid(post.uuid, language, version)
     end
   end
 
@@ -2517,6 +2616,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
                   id="title-input"
                   value={@form["title"] || ""}
                   maxlength="500"
+                  phx-debounce="300"
                   class={"input input-bordered w-full text-2xl font-semibold #{if edit_disabled? or @viewing_older_version, do: "input-disabled bg-base-200"}"}
                   placeholder={gettext("Post title")}
                   readonly={edit_disabled? or @viewing_older_version}
@@ -2914,6 +3014,50 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
         </div>
       </div>
       <div class="modal-backdrop bg-base-content/50" phx-click="close_new_version_modal"></div>
+    </div>
+    <% end %>
+
+    <%!-- URL Slug Conflict Modal --%>
+    <%= if @show_slug_conflict_modal and @slug_conflict_info do %>
+    <div class="modal modal-open">
+      <div class="modal-box max-w-md">
+        <h3 class="font-bold text-lg mb-2 flex items-center gap-2">
+          <.icon name="hero-exclamation-triangle" class="w-5 h-5 text-warning" />
+          {gettext("URL slug already in use")}
+        </h3>
+
+        <p class="text-sm text-base-content/80 mb-3">
+          {gettext("The URL slug %{slug} is already used by another post in this group:",
+            slug: "“#{@slug_conflict_info.slug}”"
+          )}
+        </p>
+
+        <div class="rounded-lg border border-base-300 bg-base-200 p-3 mb-4">
+          <p class="font-medium">
+            {@slug_conflict_info.title || gettext("Another post")}
+          </p>
+          <%= if @slug_conflict_info.edit_url do %>
+          <.link
+            navigate={@slug_conflict_info.edit_url}
+            class="link link-primary text-sm inline-flex items-center gap-1 mt-1"
+          >
+            <.icon name="hero-arrow-top-right-on-square" class="w-4 h-4" />
+            {gettext("Open that post")}
+          </.link>
+          <% end %>
+        </div>
+
+        <p class="text-sm text-base-content/70 mb-4">
+          {gettext("Choose a different URL slug for this post, or change the other post's slug.")}
+        </p>
+
+        <div class="modal-action">
+          <button type="button" class="btn btn-primary" phx-click="close_slug_conflict_modal">
+            {gettext("OK")}
+          </button>
+        </div>
+      </div>
+      <div class="modal-backdrop bg-base-content/50" phx-click="close_slug_conflict_modal"></div>
     </div>
     <% end %>
 

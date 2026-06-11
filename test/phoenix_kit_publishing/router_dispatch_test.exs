@@ -258,23 +258,52 @@ defmodule PhoenixKitPublishing.RouterDispatchIntegrationTest do
              ]
     end
 
-    test "checks path_info[1] only after path_info[0] doesn't match (branch sequencing)" do
-      # Pin the cond ordering — guards against a future refactor that flips
-      # the checks and makes a host route shaped `/group-name/<literal>` get
-      # treated as `language=group-name, group=<literal>` instead of
-      # `group=group-name, path=[<literal>]`.
+    test "does NOT hijack a host route whose 2nd segment matches a group (H3)" do
+      # `/not-a-group/<group>/post` is NOT a localized publishing URL — segment 0
+      # isn't a language the site serves — so the localized branch must not fire.
+      # Otherwise any host route `/<word>/<group-named-seg>` (e.g. /company/news)
+      # would be diverted into publishing under language=<word>.
       {:ok, real_group} = Groups.add_group(unique_name())
       refute_group_named("not-a-group")
 
       conn = %Plug.Conn{
+        method: "GET",
         path_info: ["not-a-group", real_group["slug"], "post"],
         request_path: "/not-a-group/" <> real_group["slug"] <> "/post",
         private: %{}
       }
 
-      # path_info[0]="not-a-group" must fail known_group?/1 first, then
-      # path_info[1]=real slug succeeds and triggers rewrite.
-      assert {:rewrite, _rewritten} = RouterDispatch.maybe_rewrite(conn)
+      assert RouterDispatch.maybe_rewrite(conn) == :pass
+    end
+
+    test "does NOT hijack when segment 0 is a 3-letter non-language (api/faq) (H3)" do
+      # `looks_like_language_code?/1` accepts any 2–3 letter token, so a strict
+      # enabled-language check is required — else `/api/<group>` serves a 200.
+      {:ok, real_group} = Groups.add_group(unique_name())
+
+      conn = %Plug.Conn{
+        method: "GET",
+        path_info: ["api", real_group["slug"]],
+        request_path: "/api/" <> real_group["slug"],
+        private: %{}
+      }
+
+      assert RouterDispatch.maybe_rewrite(conn) == :pass
+    end
+
+    test "passes through a non-GET request even when a segment is a group (H3)" do
+      # Public publishing is read-only; a host `POST /<group>/...` must not be
+      # diverted into the GET-only internal scope.
+      {:ok, real_group} = Groups.add_group(unique_name())
+
+      conn = %Plug.Conn{
+        method: "POST",
+        path_info: [real_group["slug"], "submit"],
+        request_path: "/" <> real_group["slug"] <> "/submit",
+        private: %{}
+      }
+
+      assert RouterDispatch.maybe_rewrite(conn) == :pass
     end
   end
 

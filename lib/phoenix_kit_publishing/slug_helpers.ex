@@ -237,6 +237,12 @@ defmodule PhoenixKit.Modules.Publishing.SlugHelpers do
       LanguageHelpers.reserved_language_code?(slug) ->
         {:error, :reserved_language_code}
 
+      # Post/group slugs become URL segments too, so reject route words like
+      # "admin"/"api" the same way url_slugs do — a post slugged "admin" is
+      # unreachable behind the host's own routes.
+      slug in @reserved_route_words ->
+        {:error, :reserved_route_word}
+
       true ->
         {:ok, slug}
     end
@@ -275,9 +281,30 @@ defmodule PhoenixKit.Modules.Publishing.SlugHelpers do
       url_slug_exists?(group_slug, url_slug, language, exclude_post_slug) ->
         {:error, :slug_already_exists}
 
+      claims_other_posts_previous_slug?(group_slug, url_slug, language, exclude_post_slug) ->
+        {:error, :conflicts_with_previous_slug}
+
       true ->
         {:ok, url_slug}
     end
+  end
+
+  # Reject claiming a slug that is another post's PREVIOUS slug — taking it would
+  # hijack that post's 301 redirect (current-slug lookup wins over previous-slug),
+  # silently stealing its old-URL traffic. Advisory: fail OPEN on a DB hiccup so a
+  # transient error doesn't block saves (unlike url_slug_exists?/4, the hard
+  # uniqueness gate, which fails closed).
+  defp claims_other_posts_previous_slug?(group_slug, url_slug, language, exclude_post_slug) do
+    DBStorage.previous_url_slug_taken_by_other_post?(
+      group_slug,
+      language,
+      url_slug,
+      exclude_post_slug
+    )
+  rescue
+    error ->
+      Logger.warning("[Slugs] previous-slug containment check failed: #{inspect(error)}")
+      false
   end
 
   @doc """
@@ -298,16 +325,22 @@ defmodule PhoenixKit.Modules.Publishing.SlugHelpers do
   """
   @spec clear_conflicting_url_slugs(String.t(), String.t()) :: [{String.t(), String.t()}]
   def clear_conflicting_url_slugs(group_slug, post_slug) do
-    case ListingCache.read(group_slug) do
-      {:ok, posts} ->
-        conflicts = find_conflicting_url_slugs(posts, post_slug)
-        clear_url_slugs_for_conflicts(group_slug, post_slug, conflicts)
-        log_cleared_conflicts(conflicts, post_slug)
-        conflicts
+    # On a cache miss, fall back to the SAME source the cache is built from
+    # (`list_posts_for_listing/1`), so the conflict scan sees identical
+    # `:language_slugs`-bearing maps either way. This is a mutation path:
+    # silently returning [] on a miss (memory cache disabled, or a loser of a
+    # concurrent regeneration) would skip conflict cleanup and leave a stale
+    # custom url_slug pointing at the wrong post.
+    posts =
+      case ListingCache.read(group_slug) do
+        {:ok, posts} -> posts
+        {:error, _} -> DBStorage.list_posts_for_listing(group_slug)
+      end
 
-      {:error, _} ->
-        []
-    end
+    conflicts = find_conflicting_url_slugs(posts, post_slug)
+    clear_url_slugs_for_conflicts(group_slug, post_slug, conflicts)
+    log_cleared_conflicts(conflicts, post_slug)
+    conflicts
   end
 
   @doc """
@@ -379,7 +412,17 @@ defmodule PhoenixKit.Modules.Publishing.SlugHelpers do
     # arbitrarily-ordered match is the post being edited.
     DBStorage.url_slug_taken_by_other_post?(group_slug, language, url_slug, exclude_post_slug)
   rescue
-    _ -> false
+    error ->
+      # Fail CLOSED on a uniqueness gate: a DB hiccup must reject the save, not
+      # silently approve a possibly-duplicate url_slug (there's no DB unique index
+      # backing this, so this check is the only guard). Logged so a persistent
+      # failure is diagnosable rather than silently blocking every save.
+      Logger.warning(
+        "[Slugs] url_slug uniqueness check failed for #{inspect(url_slug)}, " <>
+          "treating as taken: #{inspect(error)}"
+      )
+
+      true
   end
 
   defp slug_exists_for_generation?(_group_slug, candidate, current_slug)

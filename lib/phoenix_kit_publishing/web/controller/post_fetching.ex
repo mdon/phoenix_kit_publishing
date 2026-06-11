@@ -11,6 +11,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller.PostFetching do
   require Logger
 
   alias PhoenixKit.Modules.Publishing
+  alias PhoenixKit.Modules.Publishing.DBStorage
   alias PhoenixKit.Modules.Publishing.ListingCache
 
   # ============================================================================
@@ -84,14 +85,19 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller.PostFetching do
           "[PublishingController] Cache regeneration in progress for #{group_slug}, using direct DB read (#{elapsed_ms}ms)"
         )
 
-        Publishing.list_posts(group_slug, nil)
+        # Use the SAME source the cache is built from (active/published version,
+        # listing shape) rather than list_posts/2, which surfaces the LATEST
+        # (possibly draft) version. Otherwise a concurrent loser of a cold
+        # regeneration would briefly serve draft content — or drop a published
+        # post whose latest version is an unpublished draft — on the public listing.
+        DBStorage.list_posts_for_listing(group_slug)
 
       {:error, reason} ->
         Logger.error(
           "[PublishingController] Cache regeneration failed for #{group_slug}: #{inspect(reason)}"
         )
 
-        Publishing.list_posts(group_slug, nil)
+        DBStorage.list_posts_for_listing(group_slug)
     end
   end
 
@@ -105,7 +111,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller.PostFetching do
           "[PublishingController] Cache read failed after regeneration for #{group_slug}: #{inspect(reason)}"
         )
 
-        Publishing.list_posts(group_slug, nil)
+        DBStorage.list_posts_for_listing(group_slug)
     end
   end
 end

@@ -10,6 +10,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Listing do
   alias PhoenixKit.Modules.Publishing
   alias PhoenixKit.Modules.Publishing.Errors
   alias PhoenixKit.Modules.Publishing.LanguageHelpers
+  alias PhoenixKit.Modules.Publishing.ListingCache
   alias PhoenixKit.Modules.Publishing.PubSub, as: PublishingPubSub
   alias PhoenixKit.Modules.Publishing.Shared
   alias PhoenixKit.Modules.Publishing.StaleFixer
@@ -322,8 +323,13 @@ defmodule PhoenixKit.Modules.Publishing.Web.Listing do
     {:noreply, socket}
   end
 
-  def handle_info({:cache_changed, _group_slug}, socket) do
-    {:noreply, socket}
+  def handle_info({:cache_changed, group_slug}, socket) do
+    # The listing cache is node-local (:persistent_term), so a mutation on another
+    # node leaves this node's cache stale. This broadcast is cluster-wide, so
+    # regenerate THIS node's cache (idempotent + lock-deduped) and refresh the view.
+    # Single-node: harmless — the mutating node already regenerated in-process.
+    ListingCache.regenerate(group_slug)
+    {:noreply, refresh_posts(socket)}
   end
 
   # Editor presence handlers - show who's currently editing posts

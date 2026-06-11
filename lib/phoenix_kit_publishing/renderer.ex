@@ -21,10 +21,13 @@ defmodule PhoenixKit.Modules.Publishing.Renderer do
   @compile {:no_warn_undefined, @entity_form_mod}
 
   @cache_name :publishing_posts
-  # v3: render output now heals legacy signed-file URLs against the current
-  # url_prefix/secret (see heal_signed_file_urls/1) — bump drops stale v2
-  # entries that still carry an old prefix baked into <img src>.
-  @cache_version "v3"
+  # Bump whenever render OUTPUT changes for unchanged source content, so already
+  # cached HTML is dropped instead of served stale.
+  # v3: heal legacy signed-file URLs against the current url_prefix/secret.
+  # v4: escape PHK component tags inside code regions (```/~~~/inline) so they
+  #     render as literal text — without the bump, posts cached under v3 keep
+  #     rendering the component live from inside the code block.
+  @cache_version "v4"
 
   # Matches the internal signed-file route — `<prefix>/file/<uuid>/<variant>/<token>`
   # — embedded as an `<img src>`. The prefix is bounded to plain path segments
@@ -39,8 +42,17 @@ defmodule PhoenixKit.Modules.Publishing.Renderer do
   @global_cache_key "publishing_render_cache_enabled"
   @per_group_cache_prefix "publishing_render_cache_enabled_"
 
-  @component_regex ~r/<(Image|Hero|CTA|Headline|Subheadline|Video|EntityForm)\s+([^>]*?)\/>/s
-  @component_block_regex ~r/<(Hero|CTA|Headline|Subheadline|Video|EntityForm)\s*([^>]*)>(.*?)<\/\1>/s
+  @component_regex ~r/<(Image|CTA|Headline|Subheadline|Video|EntityForm)\s+([^>]*?)\/>/s
+  @component_block_regex ~r/<(CTA|Headline|Subheadline|Video|EntityForm)\s*([^>]*)>(.*?)<\/\1>/s
+
+  # Fenced (```…``` or ~~~…~~~), double-backtick inline (``…``) and single
+  # inline (`…`) code spans — masked out before the component scan so a literal
+  # component example inside a code block isn't rendered as a real component.
+  # Order matters: fences first (win at a fence boundary), then double-backtick
+  # (so ``a`b`` isn't split by the single-backtick branch), then single.
+  # Known limitation: 4+ backtick fences and backslash-escaped backticks (rare
+  # CommonMark corners) aren't matched and would still be scanned for components.
+  @code_region_regex ~r/```.*?```|~~~.*?~~~|``[^\n]+?``|`[^`\n]*`/s
 
   # Tailwind/daisyUI classes for post-processing Earmark HTML output.
   # Code blocks (pre, code) are handled separately in style_code_blocks/1.
@@ -161,15 +173,14 @@ defmodule PhoenixKit.Modules.Publishing.Renderer do
   def render_markdown(content) when is_binary(content) do
     {time, result} =
       :timer.tc(fn ->
-        cond do
-          pure_phk_content?(content) ->
-            render_phk_content(content)
-
-          has_embedded_components?(content) ->
-            render_mixed_content(content)
-
-          true ->
-            render_earmark_markdown(content)
+        if has_embedded_components?(content) do
+          render_mixed_content(content)
+        else
+          # Escape code regions on the plain path too, so raw HTML inside a
+          # ```fence``` (e.g. <script>) renders as literal text instead of
+          # executing — matching the mixed path. escape: false makes this the
+          # only thing standing between a fenced <script> and live HTML.
+          render_earmark_markdown(escape_code_regions(content))
         end
       end)
 
@@ -197,36 +208,17 @@ defmodule PhoenixKit.Modules.Publishing.Renderer do
 
   defp heal_signed_file_urls(other), do: other
 
-  # Detect if content is pure PHK XML format (starts with <Page> or <Hero>)
-  defp pure_phk_content?(content) do
-    trimmed = String.trim(content)
-    String.starts_with?(trimmed, "<Page") || String.starts_with?(trimmed, "<Hero")
-  end
-
   # Detect if markdown content has embedded XML components
   defp has_embedded_components?(content) do
-    String.contains?(content, "<Image ") ||
-      String.contains?(content, "<Hero") ||
+    # `<Image` may be followed by a space OR a newline (the format spec's own
+    # examples put the attributes on the next line); match either so multi-line
+    # tags route through the component path instead of being smartypants-mangled.
+    Regex.match?(~r/<Image[\s>]/, content) ||
       String.contains?(content, "<CTA") ||
       String.contains?(content, "<Headline") ||
       String.contains?(content, "<Subheadline") ||
       String.contains?(content, "<Video") ||
       String.contains?(content, "<EntityForm")
-  end
-
-  # Render PHK content using PageBuilder
-  defp render_phk_content(content) do
-    case PageBuilder.render_content(content) do
-      {:ok, html} ->
-        # Convert Phoenix.LiveView.Rendered to string
-        html
-        |> Safe.to_iodata()
-        |> IO.iodata_to_binary()
-
-      {:error, reason} ->
-        Logger.warning("PHK render error: #{inspect(reason)}")
-        "<p>Error rendering page content</p>"
-    end
   end
 
   # Render markdown using Earmark, then inject Tailwind/daisyUI classes on each tag.
@@ -262,7 +254,23 @@ defmodule PhoenixKit.Modules.Publishing.Renderer do
   end
 
   defp normalize_markdown(content) when is_binary(content) do
-    content
+    # Apply the prose normalizers ONLY outside code regions. Run over the whole
+    # document they corrupt code samples: the heading-indent strip deletes the
+    # indentation from `  ## comment` lines inside a fence, and the blank-line
+    # spacer injects literal &nbsp; into runs of blank lines in code. Split on
+    # code regions (delimiters included) — even segments are prose, odd are code
+    # left verbatim — then rejoin.
+    @code_region_regex
+    |> Regex.split(content, include_captures: true)
+    |> Enum.with_index()
+    |> Enum.map_join("", fn
+      {segment, index} when rem(index, 2) == 0 -> normalize_prose(segment)
+      {code_region, _index} -> code_region
+    end)
+  end
+
+  defp normalize_prose(segment) do
+    segment
     # Remove leading indentation before Markdown headings (e.g., "  ## Title")
     |> then(&Regex.replace(~r/^[ \t]+(?=#)/m, &1, ""))
     # Preserve intentional blank lines: convert runs of 2+ blank lines into
@@ -356,10 +364,28 @@ defmodule PhoenixKit.Modules.Publishing.Renderer do
   defp render_mixed_content(content) when content == "" or is_nil(content), do: ""
 
   defp render_mixed_content(content) do
+    # Escape HTML inside fenced/inline code spans BEFORE scanning for components,
+    # so a `<Image>`/`<CTA>`/… shown literally inside a code block (a docs post
+    # demonstrating the PHK syntax) (a) no longer matches the component regex
+    # (it's now `&lt;Image`) and (b) renders as visible code text — `escape:
+    # false` would otherwise leave the raw tag in `<code>`, where the browser
+    # swallows it. Components OUTSIDE code blocks are untouched and still render.
     content
+    |> escape_code_regions()
     |> render_mixed_segments([])
     |> Enum.reverse()
     |> Enum.join()
+  end
+
+  # Escape <, >, & inside ```fenced``` and `inline` code spans, leaving the
+  # fence/backtick delimiters intact so the markdown still parses as code.
+  defp escape_code_regions(content) do
+    Regex.replace(@code_region_regex, content, fn match ->
+      match
+      |> String.replace("&", "&amp;")
+      |> String.replace("<", "&lt;")
+      |> String.replace(">", "&gt;")
+    end)
   end
 
   defp render_mixed_segments("", acc), do: acc

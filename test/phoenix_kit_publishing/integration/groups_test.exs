@@ -2,6 +2,7 @@ defmodule PhoenixKit.Integration.Publishing.GroupsTest do
   use PhoenixKit.DataCase, async: true
 
   alias PhoenixKit.Modules.Publishing.Groups
+  alias PhoenixKit.Modules.Publishing.ListingCache
   alias PhoenixKit.Modules.Publishing.Posts
 
   defp unique_name, do: "Test Group #{System.unique_integer([:positive])}"
@@ -193,6 +194,20 @@ defmodule PhoenixKit.Integration.Publishing.GroupsTest do
       {:ok, updated} = Groups.update_group(group["slug"], %{slug: new_slug})
       assert updated["slug"] == new_slug
       assert {:error, :not_found} = Groups.get_group(group["slug"])
+    end
+
+    test "renaming the slug invalidates the old slug's listing cache (L6)" do
+      {:ok, group} = Groups.add_group(unique_name(), mode: "slug")
+      old_slug = group["slug"]
+
+      :ok = ListingCache.regenerate(old_slug)
+      assert ListingCache.exists?(old_slug)
+
+      {:ok, _} =
+        Groups.update_group(old_slug, %{slug: "renamed-#{System.unique_integer([:positive])}"})
+
+      # The old slug's cache entry must be dropped, not left dangling.
+      refute ListingCache.exists?(old_slug)
     end
 
     test "preserves unchanged fields on partial update" do

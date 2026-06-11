@@ -47,6 +47,7 @@ defmodule PhoenixKitPublishing.RouterDispatch do
   """
 
   alias PhoenixKit.Modules.Publishing.Groups
+  alias PhoenixKit.Modules.Publishing.Web.Controller.Language
 
   @internal_prefix "__phoenix_kit_publishing_dispatch"
   @localized_segment "localized"
@@ -111,6 +112,13 @@ defmodule PhoenixKitPublishing.RouterDispatch do
   routes (also nested under the prefix).
   """
   @spec maybe_rewrite(Plug.Conn.t(), String.t()) :: {:rewrite, Plug.Conn.t()} | :pass
+  # Public publishing routes are read-only — only GET/HEAD are rewritten. Without
+  # this a host's `POST /blog/...` (blog being a group) would be diverted into the
+  # GET-only internal scope and 404, shadowing the host's own form/webhook route.
+  def maybe_rewrite(%Plug.Conn{method: method}, url_prefix)
+      when is_binary(url_prefix) and method not in ["GET", "HEAD"],
+      do: :pass
+
   def maybe_rewrite(%Plug.Conn{path_info: path_info} = conn, url_prefix)
       when is_binary(url_prefix) do
     prefix_segments = split_prefix(url_prefix)
@@ -118,10 +126,13 @@ defmodule PhoenixKitPublishing.RouterDispatch do
     case strip_prefix(path_info, prefix_segments) do
       {:ok, rest} ->
         cond do
-          candidate_at(rest, 1) |> known_group?() ->
+          # Localized shape `/:language/:group` — segment 0 MUST be a language the
+          # site actually serves, else any host URL `/<seg>/<group-named-seg>` (e.g.
+          # `/company/news`, `/api/news`) would be hijacked into publishing.
+          localized_locale?(candidate_at(rest, 0)) and known_group?(candidate_at(rest, 1)) ->
             {:rewrite, rewrite(conn, @localized_segment, prefix_segments, rest)}
 
-          candidate_at(rest, 0) |> known_group?() ->
+          known_group?(candidate_at(rest, 0)) ->
             {:rewrite, rewrite(conn, @root_segment, prefix_segments, rest)}
 
           true ->
@@ -131,6 +142,22 @@ defmodule PhoenixKitPublishing.RouterDispatch do
       :mismatch ->
         :pass
     end
+  end
+
+  # A URL locale segment is valid only if it's an enabled language, or a base code
+  # (e.g. "en") that resolves to an enabled dialect (e.g. "en-US"). This is stricter
+  # than `looks_like_language_code?/1` on purpose — the latter accepts any 2–3 letter
+  # token ("api", "faq"), which is the gap that let host routes get hijacked.
+  @spec localized_locale?(String.t() | nil) :: boolean()
+  defp localized_locale?(nil), do: false
+
+  defp localized_locale?(seg) when is_binary(seg) do
+    enabled = Language.get_enabled_languages()
+
+    seg in enabled or
+      (Language.base_code?(seg) and Language.find_dialect_for_base(seg, enabled) != nil)
+  rescue
+    _ -> false
   end
 
   @doc """

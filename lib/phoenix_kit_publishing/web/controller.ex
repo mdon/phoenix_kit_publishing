@@ -203,14 +203,12 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller do
         |> assign(:group, assigns.group)
         |> assign(:posts, assigns.posts)
         |> assign(:current_language, assigns.current_language)
-        |> assign(:translations, assigns.translations)
-        |> assign_publishing_translations(assigns.translations)
+        |> assign_publishing_render_context(assigns.translations)
         |> assign(:page, assigns.page)
         |> assign(:per_page, assigns.per_page)
         |> assign(:total_count, assigns.total_count)
         |> assign(:total_pages, assigns.total_pages)
         |> assign(:breadcrumbs, assigns.breadcrumbs)
-        |> assign(:show_language_switcher, show_language_switcher?())
         |> assign(:og, %{
           title: assigns.group["name"],
           url: base_url <> listing_url,
@@ -224,9 +222,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller do
         |> render(:index)
 
       {:redirect_301, url} ->
-        conn
-        |> put_status(301)
-        |> redirect(to: url)
+        redirect_301(conn, url)
 
       {:error, reason} ->
         handle_not_found(conn, reason)
@@ -250,11 +246,9 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller do
         |> assign(:post, assigns.post)
         |> assign(:html_content, assigns.html_content)
         |> assign(:current_language, assigns.current_language)
-        |> assign(:translations, assigns.translations)
-        |> assign_publishing_translations(assigns.translations)
+        |> assign_publishing_render_context(assigns.translations)
         |> assign(:breadcrumbs, assigns.breadcrumbs)
         |> assign(:version_dropdown, assigns.version_dropdown)
-        |> assign(:show_language_switcher, show_language_switcher?())
         |> assign(:og, build_og_data(conn, assigns.post, canonical_url, assigns.current_language))
         |> maybe_assign_admin_edit(
           edit_post_admin_url(group_slug, assigns.post.uuid, assigns.current_language),
@@ -263,9 +257,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller do
         |> render(:show)
 
       {:redirect_301, url} ->
-        conn
-        |> put_status(301)
-        |> redirect(to: url)
+        redirect_301(conn, url)
 
       {:error, reason} ->
         handle_not_found(conn, reason)
@@ -282,15 +274,13 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller do
         |> assign(:post, assigns.post)
         |> assign(:html_content, assigns.html_content)
         |> assign(:current_language, assigns.current_language)
-        |> assign(:translations, assigns.translations)
-        |> assign_publishing_translations(assigns.translations)
+        |> assign_publishing_render_context(assigns.translations)
         |> assign(:breadcrumbs, assigns.breadcrumbs)
         |> assign(:canonical_url, assigns.canonical_url)
         |> assign(:is_versioned_view, assigns.is_versioned_view)
         |> assign(:is_live_version, assigns.is_live_version)
         |> assign(:version, assigns.version)
         |> assign(:version_dropdown, assigns.version_dropdown)
-        |> assign(:show_language_switcher, show_language_switcher?())
         |> assign(
           :og,
           build_og_data(conn, assigns.post, assigns.canonical_url, assigns.current_language)
@@ -315,11 +305,9 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller do
         |> assign(:post, assigns.post)
         |> assign(:html_content, assigns.html_content)
         |> assign(:current_language, assigns.current_language)
-        |> assign(:translations, assigns.translations)
-        |> assign_publishing_translations(assigns.translations)
+        |> assign_publishing_render_context(assigns.translations)
         |> assign(:breadcrumbs, assigns.breadcrumbs)
         |> assign(:version_dropdown, assigns.version_dropdown)
-        |> assign(:show_language_switcher, show_language_switcher?())
         |> assign(:og, build_og_data(conn, assigns.post, canonical_url, assigns.current_language))
         |> maybe_assign_admin_edit(
           edit_post_admin_url(group_slug, assigns.post.uuid, assigns.current_language),
@@ -328,12 +316,10 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller do
         |> render(:show)
 
       {:redirect, url} ->
-        redirect(conn, to: url)
+        redirect(conn, to: with_query_string(conn, url))
 
       {:redirect_301, url} ->
-        conn
-        |> put_status(301)
-        |> redirect(to: url)
+        redirect_301(conn, url)
 
       {:error, reason} ->
         handle_not_found(conn, reason)
@@ -371,16 +357,31 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller do
     Gettext.put_locale(PhoenixKitWeb.Gettext, language)
   end
 
+  # Issue the canonical 301 while preserving the request's query string — a
+  # `?utm_source=…` link that hits a canonical/locale redirect must not have its
+  # campaign params stripped.
+  defp redirect_301(conn, url) do
+    conn
+    |> put_status(301)
+    |> redirect(to: with_query_string(conn, url))
+  end
+
+  defp with_query_string(%{query_string: qs}, url) when is_binary(qs) and qs != "" do
+    separator = if String.contains?(url, "?"), do: "&", else: "?"
+    url <> separator <> qs
+  end
+
+  defp with_query_string(_conn, url), do: url
+
   defp build_og_data(conn, post, canonical_url, language) do
-    seo = Map.get(post.metadata, :seo) || Map.get(post, :seo) || %{}
-    description = seo["og_description"] || Map.get(post.metadata, :description)
-    image = seo["og_image"] || PublishingHTML.featured_image_url(post, "large")
+    description = Map.get(post.metadata, :description)
+    image = PublishingHTML.featured_image_url(post, "large")
 
     base_url =
       "#{conn.scheme}://#{conn.host}#{if conn.port in [80, 443], do: "", else: ":#{conn.port}"}"
 
     %{
-      title: seo["og_title"] || post.metadata.title,
+      title: post.metadata.title,
       description: description,
       image: absolute_url(base_url, image),
       url: absolute_url(base_url, canonical_url),
@@ -398,8 +399,8 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller do
       # Protocol-relative (`//cdn/...`) is already absolute — leave it.
       String.starts_with?(url, "//") -> url
       String.starts_with?(url, "/") -> base <> url
-      # Bare relative (e.g. an admin-entered SEO `og_image` of "images/og.png")
-      # — treat as site-absolute so we don't emit "https://hostimages/og.png".
+      # Bare relative (e.g. a featured-image path like "images/og.png") — treat as
+      # site-absolute so we don't emit "https://hostimages/og.png".
       true -> base <> "/" <> url
     end
   end
@@ -449,6 +450,19 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller do
   # switcher. We normalise to a fixed 5-field shape at the boundary so the
   # public contract is uniform across listing and post routes.
   #
+  # Assigns the render context shared by every public render branch (group
+  # listing, post, versioned post, date-only): the raw `:translations` the
+  # in-page switcher template reads, the normalized
+  # `:phoenix_kit_publishing_translations` host-integration assign, and the
+  # `:show_language_switcher` toggle. Extracted so the four branches can't
+  # drift on this block (PR #15 follow-up).
+  defp assign_publishing_render_context(conn, translations) do
+    conn
+    |> assign(:translations, translations)
+    |> assign_publishing_translations(translations)
+    |> assign(:show_language_switcher, show_language_switcher?())
+  end
+
   # `translations` is always a list — `Translations.build_listing_translations/3`
   # and `build_translation_links/4` are the only producers and both return
   # lists unconditionally. No fallback clause: if that contract is ever

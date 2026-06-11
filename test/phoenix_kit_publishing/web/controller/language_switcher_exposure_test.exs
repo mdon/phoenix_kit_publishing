@@ -210,4 +210,30 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller.LanguageSwitcherExposureT
       assert conn.assigns[:show_language_switcher] == true
     end
   end
+
+  describe "render-context assigns on every public branch (PR #15 consolidation)" do
+    # All four public render branches share `assign_publishing_render_context/2`
+    # (translations + :show_language_switcher). The listing + post branches are
+    # exercised above; this pins the previously-uncovered date-only branch so
+    # the consolidated helper can't silently regress it. (The versioned `/v/N`
+    # branch uses the identical helper call but only renders with
+    # `allow_version_access` enabled — its forwarding is covered by code
+    # identity rather than a dedicated version-access fixture here.)
+
+    test "date-only URL sets the render-context assigns", %{conn: conn} do
+      {:ok, ts_group} = Groups.add_group(unique_name(), mode: "timestamp")
+
+      {:ok, post} =
+        Posts.create_post(ts_group["slug"], %{title: "Timestamp Post", content: "Body."})
+
+      :ok = Versions.publish_version(ts_group["slug"], post.uuid, 1)
+
+      today = Date.to_iso8601(Date.utc_today())
+      conn = get(conn, "/" <> ts_group["slug"] <> "/" <> today)
+
+      assert html_response(conn, 200)
+      assert is_list(conn.assigns[:phoenix_kit_publishing_translations])
+      assert conn.assigns[:show_language_switcher] == true
+    end
+  end
 end

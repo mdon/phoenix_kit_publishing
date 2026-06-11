@@ -9,8 +9,17 @@ defmodule PhoenixKit.Integration.Publishing.StaleFixerTest do
   alias PhoenixKit.Modules.Publishing.DBStorage
   alias PhoenixKit.Modules.Publishing.Groups
   alias PhoenixKit.Modules.Publishing.Posts
+  alias PhoenixKit.Modules.Publishing.PublishingPost
   alias PhoenixKit.Modules.Publishing.StaleFixer
   alias PhoenixKit.Settings
+
+  # Backdate a post past the empty-post grace period so the stale fixer acts on it.
+  defp age_post(uuid, seconds_ago) do
+    past = DateTime.add(DateTime.utc_now(), -seconds_ago, :second) |> DateTime.truncate(:second)
+
+    from(p in PublishingPost, where: p.uuid == ^uuid)
+    |> Repo.update_all(set: [inserted_at: past])
+  end
 
   defp unique_name, do: "stale-fixer-group-#{System.unique_integer([:positive])}"
 
@@ -185,5 +194,54 @@ defmodule PhoenixKit.Integration.Publishing.StaleFixerTest do
 
     [version] = DBStorage.list_versions(post.uuid)
     assert Enum.map(DBStorage.list_contents(version.uuid), & &1.language) == ["en-US"]
+  end
+
+  test "demotes a published version that has no active version back to draft (M4 heal)" do
+    {:ok, _} = Settings.update_setting("content_language", "en-US")
+    {:ok, group} = Groups.add_group(unique_name(), mode: "slug")
+    {:ok, post} = Posts.create_post(group["slug"], %{title: "Orphan Published", content: "body"})
+
+    [v1] = DBStorage.list_versions(post.uuid)
+
+    # Simulate the M4 inconsistency: the version is marked published, but the post
+    # was never activated (the publish transaction rolled back after the status
+    # write under the old non-atomic flow).
+    {:ok, _} = DBStorage.update_version(v1, %{status: "published"})
+    db_post = DBStorage.get_post_by_uuid(post.uuid, [:group])
+    assert db_post.active_version_uuid == nil
+
+    StaleFixer.fix_stale_post(db_post)
+
+    [healed] = DBStorage.list_versions(post.uuid)
+    assert healed.status == "draft"
+  end
+
+  test "trashes (not hard-deletes) an empty post past the grace period (M9)" do
+    {:ok, group} = Groups.add_group(unique_name(), mode: "timestamp")
+    {:ok, post} = Posts.create_post(group["slug"], %{})
+    age_post(post.uuid, 600)
+
+    db_post = DBStorage.get_post_by_uuid(post.uuid, [:group])
+    StaleFixer.fix_stale_post(db_post)
+
+    reloaded = DBStorage.get_post_by_uuid(post.uuid)
+    # Soft-deleted (recoverable), not hard-deleted.
+    assert reloaded
+    refute is_nil(reloaded.trashed_at)
+  end
+
+  test "does NOT trash a version that has only a featured image (M9)" do
+    {:ok, group} = Groups.add_group(unique_name(), mode: "timestamp")
+    {:ok, post} = Posts.create_post(group["slug"], %{})
+    [v1] = DBStorage.list_versions(post.uuid)
+    {:ok, _} = DBStorage.update_version(v1, %{data: %{"featured_image_uuid" => "img-123"}})
+    age_post(post.uuid, 600)
+
+    db_post = DBStorage.get_post_by_uuid(post.uuid, [:group])
+    StaleFixer.fix_stale_post(db_post)
+
+    reloaded = DBStorage.get_post_by_uuid(post.uuid)
+    # A featured-image-only version is content — must not be auto-trashed.
+    assert is_nil(reloaded.trashed_at)
   end
 end

@@ -186,7 +186,13 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor.Helpers do
   sanitised so it can't break out of the XML attribute.
   """
   def image_component_markup(file_uuid) when is_binary(file_uuid) do
-    ~s(\n<Image file_uuid="#{file_uuid}" alt="#{alt_from_file(file_uuid)}"/>\n)
+    # The uuid comes from the server-side media picker, so it's a real UUID in
+    # practice — but strip anything outside the UUID charset before interpolating
+    # into markup that flows through the `escape: false` renderer, so the insert
+    # path stays safe even if it ever accepts a less-trusted id. (alt text is
+    # already sanitised in alt_from_filename/1.)
+    safe_uuid = String.replace(file_uuid, ~r/[^0-9a-fA-F-]/, "")
+    ~s(\n<Image file_uuid="#{safe_uuid}" alt="#{alt_from_file(file_uuid)}"/>\n)
   end
 
   defp alt_from_file(file_uuid) do

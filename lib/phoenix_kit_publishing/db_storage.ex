@@ -207,6 +207,27 @@ defmodule PhoenixKit.Modules.Publishing.DBStorage do
     end
   end
 
+  @doc """
+  Returns true if the `(group, date, minute)` timestamp slot is occupied by ANY
+  post — including trashed ones.
+
+  `get_post_by_datetime/3` filters out trashed posts (correct for serving), but
+  the unique index on `(group_uuid, post_date, post_time)` includes them (to
+  protect restore). So availability probes must see trashed rows too, otherwise a
+  trashed post's slot looks free, the insert hits the index, and the collision
+  retry can never resolve it.
+  """
+  @spec timestamp_slot_taken?(String.t(), Date.t(), Time.t()) :: boolean()
+  def timestamp_slot_taken?(group_slug, date, time) do
+    normalized_time = %Time{hour: time.hour, minute: time.minute, second: 0, microsecond: {0, 0}}
+
+    from(p in PublishingPost,
+      join: g in assoc(p, :group),
+      where: g.slug == ^group_slug and p.post_date == ^date and p.post_time == ^normalized_time
+    )
+    |> repo().exists?()
+  end
+
   @doc "Gets a post by UUID with preloads."
   @spec get_post_by_uuid(String.t(), list(atom() | tuple())) :: PublishingPost.t() | nil
   def get_post_by_uuid(uuid, preloads \\ []) do
@@ -606,11 +627,12 @@ defmodule PhoenixKit.Modules.Publishing.DBStorage do
   share the same custom `url_slug` (the DB has no unique index on content
   url_slug across posts; the per-post `(group_uuid, slug)` index only
   prevents post-slug collisions), the query is allowed to return multiple
-  rows. The newest post wins (`order_by [desc: p.uuid]`, exploiting
+  rows. The OLDEST (incumbent) post wins (`order_by [asc: p.uuid]`, exploiting
   UUIDv7's monotonic timestamp encoding — see schema docs for
-  `PublishingPost`); every loser's `url_slug` is auto-renamed with a
-  `-2`, `-3`, … suffix so the next request resolves cleanly without
-  crashing on `Ecto.MultipleResultsError`. This is a **best-effort**
+  `PublishingPost`) so the post that owned the slug first keeps its URL; every
+  newer loser's `url_slug` is auto-renamed with a `-2`, `-3`, … suffix so the
+  next request resolves cleanly without crashing on
+  `Ecto.MultipleResultsError`. This is a **best-effort**
   self-healing safety net for collisions that get past the
   application-level uniqueness check in
   `PhoenixKit.Modules.Publishing.SlugHelpers`, not a transactional
@@ -690,6 +712,41 @@ defmodule PhoenixKit.Modules.Publishing.DBStorage do
     repo().exists?(query)
   end
 
+  @doc """
+  Returns true if `url_slug` is a PREVIOUS slug of another published post in the
+  group+language (i.e. a slug that post's 301 redirect still owns). A new post
+  claiming it would shadow that redirect — current-slug lookup wins over
+  previous-slug lookup — so old URLs would land on the new post instead. M13.
+  """
+  @spec previous_url_slug_taken_by_other_post?(
+          String.t(),
+          String.t(),
+          String.t(),
+          String.t() | nil
+        ) ::
+          boolean()
+  def previous_url_slug_taken_by_other_post?(group_slug, language, url_slug, exclude_post_slug) do
+    base =
+      from(c in PublishingContent,
+        join: v in assoc(c, :version),
+        join: p in assoc(v, :post),
+        join: g in assoc(p, :group),
+        where:
+          g.slug == ^group_slug and c.language == ^language and
+            is_nil(p.trashed_at) and v.uuid == p.active_version_uuid and
+            fragment("? @> ?", c.data, ^%{"previous_url_slugs" => [url_slug]})
+      )
+
+    query =
+      if is_binary(exclude_post_slug) and exclude_post_slug != "" do
+        from([c, v, p, g] in base, where: p.slug != ^exclude_post_slug)
+      else
+        base
+      end
+
+    repo().exists?(query)
+  end
+
   # Published-only custom-slug match — returns ALL matches so the caller
   # can apply the tie-breaker. Ordering by `p.uuid DESC` exploits UUIDv7's
   # monotonic timestamp encoding: the newest post sorts first without
@@ -703,7 +760,10 @@ defmodule PhoenixKit.Modules.Publishing.DBStorage do
       where:
         g.slug == ^group_slug and c.language == ^language and c.url_slug == ^url_slug and
           is_nil(p.trashed_at) and v.uuid == p.active_version_uuid,
-      order_by: [desc: p.uuid],
+      # asc: the OLDEST (incumbent) post wins and keeps its established URL; any
+      # newer post that collided is the loser and gets auto-renamed. Never silently
+      # change the URL of the post that owned the slug first.
+      order_by: [asc: p.uuid],
       preload: [version: {v, post: {p, group: g}}]
     )
     |> repo().all()

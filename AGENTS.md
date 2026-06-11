@@ -137,6 +137,14 @@ lib/phoenix_kit_publishing/
 
 All 4 tables use UUIDv7 primary keys. **Migrations live in phoenix_kit core** — `phoenix_kit_publishing_*` tables are created by V59 and evolved in later V*.ex files. There is no module-owned migration; tests delegate schema setup to `Ecto.Migrator.run(TestRepo, [{0, PhoenixKit.Migration}], :up, ...)` (see `test/test_helper.exs`), the same call the host app makes in production.
 
+> **TODO (next publishing core migration):** add a partial UNIQUE index on
+> `phoenix_kit_publishing_contents (version_uuid?/group, language, url_slug)` for
+> non-trashed rows. Custom `url_slug` uniqueness is currently enforced only at the
+> application level (`SlugHelpers.url_slug_exists?/4`, which now fails closed) — a
+> race or a path that skips the check can still write a duplicate, after which the
+> public read-path auto-renamer has to clean it up. A DB constraint would make it
+> impossible at the source. (Surfaced by the M13 audit fix.)
+
 ```
 Group (1) ──→ (many) Post (1) ──→ (many) Version (1) ──→ (many) Content
 ```

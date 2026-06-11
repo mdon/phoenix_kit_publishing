@@ -134,7 +134,14 @@ defmodule PhoenixKit.Modules.Publishing.PresenceHelpers do
     |> Enum.sort_by(fn {_socket_id, meta} -> meta.joined_at end)
   end
 
-  defp meta_alive?(%{pid: pid}) when is_pid(pid), do: Process.alive?(pid)
+  # Process.alive?/1 raises ArgumentError on a REMOTE pid, and clustered presence
+  # metas can carry pids from other nodes — so only check locally. A remote pid is
+  # assumed alive (Presence's own node-down tracking cleans up dead nodes); this
+  # avoids crashing the presence-diff handler on a 2+ node cluster (M14).
+  defp meta_alive?(%{pid: pid}) when is_pid(pid) do
+    node(pid) != node() or Process.alive?(pid)
+  end
+
   defp meta_alive?(_), do: true
 
   @doc """

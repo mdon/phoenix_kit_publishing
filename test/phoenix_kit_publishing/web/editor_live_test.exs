@@ -115,6 +115,28 @@ defmodule PhoenixKit.Modules.Publishing.Web.EditorLiveTest do
       assert is_binary(html)
     end
 
+    test "keeps the slug-truncation warning while the title stays over the URL cap",
+         %{conn: conn, group: group, post: post} do
+      {:ok, view, _html} =
+        conn
+        |> put_test_scope(fake_scope())
+        |> live("/admin/publishing/#{group["slug"]}/#{post[:uuid]}/edit")
+
+      long = String.duplicate("word ", 200)
+
+      # First over-cap keystroke surfaces the warning...
+      html = render_change(view, "update_meta", %{"title" => long, "_target" => ["title"]})
+      assert html =~ "the slug was shortened"
+
+      # ...and a further over-cap keystroke must NOT wipe it. `update_meta`
+      # clear_flash's up front, so the warning has to be re-asserted each time
+      # the slug is still truncated (a once-only guard used to drop it here).
+      html =
+        render_change(view, "update_meta", %{"title" => long <> " more", "_target" => ["title"]})
+
+      assert html =~ "the slug was shortened"
+    end
+
     test "switch_language event accepts the target language",
          %{conn: conn, group: group, post: post} do
       {:ok, view, _html} =
@@ -255,6 +277,32 @@ defmodule PhoenixKit.Modules.Publishing.Web.EditorLiveTest do
       assert is_binary(html)
     end
 
+    test "saving a url_slug owned by another post shows the conflict modal (M13)",
+         %{conn: conn, group: group, post: post} do
+      # Another post already owns "taken-url-slug" (published).
+      {:ok, owner} = Posts.create_post(group["slug"], %{title: "Owner Post", slug: "owner-post"})
+      {:ok, _} = Posts.update_post(group["slug"], owner, %{"url_slug" => "taken-url-slug"}, %{})
+      :ok = Publishing.publish_version(group["slug"], owner[:uuid], 1)
+
+      {:ok, view, _html} =
+        conn
+        |> put_test_scope(fake_scope())
+        |> live("/admin/publishing/#{group["slug"]}/#{post[:uuid]}/edit")
+
+      _ =
+        render_change(view, "update_meta", %{
+          "url_slug" => "taken-url-slug",
+          "_target" => ["url_slug"]
+        })
+
+      html = render_click(view, "save", %{})
+
+      # The conflict modal appears and names the owning post (rather than silently
+      # clearing the slug or blocking with a bare flash).
+      assert html =~ "URL slug already in use"
+      assert html =~ "Owner Post"
+    end
+
     test "save failure surfaces a descriptive flash, not a bare generic one",
          %{conn: conn, group: group, post: post} do
       {:ok, view, _html} =
@@ -271,8 +319,10 @@ defmodule PhoenixKit.Modules.Publishing.Web.EditorLiveTest do
       # and the save errors. The flash must carry the reason via Errors.message,
       # never the old bare "Failed to save post". (The apostrophe in "Couldn't"
       # is HTML-escaped in the rendered output, so match the unambiguous tail.)
+      # We deliberately don't assert on the FK error wording itself — that's
+      # PostgreSQL's phrasing and brittle; the two assertions below prove the
+      # behaviour (descriptive flash, not the old bare message).
       assert html =~ "save this post."
-      assert html =~ "does not exist"
       refute html =~ "Failed to save post"
     end
 
@@ -288,7 +338,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.EditorLiveTest do
       _ = render_change(view, "update_meta", %{"title" => "", "_target" => ["title"]})
 
       html = render_click(view, "save", %{})
-      assert html =~ "required" || is_binary(html)
+      assert html =~ "Title is required to save."
     end
 
     test "switch_version to the same current version is a no-op",
@@ -310,6 +360,18 @@ defmodule PhoenixKit.Modules.Publishing.Web.EditorLiveTest do
         |> live("/admin/publishing/#{group["slug"]}/#{post[:uuid]}/edit")
 
       html = render_click(view, "switch_version", %{"version" => "99"})
+      assert is_binary(html)
+    end
+
+    test "switch_version with a non-integer param doesn't crash the LV (L1)",
+         %{conn: conn, group: group, post: post} do
+      {:ok, view, _html} =
+        conn
+        |> put_test_scope(fake_scope())
+        |> live("/admin/publishing/#{group["slug"]}/#{post[:uuid]}/edit")
+
+      # Before the fix this hit String.to_integer/1 and crashed the process.
+      html = render_click(view, "switch_version", %{"version" => "abc"})
       assert is_binary(html)
     end
 

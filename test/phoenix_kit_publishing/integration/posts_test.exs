@@ -1,9 +1,11 @@
 defmodule PhoenixKit.Integration.Publishing.PostsTest do
   use PhoenixKit.DataCase, async: true
 
+  alias PhoenixKit.Modules.Publishing.DBStorage
   alias PhoenixKit.Modules.Publishing.Groups
   alias PhoenixKit.Modules.Publishing.Posts
   alias PhoenixKit.Modules.Publishing.Versions
+  alias PhoenixKit.Settings
 
   defp unique_name, do: "Posts Group #{System.unique_integer([:positive])}"
 
@@ -26,6 +28,24 @@ defmodule PhoenixKit.Integration.Publishing.PostsTest do
       assert post[:time]
       assert post[:version] == 1
       assert post[:mode] in ["timestamp", :timestamp]
+    end
+
+    test "stamps the timestamp in the configured site time zone (L5)" do
+      group = create_group("timestamp")
+
+      {:ok, _} = Settings.update_setting("time_zone", "0")
+      {:ok, utc_post} = Posts.create_post(group["slug"], %{})
+
+      {:ok, _} = Settings.update_setting("time_zone", "5")
+      {:ok, plus5_post} = Posts.create_post(group["slug"], %{})
+
+      utc_dt = NaiveDateTime.new!(utc_post[:date], utc_post[:time])
+      plus5_dt = NaiveDateTime.new!(plus5_post[:date], plus5_post[:time])
+
+      # The +5 post is stamped ~5h ahead of the UTC one (both created seconds
+      # apart), so creation now matches the editor's naive wall clock + display.
+      diff_minutes = NaiveDateTime.diff(plus5_dt, utc_dt, :second) / 60
+      assert_in_delta diff_minutes, 300, 1.5
     end
 
     test "creates post with title" do
@@ -215,6 +235,31 @@ defmodule PhoenixKit.Integration.Publishing.PostsTest do
       assert updated[:content] == "<p>New body</p>"
     end
 
+    test "update_post does not publish a version by itself — that's publish_version's job (M4)" do
+      group = create_group("slug")
+      {:ok, post} = Posts.create_post(group["slug"], %{title: "Defer", content: "x"})
+
+      # Saving with status=published must NOT mark the version published on its
+      # own; publishing is atomic via Versions.publish_version. Otherwise a save
+      # could commit published while the paired publish rolled back.
+      {:ok, _} = Posts.update_post(group["slug"], post, %{"status" => "published"}, %{})
+
+      [v] = DBStorage.list_versions(post[:uuid])
+      assert v.status == "draft"
+      assert DBStorage.get_post_by_uuid(post[:uuid]).active_version_uuid == nil
+    end
+
+    test "read_post by UUID is pinned to the requested group (M6)" do
+      group_a = create_group("slug")
+      group_b = create_group("slug")
+      {:ok, post} = Posts.create_post(group_a["slug"], %{title: "In A"})
+
+      # The post resolves under its own group...
+      assert {:ok, _} = Posts.read_post(group_a["slug"], post[:uuid], nil)
+      # ...but NOT under another group's slug (cross-group UUID access).
+      assert {:error, :not_found} = Posts.read_post(group_b["slug"], post[:uuid], nil)
+    end
+
     test "returns updated post map" do
       group = create_group("slug")
       {:ok, post} = Posts.create_post(group["slug"], %{title: "Check Return"})
@@ -225,6 +270,32 @@ defmodule PhoenixKit.Integration.Publishing.PostsTest do
       assert updated[:uuid] == post[:uuid]
       assert updated[:version]
       assert updated[:metadata]
+    end
+
+    test "records the old url_slug for 301 redirects when the slug changes (H2)" do
+      group = create_group("slug")
+      {:ok, post} = Posts.create_post(group["slug"], %{title: "Reslug Me"})
+
+      # nil -> first-slug: nothing to record yet (no prior custom slug).
+      {:ok, v1} = Posts.update_post(group["slug"], post, %{"url_slug" => "first-slug"}, %{})
+      refute "first-slug" in (v1[:metadata][:previous_url_slugs] || [])
+
+      # first-slug -> second-slug: the old slug must be recorded for the 301.
+      {:ok, v2} = Posts.update_post(group["slug"], v1, %{"url_slug" => "second-slug"}, %{})
+      assert "first-slug" in (v2[:metadata][:previous_url_slugs] || [])
+
+      # Publish so the active-version-only 301 lookup can resolve the stale slug.
+      :ok = Versions.publish_version(group["slug"], post[:uuid], 1)
+
+      assert {:ok, found} =
+               Posts.find_by_previous_url_slug(group["slug"], v2[:language], "first-slug")
+
+      assert found.slug == post[:slug]
+
+      # Reverting to first-slug drops it from history so it can't 301 to itself.
+      {:ok, v3} = Posts.update_post(group["slug"], v2, %{"url_slug" => "first-slug"}, %{})
+      refute "first-slug" in (v3[:metadata][:previous_url_slugs] || [])
+      assert "second-slug" in (v3[:metadata][:previous_url_slugs] || [])
     end
   end
 
@@ -305,6 +376,25 @@ defmodule PhoenixKit.Integration.Publishing.PostsTest do
       group = create_group("slug")
       {:ok, post} = Posts.create_post(group["slug"], %{title: "Trash Me"})
       assert {:ok, _uuid} = Posts.trash_post(group["slug"], post[:uuid])
+    end
+
+    test "timestamp_slot_taken? still sees a trashed post's slot (M2)" do
+      group = create_group("timestamp")
+      {:ok, post} = Posts.create_post(group["slug"], %{title: "Timed"})
+      db_post = DBStorage.get_post_by_uuid(post[:uuid])
+      date = db_post.post_date
+      time = db_post.post_time
+
+      assert DBStorage.timestamp_slot_taken?(group["slug"], date, time)
+
+      {:ok, _} = Posts.trash_post(group["slug"], post[:uuid])
+
+      # The unique index includes trashed rows, so the availability probe must
+      # too — otherwise a new post at the same minute would target the slot, the
+      # insert would hit the index, and the collision retry could never converge.
+      assert DBStorage.timestamp_slot_taken?(group["slug"], date, time)
+      # The live-serving lookup correctly treats the slot as free.
+      assert DBStorage.get_post_by_datetime(group["slug"], date, time) == nil
     end
 
     test "trashed post is excluded from list_posts" do
