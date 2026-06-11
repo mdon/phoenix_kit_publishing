@@ -110,12 +110,12 @@ defmodule PhoenixKit.Modules.Publishing.StaleFixer do
   end
 
   defp do_fix_stale_post(post, ctx) do
-    # Hard-delete empty posts (no content in any version) — they're abandoned
-    # drafts with no recoverable content, so trashing them just creates a
-    # restore → auto-trash loop. Skip recently created posts to avoid killing
-    # posts before the editor has had a chance to autosave.
-    if empty_post?(ctx) and past_grace_period?(post) do
-      delete_empty_post(post)
+    # Trash (soft-delete) empty posts (no content + no featured image in any
+    # version) — abandoned drafts. Skip recently created posts so the editor has
+    # time to autosave, and skip already-trashed posts so a restore isn't fought
+    # in a tight loop. Trash (not hard-delete) keeps it recoverable and logged.
+    if empty_post?(ctx) and past_grace_period?(post) and is_nil(post.trashed_at) do
+      trash_empty_post(post)
       post
     else
       post = apply_stale_fix(post, build_post_fixes(post, ctx), &DBStorage.update_post/2)
@@ -135,11 +135,24 @@ defmodule PhoenixKit.Modules.Publishing.StaleFixer do
   end
 
   # `fix_stale_post/1` runs on the read path, so two concurrent requests can both
-  # decide to delete the same empty post — the loser hits Ecto.StaleEntryError.
-  # A read must never 500 over that benign race; the post is gone either way.
-  defp delete_empty_post(post) do
-    Logger.info("[Publishing] Deleting empty post #{post.uuid} (no content in any version)")
-    DBStorage.delete_post(post)
+  # decide to trash the same empty post — the loser hits Ecto.StaleEntryError.
+  # A read must never 500 over that benign race; the post is trashed either way.
+  defp trash_empty_post(post) do
+    Logger.info("[Publishing] Trashing empty post #{post.uuid} (no content in any version)")
+
+    case DBStorage.update_post(post, %{trashed_at: DateTime.utc_now()}) do
+      {:ok, _} ->
+        ActivityLog.log_manual(
+          "publishing.post.auto_trashed",
+          nil,
+          "publishing_post",
+          post.uuid,
+          %{"reason" => "empty_post", "group_uuid" => post.group_uuid}
+        )
+
+      {:error, _reason} ->
+        :ok
+    end
   rescue
     Ecto.StaleEntryError ->
       Logger.debug("[Publishing] Empty post #{post.uuid} already removed by a concurrent request")
@@ -152,6 +165,19 @@ defmodule PhoenixKit.Modules.Publishing.StaleFixer do
   end
 
   defp version_empty?(ctx, version) do
+    not version_has_featured_image?(version) and version_contents_empty?(ctx, version)
+  end
+
+  # A featured-image-only version (no title/body) still holds user content — it
+  # must NOT count as empty, or the auto-trash would discard the image.
+  defp version_has_featured_image?(version) do
+    case (version.data || %{})["featured_image_uuid"] do
+      uuid when is_binary(uuid) and uuid != "" -> true
+      _ -> false
+    end
+  end
+
+  defp version_contents_empty?(ctx, version) do
     contents = Map.get(ctx.contents_by_version, version.uuid, [])
     contents == [] or Enum.all?(contents, &content_empty?/1)
   end
