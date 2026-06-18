@@ -29,15 +29,21 @@ defmodule PhoenixKit.Modules.Publishing.TranslationManager do
   @doc """
   Resolves the default AI endpoint UUID for publishing translation.
 
-  Reads the `publishing_translation_endpoint_uuid` setting; `nil`/`""` → `nil`.
+  Prefers the `publishing_translation_endpoint_uuid` setting (an admin override);
+  otherwise defers to core's smart default — the last endpoint used in the AI
+  request history, else the first enabled non-reasoning chat endpoint.
   """
   @spec default_endpoint_uuid() :: String.t() | nil
   def default_endpoint_uuid do
     case Settings.get_setting("publishing_translation_endpoint_uuid") do
-      nil -> nil
-      "" -> nil
+      nil -> ai_default_endpoint_uuid()
+      "" -> ai_default_endpoint_uuid()
       id -> id
     end
+  end
+
+  defp ai_default_endpoint_uuid do
+    if ai_available?(), do: Translations.default_endpoint_uuid(), else: nil
   end
 
   @doc """

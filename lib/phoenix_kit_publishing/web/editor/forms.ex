@@ -388,15 +388,6 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor.Forms do
     end
   end
 
-  @doc """
-  Push slug events to the client.
-  """
-  def push_slug_events(socket, events) do
-    Enum.reduce(events, socket, fn {event, data}, acc ->
-      Phoenix.LiveView.push_event(acc, event, data)
-    end)
-  end
-
   # ============================================================================
   # Change Detection
   # ============================================================================
