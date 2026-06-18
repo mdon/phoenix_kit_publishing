@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.2.1 - 2026-06-18
+
+PR #26 — rewires the post editor onto the core `MarkdownEditor` hook so it renders **zero inline `<script>` and zero `onclick`** (CSP-safe and navigation-safe), plus a post-merge review pass. No public API breaks. Built against `phoenix_kit ~> 1.7.162` / `phoenix_kit_ai ~> 0.9` (existing constraints unchanged; the editor-hook and smart-default behaviors light up on those releases and degrade gracefully on older ones).
+
+### Changed
+- **Editor media insertion flows through the core `MarkdownEditor`** — images via `:insert_at_cursor` and video via the `:prompt_insert` action — so insertion no longer needs a module-owned inline `<script>` and survives LiveView navigation (image insert previously required a manual page refresh).
+- **Unsaved-changes confirmation is a server-rendered modal** instead of a JS `confirm()` (which broke under CSP / on navigation).
+- **The AI-translation modal pre-selects the endpoint** from core's smart default (last-used from history, else a non-reasoning chat endpoint) and **auto-closes on a successful translation**, so you no longer re-pick the endpoint or close the modal by hand.
+- The auto-generated slug renders straight from the form assign, dropping the dead `update-slug` push and `Forms.push_slug_events/2`.
+
+### Fixed
+- **Video toolbar inserts the renderer-supported `<Video url="…">` component** instead of `![Video](url)` markdown, which the renderer turned into a broken `<img>`. Now matches the image-insert path and the `insert_component`/`insert_video_component` handlers.
+- Reformatted `editor_forms_test.exs` (stray trailing blank line left by the `push_slug_events/2` test removal).
+
 ## 0.2.0 - 2026-06-11
 
 PR #25 — a full-module adversarial audit: **9 High / 16 Medium / 12 Low** findings fixed across public routing, the listing cache, publishing atomicity, the editor, and markdown rendering, each pinned by a regression test. Plus a post-audit fix to listing-cache invalidation. No public API breaks; the minor bump reflects the breadth of behavioral hardening (redirects, slug-collision precedence, cache/clustering semantics). Built against `phoenix_kit ~> 1.7.144`.

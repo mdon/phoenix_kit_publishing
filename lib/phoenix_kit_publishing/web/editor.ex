@@ -1327,11 +1327,15 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
   end
 
   def handle_info({:editor_insert_component, %{type: :video}}, socket) do
+    # Insert the renderer-supported `<Video>` component (the markdown renderer
+    # only embeds `<Video ...>`; a bare `![Video](url)` becomes a broken <img>).
+    # Matches the image toolbar path and the insert_component/insert_video_component
+    # handlers, all of which use component markup.
     send_update(MarkdownEditor,
       id: "content-editor",
       action: :prompt_insert,
       prompt: gettext("Enter YouTube URL:"),
-      template: "\n![Video](%{value})\n"
+      template: "\n<Video url=\"%{value}\">\n  Optional caption text\n</Video>\n"
     )
 
     {:noreply, socket}

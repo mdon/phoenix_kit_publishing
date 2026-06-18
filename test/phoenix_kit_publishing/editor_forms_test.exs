@@ -238,5 +238,4 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor.FormsTest do
       assert Forms.dirty?(post, form, "new content")
     end
   end
-
 end
