@@ -58,7 +58,8 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor.Translation do
   # drift. These stay as the editor's entry points but just delegate.
 
   @doc """
-  Gets the default AI endpoint UUID from settings.
+  Gets the default AI endpoint UUID — admin setting, else core's smart default
+  (last-used endpoint from AI history, else a non-reasoning chat endpoint).
   """
   def get_default_ai_endpoint_uuid, do: TranslationManager.default_endpoint_uuid()
 

@@ -36,6 +36,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
   alias PhoenixKit.Settings
   alias PhoenixKit.Utils.Routes
   alias PhoenixKitAI, as: AI
+  alias PhoenixKitWeb.Components.Core.MarkdownEditor
 
   # Submodule aliases
   alias PhoenixKit.Modules.Publishing.Web.Editor.Collaborative
@@ -86,6 +87,8 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
     live_source =
       socket.id ||
         "publishing-editor-" <> Base.url_encode64(:crypto.strong_rand_bytes(6), padding: false)
+
+    ai_endpoints = Translation.list_ai_endpoints()
 
     socket =
       socket
@@ -142,7 +145,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
       |> assign(:slug_conflict_info, nil)
       |> assign(:show_ai_translation, false)
       |> assign(:ai_enabled, Code.ensure_loaded?(PhoenixKitAI) and AI.enabled?())
-      |> assign(:ai_endpoints, Translation.list_ai_endpoints())
+      |> assign(:ai_endpoints, ai_endpoints)
       |> assign(:ai_selected_endpoint_uuid, Translation.get_default_ai_endpoint_uuid())
       |> assign(:ai_prompts, Translation.list_ai_prompts())
       |> assign(:ai_selected_prompt_uuid, Translation.get_default_ai_prompt_uuid())
@@ -157,6 +160,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
       |> assign(:show_translation_confirm, false)
       |> assign(:pending_translation_languages, [])
       |> assign(:translation_warnings, [])
+      |> assign(:show_cancel_confirm, false)
       |> assign(:current_path, Routes.path("/admin/publishing/#{group_slug}/edit"))
 
     {:ok, socket}
@@ -571,7 +575,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
         |> Map.merge(params)
         |> Forms.normalize_form()
 
-      {socket_with_slug, new_form, slug_events} =
+      {socket_with_slug, new_form, _slug_events} =
         process_slug_updates(socket, params, target, new_form)
 
       has_changes = Forms.dirty?(socket_with_slug.assigns.post, new_form, socket.assigns.content)
@@ -586,8 +590,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
           new_form,
           updated_post,
           public_url,
-          has_changes,
-          slug_events
+          has_changes
         )
 
       socket = if has_changes, do: schedule_autosave(socket), else: socket
@@ -630,7 +633,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
     if socket.assigns.group_mode == "slug" do
       title = socket.assigns.form["title"] || ""
 
-      {socket, new_form, slug_events} =
+      {socket, new_form, _slug_events} =
         Forms.maybe_update_slug_from_title(socket, title, force: true)
 
       has_changes = Forms.dirty?(socket.assigns.post, new_form, socket.assigns.content)
@@ -639,8 +642,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
        socket
        |> assign(:form, new_form)
        |> assign(:has_pending_changes, has_changes)
-       |> push_event("changes-status", %{has_changes: has_changes})
-       |> Forms.push_slug_events(slug_events)}
+       |> push_event("changes-status", %{has_changes: has_changes})}
     else
       {:noreply, socket}
     end
@@ -727,12 +729,14 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
   end
 
   def handle_event("insert_component", %{"component" => "video"}, socket) do
-    {:noreply,
-     push_event(socket, "phx:prompt-and-insert", %{
-       component: "video",
-       prompt: "Enter YouTube URL:",
-       placeholder: "https://youtu.be/dQw4w9WgXcQ"
-     })}
+    send_update(MarkdownEditor,
+      id: "content-editor",
+      action: :prompt_insert,
+      prompt: gettext("Enter YouTube URL:"),
+      template: "\n<Video url=\"%{value}\">\n  Optional caption text\n</Video>\n"
+    )
+
+    {:noreply, socket}
   end
 
   def handle_event("insert_component", %{"component" => "cta"}, socket) do
@@ -740,7 +744,8 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
     <CTA primary="true" action="/your-link">Button Text</CTA>
     """
 
-    {:noreply, push_event(socket, "phx:insert-at-cursor", %{text: template})}
+    send_update(MarkdownEditor, id: "content-editor", action: :insert_at_cursor, text: template)
+    {:noreply, socket}
   end
 
   def handle_event("insert_video_component", %{"url" => url}, socket) do
@@ -752,7 +757,8 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
 
     """
 
-    {:noreply, push_event(socket, "phx:insert-at-cursor", %{text: template})}
+    send_update(MarkdownEditor, id: "content-editor", action: :insert_at_cursor, text: template)
+    {:noreply, socket}
   end
 
   def handle_event("clear_featured_image", _params, socket) do
@@ -1043,7 +1049,13 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
   end
 
   def handle_event("attempt_cancel", _params, socket) do
-    {:noreply, push_event(socket, "confirm-navigation", %{})}
+    # Server-rendered confirm (was a JS confirm() via push_event, which broke
+    # under CSP / on navigation along with the rest of the inline script).
+    {:noreply, assign(socket, :show_cancel_confirm, true)}
+  end
+
+  def handle_event("dismiss_cancel_confirm", _params, socket) do
+    {:noreply, assign(socket, :show_cancel_confirm, false)}
   end
 
   def handle_event("cancel", _params, socket) do
@@ -1195,7 +1207,9 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
     )
   end
 
-  defp assign_meta_updates(socket, new_form, updated_post, public_url, has_changes, slug_events) do
+  defp assign_meta_updates(socket, new_form, updated_post, public_url, has_changes) do
+    # The regenerated slug rides in `new_form` and renders via the input's
+    # `value={@form["slug"]}`, so no client-side slug push is needed.
     socket
     |> assign(:form, new_form)
     |> assign(:post, updated_post)
@@ -1204,7 +1218,6 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
     |> assign(:has_pending_changes, has_changes)
     |> assign(:public_url, public_url)
     |> push_event("changes-status", %{has_changes: has_changes})
-    |> Forms.push_slug_events(slug_events)
   end
 
   # ============================================================================
@@ -1314,7 +1327,14 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
   end
 
   def handle_info({:editor_insert_component, %{type: :video}}, socket) do
-    {:noreply, push_event(socket, "prompt-and-insert", %{type: "video"})}
+    send_update(MarkdownEditor,
+      id: "content-editor",
+      action: :prompt_insert,
+      prompt: gettext("Enter YouTube URL:"),
+      template: "\n![Video](%{value})\n"
+    )
+
+    {:noreply, socket}
   end
 
   def handle_info({:editor_insert_component, _}, socket), do: {:noreply, socket}
@@ -1681,6 +1701,10 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
         |> assign(:ai_translation_status, :completed)
         |> assign(:ai_translation_languages, [])
         |> assign(:translation_locked?, false)
+        # Auto-close the translation modal/confirm on completion (was left open,
+        # forcing a manual close).
+        |> assign(:show_ai_translation, false)
+        |> assign(:show_translation_confirm, false)
 
       if current_language in translated do
         Persistence.reload_translated_content(socket, msg, level)
@@ -1890,13 +1914,19 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
       cond do
         file_uuid && inserting_image_component ->
           markup = Helpers.image_component_markup(file_uuid)
+          # Insert through the core MarkdownEditor hook (CSP-safe, survives
+          # navigation) instead of a bespoke inline-script listener.
+          send_update(MarkdownEditor,
+            id: "content-editor",
+            action: :insert_at_cursor,
+            text: markup
+          )
 
           {
             socket
             |> assign(:show_media_selector, false)
             |> assign(:inserting_image_component, false)
-            |> put_flash(:info, gettext("Image component inserted"))
-            |> push_event("insert-media", %{text: markup}),
+            |> put_flash(:info, gettext("Image component inserted")),
             false
           }
 
@@ -1923,144 +1953,8 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
   @impl true
   def render(assigns) do
     ~H"""
-    <% nonce = assigns[:script_csp_nonce] || assigns[:csp_nonce] || "" %>
     <% edit_disabled? = @readonly? or @translation_locked? %>
 
-    <%!-- Unsaved changes tracking and navigation protection --%>
-    <script nonce={nonce}>
-    (function() {
-      // Track unsaved changes state
-      window.editorUnsavedChanges = false;
-
-      // Save immediately when user switches tabs or minimizes
-      document.addEventListener("visibilitychange", function() {
-        if (document.hidden && window.editorUnsavedChanges) {
-          // Trigger LiveView save event via hidden button
-          const saveBtn = document.querySelector("[phx-click='save']");
-          if (saveBtn) saveBtn.click();
-        }
-      });
-
-      // Browser exit protection — save before leaving
-      window.addEventListener("beforeunload", function(e) {
-        if (window.editorUnsavedChanges) {
-          // Try to trigger save (may not complete before page unloads)
-          const saveBtn = document.querySelector("[phx-click='save']");
-          if (saveBtn) saveBtn.click();
-          e.preventDefault();
-          e.returnValue = "";
-          return "";
-        }
-      });
-
-      // Intercept navigation links — save first, then navigate
-      document.addEventListener("click", function(e) {
-        if (window.editorUnsavedChanges) {
-          const link = e.target.closest("a[href], a[data-phx-link]");
-          if (link && !link.hasAttribute("data-confirm")) {
-            const href = link.getAttribute("href") || link.getAttribute("data-phx-link");
-            if (href && !href.startsWith("http") && !href.startsWith("#")) {
-              e.preventDefault();
-              e.stopPropagation();
-              // Save first, then ask to confirm navigation
-              const saveBtn = document.querySelector("[phx-click='save']");
-              if (saveBtn) saveBtn.click();
-              // Small delay to let save complete, then confirm
-              setTimeout(function() {
-                document.getElementById("confirm-cancel-btn").click();
-              }, 100);
-            }
-          }
-        }
-      }, true);
-
-      // Listen for changes status from LiveView
-      window.addEventListener("phx:changes-status", function(e) {
-        window.editorUnsavedChanges = e.detail.has_changes;
-      });
-
-      // Listen for confirm navigation event
-      window.addEventListener("phx:confirm-navigation", function(_e) {
-        if (confirm("You have unsaved changes. Are you sure you want to leave?")) {
-          document.getElementById("confirm-cancel-btn").click();
-        }
-      });
-
-      // Listen for slug update event from LiveView
-      window.addEventListener("phx:update-slug", function(e) {
-        const slugInput = document.getElementById("slug-input");
-        if (slugInput && e.detail.slug) {
-          slugInput.value = e.detail.slug;
-        }
-      });
-
-      // Listen for url_slug update event from LiveView (for translations)
-      window.addEventListener("phx:update-url-slug", function(e) {
-        const urlSlugInput = document.getElementById("url-slug-input");
-        if (urlSlugInput && e.detail.url_slug) {
-          urlSlugInput.value = e.detail.url_slug;
-        }
-      });
-
-      // Insert raw text at the textarea cursor and notify LiveView.
-      window.publishingEditorInsertText = function(text) {
-        const textarea = document.getElementById('content-editor-textarea');
-        if (!textarea || !text) return;
-
-        const start = textarea.selectionStart || 0;
-        const currentValue = textarea.value;
-        const newValue = currentValue.substring(0, start) + text + currentValue.substring(start);
-        textarea.value = newValue;
-
-        // Move cursor after inserted text
-        const newPos = start + text.length;
-        textarea.selectionStart = textarea.selectionEnd = newPos;
-        textarea.focus();
-
-        // Trigger keyup event to update LiveView (matches phx-keyup binding on textarea)
-        textarea.dispatchEvent(new KeyboardEvent("keyup", { bubbles: true }));
-      };
-
-      // Listen for media markup pushed from LiveView (image components, etc.).
-      // The server builds the exact text to insert, so no client-side eval.
-      window.addEventListener("phx:insert-media", (e) => {
-        window.publishingEditorInsertText(e.detail.text);
-      });
-
-      // Listen for video prompt event
-      window.addEventListener("phx:prompt-and-insert", (e) => {
-        const url = window.prompt("Enter YouTube URL:", "https://youtu.be/dQw4w9WgXcQ");
-        if (url && url.trim()) {
-          window.publishingEditorInsertMedia(null, 'video', url.trim());
-        }
-      });
-
-      // Build standard markdown media syntax and insert it (video path; image
-      // insertion now flows through the phx:insert-media event above).
-      window.publishingEditorInsertMedia = function(fileUrl, mediaType, videoUrl) {
-        let template;
-        if (mediaType === 'image' && fileUrl) {
-          template = '\n![Image description](' + fileUrl + ')\n';
-        } else if (mediaType === 'video') {
-          const url = videoUrl || fileUrl || '';
-          template = '\n![Video](' + url + ')\n';
-        } else {
-          return;
-        }
-
-        window.publishingEditorInsertText(template);
-      };
-    })();
-    </script>
-    <%!-- Hidden confirmation button for JavaScript --%>
-    <button
-    id="confirm-cancel-btn"
-    type="button"
-    phx-click="cancel"
-    class="hidden"
-    aria-hidden="true"
-    >
-    </button>
 
     <div class="w-full px-4 py-6 space-y-6">
     <div class="flex flex-wrap items-center justify-between gap-2">
@@ -2631,8 +2525,8 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
                   debounce={400}
                   toolbar={[:image, :video]}
                   show_formatting_toolbar={not (edit_disabled? or @viewing_older_version)}
-                  protect_navigation={false}
-                  script_nonce={nonce}
+                  protect_navigation={true}
+                  save_status={if @has_pending_changes, do: :unsaved, else: :saved}
                   readonly={edit_disabled? or @viewing_older_version}
                 />
               </div>
@@ -3073,6 +2967,19 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
     confirm_text={gettext("Translate")}
     cancel_text={gettext("Cancel")}
     confirm_icon="hero-language"
+    />
+
+    <%!-- Unsaved-changes confirmation (server-rendered; replaces the old JS confirm()) --%>
+    <.confirm_modal
+    show={@show_cancel_confirm}
+    on_confirm="cancel"
+    on_cancel="dismiss_cancel_confirm"
+    title={gettext("Unsaved changes")}
+    title_icon="hero-exclamation-triangle"
+    prompt={gettext("You have unsaved changes. Leave without saving?")}
+    confirm_text={gettext("Leave")}
+    cancel_text={gettext("Keep editing")}
+    danger={true}
     />
 
     <%!-- Media Selector Modal --%>

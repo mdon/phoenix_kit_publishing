@@ -239,16 +239,4 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor.FormsTest do
     end
   end
 
-  # ============================================================================
-  # push_slug_events/2
-  # ============================================================================
-
-  describe "push_slug_events/2" do
-    test "pushes no events for empty list" do
-      socket = build_socket(%{})
-      result = Forms.push_slug_events(socket, [])
-      # No crash = success; events are pushed via Phoenix.LiveView.push_event
-      assert result
-    end
-  end
 end
