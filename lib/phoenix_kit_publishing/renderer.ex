@@ -48,14 +48,18 @@ defmodule PhoenixKit.Modules.Publishing.Renderer do
   @component_regex ~r/<(Image|CTA|Headline|Subheadline|Video|EntityForm)\s+([^>]*?)\/>/s
   @component_block_regex ~r/<(CTA|Headline|Subheadline|Video|EntityForm)\s*([^>]*)>(.*?)<\/\1>/s
 
-  # Fenced (```…``` or ~~~…~~~), double-backtick inline (``…``) and single
-  # inline (`…`) code spans — masked out before the component scan so a literal
-  # component example inside a code block isn't rendered as a real component.
+  # Fenced code blocks, double-backtick inline code, and single-backtick
+  # inline code spans — masked out before the component scan so a literal
+  # component example inside a code block is not rendered as a real component.
   # Order matters: fences first (win at a fence boundary), then double-backtick
-  # (so ``a`b`` isn't split by the single-backtick branch), then single.
+  # (so double-backtick spans containing single backticks work correctly), then single.
+  # The single-backtick branch allows soft line breaks (a `…` span may run over
+  # several lines, matching CommonMark) but stops at a blank line — `\n(?!\n)`
+  # rejects the paragraph boundary, so two unbalanced backticks in separate
+  # paragraphs don't swallow a real component sitting between them.
   # Known limitation: 4+ backtick fences and backslash-escaped backticks (rare
-  # CommonMark corners) aren't matched and would still be scanned for components.
-  @code_region_regex ~r/```.*?```|~~~.*?~~~|``[^\n]+?``|`[^`\n]*`/s
+  # CommonMark corners) are not matched and would still be scanned for components.
+  @code_region_regex ~r/```.*?```|~~~.*?~~~|``[^\n]+?``|`(?:[^`\n]|\n(?!\n))*`/s
 
   # MDEx (comrak) options chosen to reproduce the prior Earmark behavior:
   #   * parse smart punctuation — curly quotes, en/em dashes, ellipses

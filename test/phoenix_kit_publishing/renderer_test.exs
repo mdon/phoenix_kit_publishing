@@ -563,6 +563,40 @@ defmodule PhoenixKit.Modules.Publishing.RendererTest do
       refute html =~ "<img"
     end
 
+    test "a component in a multi-line single-backtick span renders as visible code (M-A)" do
+      # A single-backtick span may run over several lines (valid CommonMark), so
+      # its content must be masked from the component scanner. The old regex
+      # `[^`\n]*` excluded newlines, so a span like `` `<CTA>\nClick</CTA>` ``
+      # was not matched and the component rendered live instead of as code text.
+      # @code_region_regex now allows soft line breaks in the single-backtick
+      # branch.
+      html = Renderer.render_markdown("Example: `<CTA action=\"/test\">\nClick</CTA>`")
+
+      # The literal tag is shown as escaped text inside the code span
+      assert html =~ "&lt;CTA"
+      # ...and was NOT turned into a real component
+      refute html =~ "href=\"/test\""
+    end
+
+    test "unbalanced backticks across a blank line don't swallow a real component" do
+      # The single-backtick branch must stop at a blank line: a `…` span cannot
+      # cross a paragraph boundary in CommonMark. A naive `[^`]*` fix over-matches
+      # here — two stray backticks in separate paragraphs would engulf the <CTA>
+      # between them, so it neither renders as a component nor escapes as code but
+      # leaks as a raw <CTA> tag. `\n(?!\n)` keeps the span within one paragraph.
+      content =
+        "Here is a `stray backtick\n\n" <>
+          "<CTA action=\"/real\">Click</CTA>\n\n" <>
+          "and another `stray backtick"
+
+      html = Renderer.render_markdown(content)
+
+      # The component between the stray backticks was treated as a real component,
+      # not masked as code — so no raw <CTA tag leaked into the output.
+      refute html =~ "<CTA"
+      refute html =~ "&lt;CTA"
+    end
+
     test "a component OUTSIDE code blocks still renders as a component" do
       html =
         Renderer.render_markdown(~s|Before\n\n<Image file_uuid="#{@uuid}" alt="x"/>\n\nAfter|)
