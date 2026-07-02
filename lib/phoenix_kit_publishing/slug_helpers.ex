@@ -18,15 +18,21 @@ defmodule PhoenixKit.Modules.Publishing.SlugHelpers do
   @slug_style_key "publishing_slug_style"
   @default_slug_style "transliterate"
 
-  # SEO-preferred slug length. The actual cap is `effective_max_slug_length/0`
-  # — the SMALLER of this and the real save limit (`Constants.max_slug_length`).
-  # `slugify/2` caps its output to that, so the slugified BASE of any automatic
-  # path (title -> slug, AI translation, Cyrillic transliteration which EXPANDS
-  # text — щ -> shch) is always <= the save limit and never errors on save.
-  # `generate_unique_slug/4` may append a short "-N" uniqueness suffix on top of
-  # the capped base; with the 200-vs-500 headroom that stays far under the
-  # column limit. 200 is generous for SEO and well under the 500-char columns.
-  @seo_slug_length 200
+  # Auto-generation cap. Applies to slugs derived from titles / AI
+  # translation / transliteration — the caller's typed input is bounded
+  # by `Constants.max_slug_length/0` (500) instead, so a human can
+  # override with something longer when they need to.
+  #
+  # 60 characters matches the widely-cited SEO guidance derived from
+  # Google's title-tag length recommendation (Ahrefs, Moz, Yoast, and
+  # Semrush all converge on 50–75 for URL slugs; 60 is the median).
+  # Short slugs read better, rank slightly better in Google's own
+  # tests, and fit inside SERP and social-share cards without truncation.
+  #
+  # Uniqueness suffixes (`-2`, `-3`, …) are appended AFTER the cap, so
+  # the final saved slug can be marginally longer than 60 — still well
+  # inside the 500-char column and well inside SEO tolerance.
+  @seo_slug_length 60
 
   # ASCII slug shape — produced by the :transliterate and :ascii styles.
   @ascii_slug_pattern ~r/^[a-z0-9]+(?:-[a-z0-9]+)*$/
