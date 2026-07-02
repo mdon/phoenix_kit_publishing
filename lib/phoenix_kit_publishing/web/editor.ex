@@ -25,6 +25,11 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
   # Suppress dialyzer warnings for pattern matches
   @dialyzer {:nowarn_function, handle_event: 3}
 
+  # `PhoenixKitOg` is an optional plugin. Every call site is guarded
+  # with `Code.ensure_loaded?/1`, but the compiler still warns unless
+  # we tell it the symbol is expected to be undefined in that case.
+  @compile {:no_warn_undefined, PhoenixKitOg}
+
   alias Phoenix.LiveView.JS
   alias PhoenixKit.Modules.Publishing
   alias PhoenixKit.Modules.Publishing.Errors
