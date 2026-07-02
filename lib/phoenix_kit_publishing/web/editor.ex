@@ -76,6 +76,35 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
     end
   end
 
+  # True when the PhoenixKitOg plugin is installed AND the admin has
+  # flipped its kill switch on. In that case the editor's OG-image
+  # override becomes a fallback — the plugin renders a template-driven
+  # image whenever an assignment resolves for this post.
+  defp og_module_active? do
+    Code.ensure_loaded?(PhoenixKitOg) and
+      function_exported?(PhoenixKitOg, :enabled?, 0) and
+      PhoenixKitOg.enabled?()
+  rescue
+    _ -> false
+  end
+
+  # Asks the OG plugin to render the current post through whatever
+  # template resolves for it, returning a URL — or nil if nothing
+  # resolves or the plugin isn't installed. Called from the editor
+  # template so the preview updates whenever the post assign changes.
+  defp og_preview_url(nil, _language), do: nil
+
+  defp og_preview_url(post, language) do
+    if og_module_active?() and function_exported?(PhoenixKitOg, :preview_og_image_url, 3) do
+      case PhoenixKitOg.preview_og_image_url(post, nil, language) do
+        {:ok, url} -> url
+        _ -> nil
+      end
+    end
+  rescue
+    _ -> nil
+  end
+
   # ============================================================================
   # Mount
   # ============================================================================
@@ -148,6 +177,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
       |> assign(:slug_conflict_info, nil)
       |> assign(:show_ai_translation, false)
       |> assign(:ai_enabled, Code.ensure_loaded?(PhoenixKitAI) and AI.enabled?())
+      |> assign(:og_module_active?, og_module_active?())
       |> assign(:ai_endpoints, ai_endpoints)
       |> assign(:ai_selected_endpoint_uuid, Translation.get_default_ai_endpoint_uuid())
       |> assign(:ai_prompts, Translation.list_ai_prompts())
@@ -2833,6 +2863,17 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
                         "Override how this post looks when shared on social media. Leave a field blank to use the post's own title, description, or featured image."
                       )}
                     </p>
+                    <div
+                      :if={@og_module_active?}
+                      class="rounded-md border border-info/30 bg-info/5 px-2.5 py-2 text-xs text-info-content flex items-start gap-2"
+                    >
+                      <.icon name="hero-share" class="w-3.5 h-3.5 mt-0.5 shrink-0 text-info" />
+                      <span>
+                        {gettext(
+                          "The OpenGraph plugin is enabled — the final image is generated from a template. Values you set below feed into that template (title, description, image) in place of the post's own; leave a field blank to use the post default."
+                        )}
+                      </span>
+                    </div>
 
                     <div>
                       <label class="label py-1">
@@ -2923,6 +2964,45 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
                         <% end %>
                       <% end %>
                     </div>
+                  </div>
+                </details>
+
+                <%!-- OpenGraph plugin preview — only visible when the
+                     plugin is enabled AND a template resolves for this
+                     post. Sits below the manual override so the two
+                     surfaces line up visually. --%>
+                <details
+                  :if={@og_module_active? and og_preview_url(@post, @current_language)}
+                  class="bg-base-200/50 rounded-lg border border-base-300"
+                  open
+                >
+                  <summary class="cursor-pointer select-none px-3 py-2 rounded-lg hover:bg-base-300/50 transition-colors list-none [&::-webkit-details-marker]:hidden">
+                    <div class="flex items-center gap-1.5">
+                      <.icon
+                        name="hero-chevron-right"
+                        class="w-3 h-3 transition-transform [[open]>&]:rotate-90"
+                      />
+                      <.icon
+                        name="hero-photo"
+                        class="w-3.5 h-3.5 text-base-content/70"
+                      />
+                      <span class="text-xs font-medium text-base-content/70">
+                        {gettext("Generated OG image")}
+                      </span>
+                    </div>
+                  </summary>
+                  <div class="px-3 pb-3 pt-2 space-y-2">
+                    <p class="text-xs text-base-content/60">
+                      {gettext(
+                        "This is the image the OG plugin will show on social shares for this post — rendered from the assigned template using the values set above."
+                      )}
+                    </p>
+                    <img
+                      src={og_preview_url(@post, @current_language)}
+                      alt={gettext("Generated OG image preview")}
+                      class="w-full rounded-lg border-2 border-base-300"
+                      loading="lazy"
+                    />
                   </div>
                 </details>
 

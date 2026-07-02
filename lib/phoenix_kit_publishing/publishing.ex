@@ -269,6 +269,138 @@ defmodule PhoenixKit.Modules.Publishing do
   @impl PhoenixKit.Module
   def module_name, do: "Publishing"
 
+  # ============================================================================
+  # OG module integration — exposes per-post variables that the
+  # `phoenix_kit_og` plugin can wire to a template's slots at
+  # assignment time.
+  # ============================================================================
+
+  @doc """
+  Variables this module makes available for OG template wiring. Each
+  entry declares its `type` (`:text` / `:image`), which lets the OG
+  assignment UI show only compatible variables for a given slot.
+  """
+  def og_variables do
+    [
+      %{
+        name: "post_title",
+        type: :text,
+        label: "Post title",
+        description: "The post's title"
+      },
+      %{
+        name: "post_description",
+        type: :text,
+        label: "Post description",
+        description: "Short description text"
+      },
+      %{
+        name: "post_url",
+        type: :text,
+        label: "Post URL",
+        description: "Canonical URL of the post"
+      },
+      %{
+        name: "post_featured_image",
+        type: :image,
+        label: "Featured image",
+        description: "The post's featured image (media UUID)"
+      },
+      %{
+        name: "post_group_name",
+        type: :text,
+        label: "Group name",
+        description: "The publishing group this post belongs to"
+      },
+      %{
+        name: "post_group_slug",
+        type: :text,
+        label: "Group slug",
+        description: "URL slug of the publishing group"
+      },
+      %{
+        name: "post_first_words",
+        type: :text,
+        label: "First words of description",
+        description: "First ~20 words of the description — nicer for OG cards than a raw excerpt"
+      },
+      %{
+        name: "post_published_at",
+        type: :text,
+        label: "Published date",
+        description: "When the post was published"
+      }
+    ]
+  end
+
+  @doc """
+  Resolves a variable name from `og_variables/0` against the current
+  post supplied in `context.resource`. Falls back to `nil` for unknown
+  names so unwired slots stay visible rather than blowing up.
+  """
+  def og_resolve("post_title", %{resource: post}),
+    do: og_override(post, "title") || og_get_meta(post, :title)
+
+  def og_resolve("post_description", %{resource: post}),
+    do: og_override(post, "description") || og_get_meta(post, :description)
+
+  def og_resolve("post_url", %{resource: post}), do: og_get_meta(post, :url)
+
+  def og_resolve("post_featured_image", %{resource: post}),
+    do: og_override(post, "image_uuid") || og_get_meta(post, :featured_image_uuid)
+
+  def og_resolve("post_group_name", %{resource: post}), do: og_get_meta(post, :group_name)
+  def og_resolve("post_group_slug", %{resource: post}), do: og_get_meta(post, :group_slug)
+
+  def og_resolve("post_first_words", %{resource: post}) do
+    text = og_override(post, "description") || og_get_meta(post, :description) || ""
+
+    text
+    |> to_string()
+    |> String.split(~r/\s+/, trim: true)
+    |> Enum.take(20)
+    |> Enum.join(" ")
+  end
+
+  def og_resolve("post_published_at", %{resource: post}) do
+    case og_get_meta(post, :published_at) do
+      nil -> nil
+      v -> to_string(v)
+    end
+  end
+
+  def og_resolve(_, _), do: nil
+
+  # Reads a per-post OG override field (`title`, `description`,
+  # `image_uuid`) surfaced by the editor. When set, it's the author's
+  # explicit preference for what the OG image should show — the plugin
+  # uses it instead of the post's own field.
+  defp og_override(post, key) when is_map(post) do
+    meta = Map.get(post, :metadata) || Map.get(post, "metadata") || %{}
+    og = Map.get(meta, :og) || Map.get(meta, "og") || %{}
+
+    case Map.get(og, key) || Map.get(og, String.to_atom(key)) do
+      v when is_binary(v) and v != "" -> v
+      _ -> nil
+    end
+  end
+
+  defp og_override(_, _), do: nil
+
+  # Publishing post shapes vary a bit between the DB record path and
+  # the rendered-for-display path — try atom then string keys on the
+  # metadata sub-map, and fall back to the top-level map for safety.
+  defp og_get_meta(post, key) when is_map(post) do
+    meta = Map.get(post, :metadata) || Map.get(post, "metadata") || %{}
+
+    Map.get(meta, key) ||
+      Map.get(meta, to_string(key)) ||
+      Map.get(post, key) ||
+      Map.get(post, to_string(key))
+  end
+
+  defp og_get_meta(_, _), do: nil
+
   @impl PhoenixKit.Module
   def version, do: "0.1.1"
 

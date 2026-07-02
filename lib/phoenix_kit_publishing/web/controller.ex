@@ -393,25 +393,70 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller do
     base_url =
       "#{conn.scheme}://#{conn.host}#{if conn.port in [80, 443], do: "", else: ":#{conn.port}"}"
 
-    og = %{
-      title: og_override["title"] || post.metadata.title,
-      description: og_override["description"] || Map.get(post.metadata, :description),
-      image: absolute_url(base_url, og_image(post, og_override)),
-      url: absolute_url(base_url, canonical_url),
-      locale: og_locale(language),
-      type: "article"
-    }
+    image_meta = og_image_meta(post, og_override)
+
+    og =
+      %{
+        title: og_override["title"] || post.metadata.title,
+        description: og_override["description"] || Map.get(post.metadata, :description),
+        image: absolute_url(base_url, image_meta[:url]),
+        url: absolute_url(base_url, canonical_url),
+        locale: og_locale(language),
+        type: "article"
+      }
+      |> maybe_put(:image_width, image_meta[:width])
+      |> maybe_put(:image_height, image_meta[:height])
+      |> maybe_put(:image_type, image_meta[:mime_type])
 
     maybe_refine_og_with_module(og, conn, post, language)
   end
 
-  # Override image UUID wins over the version's featured image. featured_image_url/2
-  # reads metadata.featured_image_uuid, so wrap the override UUID in the same shape.
-  defp og_image(_post, %{"image_uuid" => uuid}) when is_binary(uuid) and uuid != "" do
-    PublishingHTML.featured_image_url(%{metadata: %{featured_image_uuid: uuid}}, "large")
+  # Resolves the effective featured image (override UUID > post's own
+  # featured_image_uuid > nil) to `%{url, width, height, mime_type}`.
+  # The dimensions + mime power the `og:image:*` hint tags that
+  # Telegram / Facebook use to render the preview card before they've
+  # actually fetched the bytes.
+  defp og_image_meta(_post, %{"image_uuid" => uuid}) when is_binary(uuid) and uuid != "" do
+    image_meta_for_uuid(uuid) || %{url: nil}
   end
 
-  defp og_image(post, _og_override), do: PublishingHTML.featured_image_url(post, "large")
+  defp og_image_meta(post, _og_override) do
+    uuid = Map.get(post.metadata, :featured_image_uuid)
+
+    if is_binary(uuid) and uuid != "" do
+      image_meta_for_uuid(uuid) || %{url: nil}
+    else
+      %{url: nil}
+    end
+  end
+
+  defp image_meta_for_uuid(uuid) do
+    # Prefer `large` — the visible variant on the OG card. Fall back to
+    # `original` when large isn't generated. Returns nil if neither
+    # variant is available; caller falls back to featured_image_url/2.
+    variant = fetch_variant(uuid, "large") || fetch_variant(uuid, "original")
+    url = PublishingHTML.featured_image_url(%{metadata: %{featured_image_uuid: uuid}}, "large")
+
+    case variant do
+      %{width: w, height: h, mime_type: mime} ->
+        %{url: url, width: w, height: h, mime_type: mime}
+
+      _ ->
+        %{url: url}
+    end
+  rescue
+    _ -> %{url: nil}
+  end
+
+  defp fetch_variant(uuid, variant) do
+    PhoenixKit.Modules.Storage.get_file_instance_by_name(uuid, variant)
+  rescue
+    _ -> nil
+  end
+
+  defp maybe_put(map, _key, nil), do: map
+  defp maybe_put(map, _key, ""), do: map
+  defp maybe_put(map, key, value), do: Map.put(map, key, value)
 
   # Phase 2 extension seam: when the dedicated OG module is installed it gets the
   # final say, layering on top of the per-post simple override resolved above.

@@ -48,6 +48,9 @@ defmodule PhoenixKit.Modules.Publishing.Web.HTML do
       <%= if @og[:image] do %>
         <meta property="og:image" content={@og[:image]} />
         <meta name="twitter:image" content={@og[:image]} />
+        <meta :if={@og[:image_type]} property="og:image:type" content={@og[:image_type]} />
+        <meta :if={@og[:image_width]} property="og:image:width" content={@og[:image_width]} />
+        <meta :if={@og[:image_height]} property="og:image:height" content={@og[:image_height]} />
       <% end %>
       <meta :if={@og[:url]} property="og:url" content={@og[:url]} />
       <meta :if={@og[:locale]} property="og:locale" content={@og[:locale]} />
