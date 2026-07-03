@@ -332,6 +332,49 @@ defmodule PhoenixKitPublishing.RouterDispatchIntegrationTest do
     end
   end
 
+  describe "maybe_rewrite/1 — reserved route prefixes take precedence over a real group" do
+    test "passes through when the group's own slug is reserved by another module" do
+      # phoenix_kit_legal creates a real publishing group slugged "legal" to
+      # store its generated pages — but it also reserves "legal" as its own
+      # top-level route, so the dispatch must never claim it even though a
+      # matching group genuinely exists.
+      {:ok, group} = Groups.add_group(unique_name(), mode: "slug", slug: "legal")
+      assert group["slug"] == "legal"
+
+      defmodule FakeReservingModule do
+        @moduledoc false
+        def enabled?, do: true
+        def reserved_route_prefixes, do: ["legal"]
+      end
+
+      PhoenixKit.ModuleRegistry.register(FakeReservingModule)
+
+      try do
+        conn = %Plug.Conn{
+          path_info: ["legal", "privacy-policy"],
+          request_path: "/legal/privacy-policy",
+          private: %{}
+        }
+
+        assert RouterDispatch.maybe_rewrite(conn) == :pass
+      after
+        PhoenixKit.ModuleRegistry.unregister(FakeReservingModule)
+      end
+    end
+
+    test "still rewrites the same slug once it's no longer reserved" do
+      {:ok, group} = Groups.add_group(unique_name(), mode: "slug", slug: "unreserved-group")
+
+      conn = %Plug.Conn{
+        path_info: [group["slug"], "post"],
+        request_path: "/" <> group["slug"] <> "/post",
+        private: %{}
+      }
+
+      assert {:rewrite, _rewritten} = RouterDispatch.maybe_rewrite(conn)
+    end
+  end
+
   describe "maybe_rewrite/1 — bug-replication assertion" do
     test "the canonical collision URL passes through when no group is named 'services'" do
       # Pinning test for the headline bug. If this passes but a regression

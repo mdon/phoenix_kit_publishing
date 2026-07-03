@@ -46,6 +46,7 @@ defmodule PhoenixKitPublishing.RouterDispatch do
     caching is a future optimization (the DB read is small + indexed).
   """
 
+  alias PhoenixKit.ModuleRegistry
   alias PhoenixKit.Modules.Publishing.Groups
   alias PhoenixKit.Modules.Publishing.Web.Controller.Language
 
@@ -201,10 +202,11 @@ defmodule PhoenixKitPublishing.RouterDispatch do
   defp known_group?(nil), do: false
 
   defp known_group?(slug) when is_binary(slug) do
-    case Groups.get_group(slug) do
-      {:ok, _group} -> true
-      _ -> false
-    end
+    not reserved_by_other_module?(slug) and
+      case Groups.get_group(slug) do
+        {:ok, _group} -> true
+        _ -> false
+      end
   rescue
     # DB unavailable, table missing during install, etc. — better to
     # pass through so host routes still work than to crash the request.
@@ -215,6 +217,20 @@ defmodule PhoenixKitPublishing.RouterDispatch do
     # tests that share the sandbox; matches the canonical `enabled?/0`
     # pattern (see phoenix_kit_hello_world commit c1c2674).
     :exit, _reason -> false
+  end
+
+  # A group slug that collides with another module's reserved top-level route
+  # (e.g. phoenix_kit_legal reserves "legal" for its own host-app LiveView) is
+  # never treated as one of publishing's own — even if a same-named group
+  # exists in publishing's own data (Legal deliberately creates one to store
+  # its generated pages via Publishing's storage APIs). Without this, the
+  # group-catch-all would claim the request before the host's own route ever
+  # matches, rendering publishing's generic post view (wrong canonical/og/
+  # hreflang) instead of the owning module's page. See
+  # `PhoenixKit.Module.reserved_route_prefixes/0`.
+  @spec reserved_by_other_module?(String.t()) :: boolean()
+  defp reserved_by_other_module?(slug) do
+    slug in ModuleRegistry.all_reserved_route_prefixes()
   end
 
   @spec rewrite(Plug.Conn.t(), String.t(), [String.t()], [String.t()]) :: Plug.Conn.t()
