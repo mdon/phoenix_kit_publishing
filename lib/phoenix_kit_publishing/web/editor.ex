@@ -25,10 +25,10 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
   # Suppress dialyzer warnings for pattern matches
   @dialyzer {:nowarn_function, handle_event: 3}
 
-  # `PhoenixKitOg` is an optional plugin. Every call site is guarded
+  # `PhoenixKitOG` is an optional plugin. Every call site is guarded
   # with `Code.ensure_loaded?/1`, but the compiler still warns unless
   # we tell it the symbol is expected to be undefined in that case.
-  @compile {:no_warn_undefined, PhoenixKitOg}
+  @compile {:no_warn_undefined, PhoenixKitOG}
 
   alias Phoenix.LiveView.JS
   alias PhoenixKit.Modules.Publishing
@@ -81,14 +81,14 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
     end
   end
 
-  # True when the PhoenixKitOg plugin is installed AND the admin has
+  # True when the PhoenixKitOG plugin is installed AND the admin has
   # flipped its kill switch on. In that case the editor's OG-image
   # override becomes a fallback — the plugin renders a template-driven
   # image whenever an assignment resolves for this post.
   defp og_module_active? do
-    Code.ensure_loaded?(PhoenixKitOg) and
-      function_exported?(PhoenixKitOg, :enabled?, 0) and
-      PhoenixKitOg.enabled?()
+    Code.ensure_loaded?(PhoenixKitOG) and
+      function_exported?(PhoenixKitOG, :enabled?, 0) and
+      PhoenixKitOG.enabled?()
   rescue
     _ -> false
   end
@@ -100,8 +100,8 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
   defp og_preview_url(nil, _language), do: nil
 
   defp og_preview_url(post, language) do
-    if og_module_active?() and function_exported?(PhoenixKitOg, :preview_og_image_url, 3) do
-      case PhoenixKitOg.preview_og_image_url(post, nil, language) do
+    if og_module_active?() and function_exported?(PhoenixKitOG, :preview_og_image_url, 3) do
+      case PhoenixKitOG.preview_og_image_url(post, nil, language) do
         {:ok, url} -> url
         _ -> nil
       end

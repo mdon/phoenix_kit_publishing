@@ -41,8 +41,8 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller do
   # final say over the OG map, layering on top of the per-post simple override.
   # No-op until that module is installed (see build_og_data/4). The module
   # doesn't exist yet, so tell the compiler not to warn on the remote call.
-  @og_module PhoenixKitOg
-  @compile {:no_warn_undefined, PhoenixKitOg}
+  @og_module PhoenixKitOG
+  @compile {:no_warn_undefined, PhoenixKitOG}
 
   @show_language_switcher_key "publishing_show_language_switcher"
 
