@@ -332,6 +332,55 @@ defmodule PhoenixKitPublishing.RouterDispatchIntegrationTest do
     end
   end
 
+  describe "maybe_rewrite/1 — reserved route prefixes take precedence over a real group" do
+    test "passes through when the group's own slug is reserved by another module" do
+      # Mirrors phoenix_kit_legal creating a real publishing group to store
+      # its generated pages while also reserving that same slug as its own
+      # top-level route — the dispatch must never claim it even though a
+      # matching group genuinely exists. A fixed but distinctly-namespaced
+      # slug (rather than a common word like "legal") keeps this collision-safe
+      # against both a leftover row from a prior run and any other
+      # concurrently-running test in this async module (this describe block
+      # registers a fake module in the process-global ModuleRegistry for its
+      # duration).
+      reserved_slug = "router-dispatch-test-reserved-slug"
+      {:ok, group} = Groups.add_group(unique_name(), mode: "slug", slug: reserved_slug)
+      assert group["slug"] == reserved_slug
+
+      defmodule FakeReservingModule do
+        @moduledoc false
+        def enabled?, do: true
+        def reserved_route_prefixes, do: ["router-dispatch-test-reserved-slug"]
+      end
+
+      PhoenixKit.ModuleRegistry.register(FakeReservingModule)
+
+      try do
+        conn = %Plug.Conn{
+          path_info: [reserved_slug, "privacy-policy"],
+          request_path: "/" <> reserved_slug <> "/privacy-policy",
+          private: %{}
+        }
+
+        assert RouterDispatch.maybe_rewrite(conn) == :pass
+      after
+        PhoenixKit.ModuleRegistry.unregister(FakeReservingModule)
+      end
+    end
+
+    test "still rewrites a group's slug when it isn't reserved" do
+      {:ok, group} = Groups.add_group(unique_name(), mode: "slug", slug: unique_name())
+
+      conn = %Plug.Conn{
+        path_info: [group["slug"], "post"],
+        request_path: "/" <> group["slug"] <> "/post",
+        private: %{}
+      }
+
+      assert {:rewrite, _rewritten} = RouterDispatch.maybe_rewrite(conn)
+    end
+  end
+
   describe "maybe_rewrite/1 — bug-replication assertion" do
     test "the canonical collision URL passes through when no group is named 'services'" do
       # Pinning test for the headline bug. If this passes but a regression
