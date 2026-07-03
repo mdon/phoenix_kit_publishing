@@ -36,6 +36,13 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller do
   alias PhoenixKit.Utils.Routes
   @admin_edit_helper_mod PhoenixKitWeb.AdminEditHelper
 
+  # Phase 2 seam: a future dedicated OG module exporting `refine_og/4` gets the
+  # final say over the OG map, layering on top of the per-post simple override.
+  # No-op until that module is installed (see build_og_data/4). The module
+  # doesn't exist yet, so tell the compiler not to warn on the remote call.
+  @og_module PhoenixKitOg
+  @compile {:no_warn_undefined, PhoenixKitOg}
+
   @show_language_switcher_key "publishing_show_language_switcher"
 
   # ============================================================================
@@ -373,21 +380,99 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller do
 
   defp with_query_string(_conn, url), do: url
 
+  # Resolves the OG map for a post with per-field precedence:
+  #
+  #   OG module (Phase 2, if installed)  →  per-post simple override  →  derived default
+  #
+  # The simple per-post override lives in content.data["og"] (per-language) and
+  # is surfaced as post.metadata.og by the mapper. Each field falls back
+  # independently, so a post can override just the title and inherit the rest.
   defp build_og_data(conn, post, canonical_url, language) do
-    description = Map.get(post.metadata, :description)
-    image = PublishingHTML.featured_image_url(post, "large")
+    og_override = Map.get(post.metadata, :og) || %{}
 
     base_url =
       "#{conn.scheme}://#{conn.host}#{if conn.port in [80, 443], do: "", else: ":#{conn.port}"}"
 
-    %{
-      title: post.metadata.title,
-      description: description,
-      image: absolute_url(base_url, image),
-      url: absolute_url(base_url, canonical_url),
-      locale: og_locale(language),
-      type: "article"
-    }
+    image_meta = og_image_meta(post, og_override)
+
+    og =
+      %{
+        title: og_override["title"] || post.metadata.title,
+        description: og_override["description"] || Map.get(post.metadata, :description),
+        image: absolute_url(base_url, image_meta[:url]),
+        url: absolute_url(base_url, canonical_url),
+        locale: og_locale(language),
+        type: "article"
+      }
+      |> maybe_put(:image_width, image_meta[:width])
+      |> maybe_put(:image_height, image_meta[:height])
+      |> maybe_put(:image_type, image_meta[:mime_type])
+
+    maybe_refine_og_with_module(og, conn, post, language)
+  end
+
+  # Resolves the effective featured image (override UUID > post's own
+  # featured_image_uuid > nil) to `%{url, width, height, mime_type}`.
+  # The dimensions + mime power the `og:image:*` hint tags that
+  # Telegram / Facebook use to render the preview card before they've
+  # actually fetched the bytes.
+  defp og_image_meta(_post, %{"image_uuid" => uuid}) when is_binary(uuid) and uuid != "" do
+    image_meta_for_uuid(uuid) || %{url: nil}
+  end
+
+  defp og_image_meta(post, _og_override) do
+    uuid = Map.get(post.metadata, :featured_image_uuid)
+
+    if is_binary(uuid) and uuid != "" do
+      image_meta_for_uuid(uuid) || %{url: nil}
+    else
+      %{url: nil}
+    end
+  end
+
+  defp image_meta_for_uuid(uuid) do
+    # Prefer `large` — the visible variant on the OG card. Fall back to
+    # `original` when large isn't generated. Returns nil if neither
+    # variant is available; caller falls back to featured_image_url/2.
+    variant = fetch_variant(uuid, "large") || fetch_variant(uuid, "original")
+    url = PublishingHTML.featured_image_url(%{metadata: %{featured_image_uuid: uuid}}, "large")
+
+    case variant do
+      %{width: w, height: h, mime_type: mime} ->
+        %{url: url, width: w, height: h, mime_type: mime}
+
+      _ ->
+        %{url: url}
+    end
+  rescue
+    _ -> %{url: nil}
+  end
+
+  defp fetch_variant(uuid, variant) do
+    PhoenixKit.Modules.Storage.get_file_instance_by_name(uuid, variant)
+  rescue
+    _ -> nil
+  end
+
+  defp maybe_put(map, _key, nil), do: map
+  defp maybe_put(map, _key, ""), do: map
+  defp maybe_put(map, key, value), do: Map.put(map, key, value)
+
+  # Phase 2 extension seam: when the dedicated OG module is installed it gets the
+  # final say, layering on top of the per-post simple override resolved above.
+  # No-op until that module ships and exports refine_og/4. Mirrors the guarded
+  # dispatch pattern used by maybe_assign_admin_edit/3.
+  defp maybe_refine_og_with_module(og, conn, post, language) do
+    mod = @og_module
+
+    if Code.ensure_loaded?(mod) and function_exported?(mod, :refine_og, 4) do
+      case mod.refine_og(og, conn, post, language) do
+        %{} = refined -> refined
+        _ -> og
+      end
+    else
+      og
+    end
   end
 
   defp absolute_url(_base, nil), do: nil
