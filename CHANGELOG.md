@@ -1,5 +1,53 @@
 # Changelog
 
+## 0.2.3 - 2026-07-03
+
+PRs #27–#29 — a `phoenix_kit_og` integration seam (per-post OG-image template
+wiring, editor OG-override panel), a lower SEO-friendly auto-slug cap, a
+missing `:url_path` assign that broke canonical URLs on public controller
+pages, and route-prefix collisions with other modules' reserved routes. Plus
+a post-merge review pass. Built against `phoenix_kit ~> 1.7.170`.
+
+### Added
+- **`phoenix_kit_og` template-wiring seam** — `Publishing.og_variables/0` +
+  `og_resolve/2` expose post title/description/URL/featured image/group
+  name/group slug/first-words/published-date for a future OG-image plugin
+  to bind to template slots. A per-language OG override
+  (title/description/image) is editable from the editor's new "Social /
+  OpenGraph" panel and layered into the existing `og:*` meta tags
+  (module override → per-post override → derived default). No-op until
+  `phoenix_kit_og` is installed.
+- `og:image:width` / `og:image:height` / `og:image:type` meta tags when the
+  featured (or overridden) image's dimensions are available.
+
+### Changed
+- **Auto-generated slug cap lowered 200 → 60 chars** (SEO guidance —
+  Ahrefs/Moz/Yoast/Semrush converge on 50–75). Applies only to slugs derived
+  from titles / AI translation / transliteration; a human-typed slug is
+  still bounded by the 500-char save limit.
+
+### Fixed
+- **Public controller pages now assign `:url_path`** so host root layouts
+  building canonical/`og:url`/hreflang tags from it don't fall back to `"/"`
+  on every publishing-served page (this dropped `/legal/*`-style pages from
+  Google's index as canonical duplicates on at least one production site).
+- **A group slug that collides with another module's reserved top-level
+  route is no longer claimed by the group-dispatch catch-all**, even when a
+  same-named group genuinely exists in publishing's own data — closes a hole
+  where e.g. a `phoenix_kit_legal`-reserved `"legal"` path could be hijacked
+  by publishing's generic post view instead of the owning module's page.
+- **Three `og_resolve/2` variables that were silently dead** (`post_url`,
+  `post_group_name`, `post_group_slug` always resolved to `nil` — the
+  metadata keys they read don't exist on the post map) — found and fixed in
+  post-merge review, before anything depended on them.
+- `credo --strict` violation in the new OG-image-metadata code
+  (unaliased nested module reference).
+- `mix dialyzer` was failing outright on this branch (the optional
+  `PhoenixKitOg` calls plus two dead-code branches in the new OG-image
+  logic). Added `.dialyzer_ignore.exs` for the optional-module warnings
+  (matching the pattern already used by sibling `phoenix_kit_*` repos) and
+  removed the unreachable branches.
+
 ## 0.2.2 - 2026-06-19
 
 Migrates markdown rendering from **Earmark → MDEx (comrak)**. Earmark is retired/unmaintained on Hex, so `mix hex.audit` (part of `precommit`) now reports **no retired packages**. MDEx is already pulled in by `phoenix_kit` core, so this adds no new native footprint. No public API change — `Renderer.render_markdown/1` keeps the same contract; rendered HTML is equivalent (the markdown→HTML output differs only cosmetically: whitespace, `<img />` self-closing, entity normalization).

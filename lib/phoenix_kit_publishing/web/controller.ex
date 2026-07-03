@@ -32,6 +32,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller do
   alias PhoenixKit.Modules.Publishing.Web.Controller.PostRendering
   alias PhoenixKit.Modules.Publishing.Web.Controller.Routing
   alias PhoenixKit.Modules.Publishing.Web.HTML, as: PublishingHTML
+  alias PhoenixKit.Modules.Storage
   alias PhoenixKit.Settings
   alias PhoenixKit.Utils.Routes
   @admin_edit_helper_mod PhoenixKitWeb.AdminEditHelper
@@ -445,14 +446,14 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller do
   # Telegram / Facebook use to render the preview card before they've
   # actually fetched the bytes.
   defp og_image_meta(_post, %{"image_uuid" => uuid}) when is_binary(uuid) and uuid != "" do
-    image_meta_for_uuid(uuid) || %{url: nil}
+    image_meta_for_uuid(uuid)
   end
 
   defp og_image_meta(post, _og_override) do
     uuid = Map.get(post.metadata, :featured_image_uuid)
 
     if is_binary(uuid) and uuid != "" do
-      image_meta_for_uuid(uuid) || %{url: nil}
+      image_meta_for_uuid(uuid)
     else
       %{url: nil}
     end
@@ -460,8 +461,9 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller do
 
   defp image_meta_for_uuid(uuid) do
     # Prefer `large` — the visible variant on the OG card. Fall back to
-    # `original` when large isn't generated. Returns nil if neither
-    # variant is available; caller falls back to featured_image_url/2.
+    # `original` when large isn't generated. Either way `url` (below) is
+    # always set from featured_image_url/2; only width/height/mime_type
+    # are absent when neither variant record exists.
     variant = fetch_variant(uuid, "large") || fetch_variant(uuid, "original")
     url = PublishingHTML.featured_image_url(%{metadata: %{featured_image_uuid: uuid}}, "large")
 
@@ -477,7 +479,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller do
   end
 
   defp fetch_variant(uuid, variant) do
-    PhoenixKit.Modules.Storage.get_file_instance_by_name(uuid, variant)
+    Storage.get_file_instance_by_name(uuid, variant)
   rescue
     _ -> nil
   end

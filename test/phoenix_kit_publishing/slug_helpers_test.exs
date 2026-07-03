@@ -111,9 +111,9 @@ defmodule PhoenixKit.Modules.Publishing.SlugHelpersTest do
       assert SlugHelpers.slugify("My First Post!", style: :ascii) == "my-first-post"
     end
 
-    test "caps length at 200 on a hyphen boundary (transliteration can expand)" do
+    test "caps length at 60 on a hyphen boundary (transliteration can expand)" do
       slug = SlugHelpers.slugify(String.duplicate("щ", 300), style: :transliterate)
-      assert String.length(slug) <= 200
+      assert String.length(slug) <= 60
       refute String.ends_with?(slug, "-")
     end
 

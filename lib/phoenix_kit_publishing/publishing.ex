@@ -24,6 +24,7 @@ defmodule PhoenixKit.Modules.Publishing do
   alias PhoenixKit.Modules.Publishing.DBStorage
   alias PhoenixKit.Modules.Publishing.LanguageHelpers
   alias PhoenixKit.Modules.Publishing.SlugHelpers
+  alias PhoenixKit.Modules.Publishing.Web.HTML, as: PublishingHTML
   # ============================================================================
   # Language Utility Delegates
   # ============================================================================
@@ -344,13 +345,39 @@ defmodule PhoenixKit.Modules.Publishing do
   def og_resolve("post_description", %{resource: post}),
     do: og_override(post, "description") || og_get_meta(post, :description)
 
-  def og_resolve("post_url", %{resource: post}), do: og_get_meta(post, :url)
+  # The post map has no `:url` field (URL building needs request-time
+  # scheme/host, not just the DB record) — build it from the group slug
+  # (`post.group`) the same way `Web.Controller.build_og_data/4` derives
+  # its own canonical_url, using the conn the OG module passes in context.
+  def og_resolve("post_url", %{resource: post, conn: %Plug.Conn{} = conn} = context) do
+    case og_get_meta(post, :group) do
+      nil ->
+        nil
+
+      group_slug ->
+        absolute_post_url(
+          conn,
+          PublishingHTML.build_post_url(group_slug, post, Map.get(context, :language))
+        )
+    end
+  end
+
+  def og_resolve("post_url", %{resource: _post}), do: nil
 
   def og_resolve("post_featured_image", %{resource: post}),
     do: og_override(post, "image_uuid") || og_get_meta(post, :featured_image_uuid)
 
-  def og_resolve("post_group_name", %{resource: post}), do: og_get_meta(post, :group_name)
-  def og_resolve("post_group_slug", %{resource: post}), do: og_get_meta(post, :group_slug)
+  # The post map stores the group's slug under `:group` (there is no
+  # separate `:group_slug` key) and doesn't carry the group's display name
+  # at all — look that up via Groups.
+  def og_resolve("post_group_name", %{resource: post}) do
+    case og_get_meta(post, :group) do
+      nil -> nil
+      group_slug -> Groups.group_name(group_slug)
+    end
+  end
+
+  def og_resolve("post_group_slug", %{resource: post}), do: og_get_meta(post, :group)
 
   def og_resolve("post_first_words", %{resource: post}) do
     text = og_override(post, "description") || og_get_meta(post, :description) || ""
@@ -400,6 +427,11 @@ defmodule PhoenixKit.Modules.Publishing do
   end
 
   defp og_get_meta(_, _), do: nil
+
+  defp absolute_post_url(%Plug.Conn{} = conn, path) when is_binary(path) do
+    port_suffix = if conn.port in [80, 443], do: "", else: ":#{conn.port}"
+    "#{conn.scheme}://#{conn.host}#{port_suffix}#{path}"
+  end
 
   @impl PhoenixKit.Module
   def version, do: "0.1.1"

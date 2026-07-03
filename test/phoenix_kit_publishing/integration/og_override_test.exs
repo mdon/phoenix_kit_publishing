@@ -6,6 +6,7 @@ defmodule PhoenixKit.Integration.Publishing.OgOverrideTest do
   """
   use PhoenixKit.DataCase, async: true
 
+  alias PhoenixKit.Modules.Publishing
   alias PhoenixKit.Modules.Publishing.Groups
   alias PhoenixKit.Modules.Publishing.Posts
 
@@ -81,6 +82,41 @@ defmodule PhoenixKit.Integration.Publishing.OgOverrideTest do
         Posts.update_post(group["slug"], reloaded, %{"title" => "New Title"}, %{})
 
       assert after_unrelated[:metadata][:og]["title"] == "Keep Me"
+    end
+  end
+
+  describe "Publishing.og_resolve/2 — the phoenix_kit_og template-wiring seam" do
+    test "post_group_slug resolves to the group's slug" do
+      group = create_group()
+      {:ok, post} = Posts.create_post(group["slug"], %{title: "Base"})
+
+      assert Publishing.og_resolve("post_group_slug", %{resource: post}) == group["slug"]
+    end
+
+    test "post_group_name resolves to the group's display name, not its slug" do
+      group = create_group()
+      {:ok, post} = Posts.create_post(group["slug"], %{title: "Base"})
+
+      assert Publishing.og_resolve("post_group_name", %{resource: post}) == group["name"]
+      assert group["name"] != group["slug"]
+    end
+
+    test "post_url builds an absolute URL from the conn + the post's own group/slug" do
+      group = create_group()
+      {:ok, post} = Posts.create_post(group["slug"], %{title: "Base"})
+      conn = %Plug.Conn{scheme: :https, host: "example.com", port: 443}
+
+      url = Publishing.og_resolve("post_url", %{resource: post, conn: conn, language: nil})
+
+      assert url =~ "https://example.com/"
+      assert url =~ group["slug"]
+    end
+
+    test "post_url is nil without a conn in context (can't build an absolute URL)" do
+      group = create_group()
+      {:ok, post} = Posts.create_post(group["slug"], %{title: "Base"})
+
+      assert Publishing.og_resolve("post_url", %{resource: post}) == nil
     end
   end
 end
