@@ -46,6 +46,34 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller do
   @show_language_switcher_key "publishing_show_language_switcher"
 
   # ============================================================================
+  # Plugs
+  # ============================================================================
+
+  # Host root layouts build canonical/og:url/hreflang from
+  # `conn.assigns.url_path`. LiveView pages get that assign from the
+  # `phoenix_kit` on_mount hook; plain-controller renders had no equivalent,
+  # so every page served by this controller fell back to the layout's "/"
+  # default and canonicalized to the homepage (e.g. hydroforce.ee's /legal
+  # pages all pointed their canonical at "/", and Google dropped them as
+  # duplicates).
+  #
+  # `show/2` is this controller's only action, so a module `plug` runs ahead
+  # of every render branch below (listing, post, versioned post, date-only,
+  # 404 fallback) without needing to touch each one. Only sets the value
+  # when absent, mirroring the on_mount hook's semantics of never
+  # clobbering an assign a host already set (`Plug.Conn` has no
+  # `assign_new/3` — that's a LiveView/Component-only helper).
+  plug :assign_url_path
+
+  defp assign_url_path(conn, _opts) do
+    if Map.has_key?(conn.assigns, :url_path) do
+      conn
+    else
+      assign(conn, :url_path, conn.request_path)
+    end
+  end
+
+  # ============================================================================
   # Main Entry Points
   # ============================================================================
 
