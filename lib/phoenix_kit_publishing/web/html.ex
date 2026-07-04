@@ -3,6 +3,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.HTML do
   HTML rendering functions for Publishing.Web.Controller.
   """
   use PhoenixKitWeb, :html
+  use Gettext, backend: PhoenixKitPublishing.Gettext
 
   alias PhoenixKit.Config
   alias PhoenixKit.Modules.Publishing

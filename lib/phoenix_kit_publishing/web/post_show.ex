@@ -5,7 +5,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.PostShow do
   Accessible at `/admin/publishing/:group/:post_uuid`.
   """
   use PhoenixKitWeb, :live_view
-  use Gettext, backend: PhoenixKitWeb.Gettext
+  use Gettext, backend: PhoenixKitPublishing.Gettext
 
   require Logger
 

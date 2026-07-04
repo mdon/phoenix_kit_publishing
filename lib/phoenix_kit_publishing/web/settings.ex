@@ -3,7 +3,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Settings do
   Admin configuration for publishing groups.
   """
   use PhoenixKitWeb, :live_view
-  use Gettext, backend: PhoenixKitWeb.Gettext
+  use Gettext, backend: PhoenixKitPublishing.Gettext
 
   alias PhoenixKit.Modules.Publishing
   alias PhoenixKit.Modules.Publishing.Errors

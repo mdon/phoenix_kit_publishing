@@ -3,7 +3,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.New do
   LiveView for creating a new publishing group.
   """
   use PhoenixKitWeb, :live_view
-  use Gettext, backend: PhoenixKitWeb.Gettext
+  use Gettext, backend: PhoenixKitPublishing.Gettext
 
   require Logger
 

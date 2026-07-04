@@ -469,7 +469,8 @@ defmodule PhoenixKit.Modules.Publishing do
         group: :admin_modules,
         subtab_display: :when_active,
         highlight_with_subtabs: false,
-        dynamic_children: &__MODULE__.publishing_children/1
+        dynamic_children: &__MODULE__.publishing_children/1,
+        gettext_backend: PhoenixKitPublishing.Gettext
       )
     ]
   end
@@ -539,7 +540,8 @@ defmodule PhoenixKit.Modules.Publishing do
         priority: 921,
         level: :admin,
         parent: :admin_settings,
-        permission: "publishing"
+        permission: "publishing",
+        gettext_backend: PhoenixKitPublishing.Gettext
       )
     ]
   end

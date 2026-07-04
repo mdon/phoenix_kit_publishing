@@ -27,7 +27,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller.Fallback do
   - any other reason with a known group → group listing
   """
 
-  use Gettext, backend: PhoenixKitWeb.Gettext
+  use Gettext, backend: PhoenixKitPublishing.Gettext
 
   alias PhoenixKit.Modules.Publishing
   alias PhoenixKit.Modules.Publishing.Constants

@@ -6,7 +6,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor.Versions do
   version-related UI state management.
   """
 
-  use Gettext, backend: PhoenixKitWeb.Gettext
+  use Gettext, backend: PhoenixKitPublishing.Gettext
 
   alias PhoenixKit.Modules.Publishing
   alias PhoenixKit.Modules.Publishing.Errors

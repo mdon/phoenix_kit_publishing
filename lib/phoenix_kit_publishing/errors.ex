@@ -7,7 +7,7 @@ defmodule PhoenixKit.Modules.Publishing.Errors do
   consumers can pattern-match on atoms and decide their own presentation.
   Anything user-facing (flash messages, error banners) goes through
   `message/1` which wraps each mapping in `gettext/1` using the
-  `PhoenixKitWeb.Gettext` backend.
+  `PhoenixKitPublishing.Gettext` backend.
 
   ## Supported reason shapes
 
@@ -40,7 +40,7 @@ defmodule PhoenixKit.Modules.Publishing.Errors do
       "AI translation failed: :timeout"
   """
 
-  use Gettext, backend: PhoenixKitWeb.Gettext
+  use Gettext, backend: PhoenixKitPublishing.Gettext
 
   @max_log_bytes 500
 

@@ -3,7 +3,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Listing do
   Lists posts for a publishing group and provides creation actions.
   """
   use PhoenixKitWeb, :live_view
-  use Gettext, backend: PhoenixKitWeb.Gettext
+  use Gettext, backend: PhoenixKitPublishing.Gettext
 
   require Logger
 

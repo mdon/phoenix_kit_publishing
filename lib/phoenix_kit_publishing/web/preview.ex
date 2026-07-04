@@ -6,7 +6,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Preview do
   allowing editors to see exactly what visitors will see.
   """
   use PhoenixKitWeb, :live_view
-  use Gettext, backend: PhoenixKitWeb.Gettext
+  use Gettext, backend: PhoenixKitPublishing.Gettext
 
   require Logger
 

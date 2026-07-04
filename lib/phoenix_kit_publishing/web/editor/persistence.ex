@@ -6,7 +6,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor.Persistence do
   including version creation and translation saving.
   """
 
-  use Gettext, backend: PhoenixKitWeb.Gettext
+  use Gettext, backend: PhoenixKitPublishing.Gettext
 
   alias PhoenixKit.Modules.Publishing
   alias PhoenixKit.Modules.Publishing.DBStorage

@@ -6,7 +6,7 @@ defmodule PhoenixKit.Modules.Publishing.Renderer do
   Cache keys include content hashes for automatic invalidation.
   """
 
-  use Gettext, backend: PhoenixKitWeb.Gettext
+  use Gettext, backend: PhoenixKitPublishing.Gettext
 
   require Logger
 

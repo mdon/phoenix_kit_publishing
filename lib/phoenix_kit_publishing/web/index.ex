@@ -4,7 +4,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Index do
   Provides high-level stats, quick actions, and guidance for administrators.
   """
   use PhoenixKitWeb, :live_view
-  use Gettext, backend: PhoenixKitWeb.Gettext
+  use Gettext, backend: PhoenixKitPublishing.Gettext
 
   require Logger
 

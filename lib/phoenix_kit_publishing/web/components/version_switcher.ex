@@ -25,7 +25,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Components.VersionSwitcher do
   """
 
   use Phoenix.Component
-  use Gettext, backend: PhoenixKitWeb.Gettext
+  use Gettext, backend: PhoenixKitPublishing.Gettext
 
   @doc """
   Renders a compact inline version switcher.

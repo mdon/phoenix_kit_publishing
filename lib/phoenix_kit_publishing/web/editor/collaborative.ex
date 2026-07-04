@@ -6,7 +6,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor.Collaborative do
   real-time form sync, and lock expiration.
   """
 
-  use Gettext, backend: PhoenixKitWeb.Gettext
+  use Gettext, backend: PhoenixKitPublishing.Gettext
 
   alias PhoenixKit.Modules.Publishing.PresenceHelpers
   alias PhoenixKit.Modules.Publishing.PubSub, as: PublishingPubSub

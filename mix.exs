@@ -45,7 +45,7 @@ defmodule PhoenixKitPublishing.MixProject do
 
   def application do
     [
-      extra_applications: [:logger]
+      extra_applications: [:logger, :gettext]
     ]
   end
 
@@ -106,6 +106,9 @@ defmodule PhoenixKitPublishing.MixProject do
       # Background jobs (translation worker, migration worker)
       {:oban, "~> 2.18"},
 
+      # Own Gettext backend for admin/editor UI strings — priv/gettext catalogues.
+      {:gettext, "~> 1.0"},
+
       # Optional rustler pin so the transitive `mdex_native` NIF can
       # source-build on hosts where its precompiled variant doesn't
       # match the local NIF version. Matches the parent app's pin.
@@ -125,7 +128,7 @@ defmodule PhoenixKitPublishing.MixProject do
     [
       licenses: ["MIT"],
       links: %{"GitHub" => @source_url},
-      files: ~w(lib .formatter.exs mix.exs README.md CHANGELOG.md LICENSE)
+      files: ~w(lib priv .formatter.exs mix.exs README.md CHANGELOG.md LICENSE)
     ]
   end
 

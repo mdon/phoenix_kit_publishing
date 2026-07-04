@@ -6,7 +6,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor.Translation do
   translation progress tracking.
   """
 
-  use Gettext, backend: PhoenixKitWeb.Gettext
+  use Gettext, backend: PhoenixKitPublishing.Gettext
 
   import Ecto.Query, only: [from: 2]
 

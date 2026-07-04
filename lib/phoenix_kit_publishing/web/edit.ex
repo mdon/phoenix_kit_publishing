@@ -3,7 +3,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Edit do
   LiveView for editing publishing group metadata such as display name and slug.
   """
   use PhoenixKitWeb, :live_view
-  use Gettext, backend: PhoenixKitWeb.Gettext
+  use Gettext, backend: PhoenixKitPublishing.Gettext
 
   require Logger
 

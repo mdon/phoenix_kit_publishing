@@ -23,7 +23,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller do
   """
 
   use PhoenixKitWeb, :controller
-  use Gettext, backend: PhoenixKitWeb.Gettext
+  use Gettext, backend: PhoenixKitPublishing.Gettext
 
   alias PhoenixKit.Modules.Publishing
   alias PhoenixKit.Modules.Publishing.Web.Controller.Fallback
@@ -390,7 +390,11 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller do
   end
 
   defp set_gettext_locale(language) do
+    # Sets both: core's backend for host-rendered chrome (error pages, root
+    # layout) and this module's own backend for publishing's own strings
+    # (e.g. the "%{count} post(s)" counts in HTML.ex).
     Gettext.put_locale(PhoenixKitWeb.Gettext, language)
+    Gettext.put_locale(PhoenixKitPublishing.Gettext, language)
   end
 
   # Issue the canonical 301 while preserving the request's query string — a

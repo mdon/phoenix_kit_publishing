@@ -20,7 +20,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
   - Editor.Helpers - Shared utilities
   """
   use PhoenixKitWeb, :live_view
-  use Gettext, backend: PhoenixKitWeb.Gettext
+  use Gettext, backend: PhoenixKitPublishing.Gettext
 
   # Suppress dialyzer warnings for pattern matches
   @dialyzer {:nowarn_function, handle_event: 3}

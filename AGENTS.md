@@ -383,7 +383,7 @@ Module enable/disable runs without an actor (`actor_uuid: nil`) since it can be 
 
 ## Errors module
 
-`PhoenixKit.Modules.Publishing.Errors` is the central atom→user-facing-string dispatcher. Every public-API error tuple in the module either returns one of the documented atoms (`@type error_atom` lists 36 of them) or one of four tagged tuples (`{:ai_translation_failed, _}`, `{:ai_extract_failed, _}`, `{:ai_request_failed, _}`, `{:source_post_read_failed, _}`). UI flash messages call `Errors.message/1` to translate via `gettext/1` from the `PhoenixKitWeb.Gettext` backend — keep the API layer locale-agnostic; let the UI decide presentation.
+`PhoenixKit.Modules.Publishing.Errors` is the central atom→user-facing-string dispatcher. Every public-API error tuple in the module either returns one of the documented atoms (`@type error_atom` lists 36 of them) or one of four tagged tuples (`{:ai_translation_failed, _}`, `{:ai_extract_failed, _}`, `{:ai_request_failed, _}`, `{:source_post_read_failed, _}`). UI flash messages call `Errors.message/1` to translate via `gettext/1` from this module's own `PhoenixKitPublishing.Gettext` backend (`priv/gettext/`) — keep the API layer locale-agnostic; let the UI decide presentation.
 
 `Errors.truncate_for_log/2` is the canonical way to render an opaque error reason inside `Logger.*` calls that target external HTTP responses or large AI payloads. Default budget 500 chars; appends `(truncated, N bytes)` so the log line is still grep-able.
 
