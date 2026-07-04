@@ -6,5 +6,14 @@
   # via `@compile {:no_warn_undefined, PhoenixKitOG}`, but Dialyzer doesn't
   # understand that directive — it still resolves the remote call against
   # the PLT and reports it as calling a nonexistent function.
-  {"lib/phoenix_kit_publishing/web/editor.ex", :unknown_function}
+  {"lib/phoenix_kit_publishing/web/editor.ex", :unknown_function},
+
+  # Gettext.Backend expands into code that constructs %Expo.PluralForms{}
+  # literals inline; that struct is @opaque in Expo, so dialyzer flags the
+  # generated call to Gettext.Plural.plural/2 as a call_without_opaque
+  # mismatch. Known upstream false positive (gettext >= 0.26) — the plural
+  # forms work correctly. Mirrors the same ignore in phoenix_kit_ecommerce /
+  # phoenix_kit_staff / phoenix_kit_billing / phoenix_kit_catalogue /
+  # phoenix_kit_projects.
+  {"lib/phoenix_kit_publishing/gettext.ex", :call_without_opaque}
 ]

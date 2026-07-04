@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.3.0 - 2026-07-04
+
+Publishing's admin/editor UI strings now translate — previously every
+`gettext()` call here routed through core's `PhoenixKitWeb.Gettext`, but
+`mix gettext.extract` only walks a project's own `lib/`, so none of this
+module's ~390 strings were ever extracted into any catalog, in any locale.
+The whole admin UI silently rendered in English regardless of locale. Also
+picks up the `phoenix_kit_og` `PhoenixKitOg` → `PhoenixKitOG` rename.
+
+### Added
+- **Own `PhoenixKitPublishing.Gettext` backend** (`priv/gettext/`), following
+  the per-module i18n pattern `phoenix_kit_ecommerce` already uses. All 456
+  msgids extracted and translated into English, Russian, Italian, French,
+  and Estonian, plurals included with correct per-locale plural-category
+  counts (Russian's 3 forms vs. everyone else's 2). Sidebar tab labels
+  (`admin_tabs/0`, `settings_tabs/0`) now carry `gettext_backend:`; the
+  public-content locale setter syncs both this module's backend and core's,
+  so post pages translate too, not just the admin panel.
+
+### Fixed
+- Updated the guarded `phoenix_kit_og` integration seam
+  (`controller.ex`/`editor.ex`/`.dialyzer_ignore.exs`) for the sibling
+  plugin's `PhoenixKitOg` → `PhoenixKitOG` module rename.
+
 ## 0.2.3 - 2026-07-03
 
 PRs #27–#29 — a `phoenix_kit_og` integration seam (per-post OG-image template
