@@ -20,6 +20,7 @@ defmodule PhoenixKit.Modules.Publishing.PublishingPost do
   """
 
   use Ecto.Schema
+  use PhoenixKit.SchemaPrefix
   import Ecto.Changeset
 
   alias PhoenixKit.Modules.Publishing
