@@ -63,6 +63,24 @@ defmodule PhoenixKitPublishing.Test.Layouts do
     """
   end
 
+  # Live layout for the admin LiveView smoke tests (see `Test.Router`'s
+  # `live_session ... layout:` options). In production the module's admin
+  # LVs mount inside core's `live_session :phoenix_kit_admin`, whose layout
+  # renders `flash_group` — core >= 1.7.173 made the default LV layout a
+  # pure `{@inner_content}` passthrough, so without this wrapper the flash
+  # from `put_flash/3` never appears in `render_click/3` output and the
+  # flash-asserting tests can't observe it.
+  def live(assigns) do
+    ~H"""
+    <main>
+      <div :if={msg = Phoenix.Flash.get(@flash || %{}, :info)} id="flash-info">{msg}</div>
+      <div :if={msg = Phoenix.Flash.get(@flash || %{}, :error)} id="flash-error">{msg}</div>
+      <div :if={msg = Phoenix.Flash.get(@flash || %{}, :warning)} id="flash-warning">{msg}</div>
+      {@inner_content}
+    </main>
+    """
+  end
+
   def render(_template, assigns) do
     ~H"""
     <html>

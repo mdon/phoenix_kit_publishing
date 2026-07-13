@@ -132,6 +132,11 @@ defmodule PhoenixKitPublishing.RouterDispatchIntegrationTest do
 
   defp unique_name, do: "Dispatch Test #{System.unique_integer([:positive])}"
 
+  # Explicit slugs must be slug-shaped — `Groups.add_group/2` rejects
+  # spaces/uppercase with `:invalid_slug`, so display names like
+  # `unique_name/0` can't double as slugs.
+  defp unique_slug, do: "dispatch-test-#{System.unique_integer([:positive])}"
+
   describe "maybe_rewrite/1 — known group at path_info[0] (non-localized)" do
     test "rewrites under the root discriminator segment" do
       {:ok, group} = Groups.add_group(unique_name())
@@ -369,7 +374,7 @@ defmodule PhoenixKitPublishing.RouterDispatchIntegrationTest do
     end
 
     test "still rewrites a group's slug when it isn't reserved" do
-      {:ok, group} = Groups.add_group(unique_name(), mode: "slug", slug: unique_name())
+      {:ok, group} = Groups.add_group(unique_name(), mode: "slug", slug: unique_slug())
 
       conn = %Plug.Conn{
         path_info: [group["slug"], "post"],

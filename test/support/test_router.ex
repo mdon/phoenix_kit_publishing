@@ -32,11 +32,16 @@ defmodule PhoenixKitPublishing.Test.Router do
   # `Phoenix.LiveViewTest.live(conn, "/admin/publishing/...")` can mount
   # without a parent app. The `:assign_scope` on_mount hook reads
   # `phoenix_kit_test_scope` from session so tests can pin a scope.
+  #
+  # The `layout:` option mirrors core's admin live_session, whose layout
+  # renders the flash — core's own default LV layout is a passthrough, so
+  # without it `put_flash/3` output would be invisible to LV tests.
   scope "/admin/publishing", PhoenixKit.Modules.Publishing.Web do
     pipe_through(:browser)
 
     live_session :admin_publishing,
-      on_mount: [{PhoenixKitPublishing.Test.Hooks, :assign_scope}] do
+      on_mount: [{PhoenixKitPublishing.Test.Hooks, :assign_scope}],
+      layout: {PhoenixKitPublishing.Test.Layouts, :live} do
       live("/", Index, :index, as: :publishing_index)
       live("/new-group", New, :new, as: :publishing_new)
       live("/edit-group/:group", Edit, :edit, as: :publishing_edit_group)
@@ -54,7 +59,8 @@ defmodule PhoenixKitPublishing.Test.Router do
     pipe_through(:browser)
 
     live_session :admin_publishing_settings,
-      on_mount: [{PhoenixKitPublishing.Test.Hooks, :assign_scope}] do
+      on_mount: [{PhoenixKitPublishing.Test.Hooks, :assign_scope}],
+      layout: {PhoenixKitPublishing.Test.Layouts, :live} do
       live("/publishing", Settings, :index, as: :publishing_settings)
     end
   end
