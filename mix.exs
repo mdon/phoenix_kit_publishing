@@ -89,7 +89,7 @@ defmodule PhoenixKitPublishing.MixProject do
       # ModuleRegistry.all_reserved_route_prefixes/0, which router_dispatch.ex
       # depends on (falls back to a runtime function_exported?/3 guard on an
       # older core, but the floor should track what's actually required).
-      pk_dep(:phoenix_kit, "~> 1.7.170"),
+      pk_dep(:phoenix_kit, "~> 1.7.189"),
       # PhoenixKitAI owns the generic AI-translation pipeline that this module's
       # `AITranslatable` adapter plugs into.
       pk_dep(:phoenix_kit_ai, "~> 0.4"),
