@@ -115,6 +115,24 @@ defmodule PhoenixKit.Modules.Publishing.Constants do
   @doc ~S|Default public-listing sort order ("newest" first).|
   def default_listing_sort, do: @default_listing_sort
 
+  @post_date_positions ["above", "below", "hidden"]
+  @default_post_date_position "below"
+
+  @doc ~S|Valid post-date positions relative to the title: "above", "below", or "hidden".|
+  def post_date_positions, do: @post_date_positions
+
+  @doc ~S|Default post-date position ("below" the title).|
+  def default_post_date_position, do: @default_post_date_position
+
+  @post_widths ["narrow", "normal", "wide"]
+  @default_post_width "normal"
+
+  @doc ~S|Valid post-page content widths: "narrow", "normal", or "wide".|
+  def post_widths, do: @post_widths
+
+  @doc ~S|Default post-page content width ("normal").|
+  def default_post_width, do: @default_post_width
+
   # ---------------------------------------------------------------------------
   # Defaults
   # ---------------------------------------------------------------------------

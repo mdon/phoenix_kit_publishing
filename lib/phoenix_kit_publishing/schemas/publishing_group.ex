@@ -32,6 +32,16 @@ defmodule PhoenixKit.Modules.Publishing.PublishingGroup do
   - `listing_sort` - Public listing order: `"newest"` or `"oldest"` by effective
     publish date (post date for timestamp groups, published-at for slug groups).
     Default `"newest"`.
+  - `show_breadcrumbs` - Show the breadcrumb trail on this group's public listing
+    and post pages (default `false`).
+  - `post_date_position` - Where a post's date renders relative to the title on the
+    post page: `"above"`, `"below"`, or `"hidden"`. Default `"below"`.
+  - `post_width` - Post-page content column width: `"narrow"`, `"normal"`, or
+    `"wide"`. Default `"normal"`.
+  - `show_featured_image` - Show the post's featured image at the top of the post
+    page (default `false`).
+  - `show_reading_time` - Show an estimated reading time on the post page (default `false`).
+  - `show_tags` - Show the post's tags on the post page (default `false`).
   """
 
   use Ecto.Schema
@@ -146,6 +156,27 @@ defmodule PhoenixKit.Modules.Publishing.PublishingGroup do
   @doc ~S|Returns the public-listing sort order for this group ("newest"/"oldest"; default "newest").|
   def listing_sort(%__MODULE__{data: data}),
     do: Map.get(data, "listing_sort", Publishing.Constants.default_listing_sort())
+
+  @doc "Returns whether the breadcrumb trail shows on this group's public pages (default false)."
+  def show_breadcrumbs?(%__MODULE__{data: data}), do: Map.get(data, "show_breadcrumbs", false)
+
+  @doc ~S|Returns where a post's date renders relative to the title ("above"/"below"/"hidden"; default "below").|
+  def post_date_position(%__MODULE__{data: data}),
+    do: Map.get(data, "post_date_position", Publishing.Constants.default_post_date_position())
+
+  @doc ~S|Returns the post-page content width ("narrow"/"normal"/"wide"; default "normal").|
+  def post_width(%__MODULE__{data: data}),
+    do: Map.get(data, "post_width", Publishing.Constants.default_post_width())
+
+  @doc "Returns whether a post's featured image shows at the top of the post page (default false)."
+  def show_featured_image?(%__MODULE__{data: data}),
+    do: Map.get(data, "show_featured_image", false)
+
+  @doc "Returns whether an estimated reading time shows on the post page (default false)."
+  def show_reading_time?(%__MODULE__{data: data}), do: Map.get(data, "show_reading_time", false)
+
+  @doc "Returns whether a post's tags show on the post page (default false)."
+  def show_tags?(%__MODULE__{data: data}), do: Map.get(data, "show_tags", false)
 
   defp maybe_generate_slug(changeset) do
     # Only auto-generate slug for new records (no existing slug).

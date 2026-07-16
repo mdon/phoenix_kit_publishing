@@ -162,6 +162,7 @@ defmodule PhoenixKit.Modules.Publishing.DBStorage.Mapper do
       published_at: format_datetime(version.published_at),
       featured_image_uuid: PublishingVersion.get_featured_image_uuid(version),
       featured: PublishingVersion.get_featured(version),
+      tags: PublishingVersion.get_tags(version),
       og: PublishingContent.get_og(content)
     }
   end

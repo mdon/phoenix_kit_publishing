@@ -132,6 +132,12 @@ defmodule PhoenixKit.Modules.Publishing.Web.Edit do
       "name" => group["name"],
       "slug" => group["slug"],
       "listing_sort" => group["listing_sort"],
+      "show_breadcrumbs" => group["show_breadcrumbs"],
+      "post_date_position" => group["post_date_position"],
+      "post_width" => group["post_width"],
+      "show_featured_image" => group["show_featured_image"],
+      "show_reading_time" => group["show_reading_time"],
+      "show_tags" => group["show_tags"],
       "featured_enabled" => group["featured_enabled"],
       "featured_layout" => group["featured_layout"],
       "scrollbar_style" => group["scrollbar_style"],
@@ -168,6 +174,26 @@ defmodule PhoenixKit.Modules.Publishing.Web.Edit do
     [
       {gettext("Newest first (by publish date)"), "newest"},
       {gettext("Oldest first (by publish date)"), "oldest"}
+    ]
+  end
+
+  # Label/value pairs for the post-date-position <select>. Values must match
+  # Publishing.Constants.post_date_positions/0.
+  defp post_date_position_options do
+    [
+      {gettext("Below the title"), "below"},
+      {gettext("Above the title"), "above"},
+      {gettext("Hidden"), "hidden"}
+    ]
+  end
+
+  # Label/value pairs for the post-width <select>. Values must match
+  # Publishing.Constants.post_widths/0.
+  defp post_width_options do
+    [
+      {gettext("Narrow"), "narrow"},
+      {gettext("Normal"), "normal"},
+      {gettext("Wide"), "wide"}
     ]
   end
 
@@ -259,6 +285,49 @@ defmodule PhoenixKit.Modules.Publishing.Web.Edit do
               label={gettext("Post order")}
               options={listing_sort_options()}
             />
+
+            <div class="space-y-4 rounded-lg border border-base-200 p-4">
+              <div>
+                <h3 class="text-sm font-semibold text-base-content">
+                  {gettext("Post page")}
+                </h3>
+                <p class="text-xs text-base-content/60 mt-1">
+                  {gettext("Control what shows on individual post pages and how they're laid out.")}
+                </p>
+              </div>
+
+              <.select
+                field={@form[:post_width]}
+                label={gettext("Content width")}
+                options={post_width_options()}
+              />
+
+              <.select
+                field={@form[:post_date_position]}
+                label={gettext("Post date position")}
+                options={post_date_position_options()}
+              />
+
+              <.checkbox
+                field={@form[:show_breadcrumbs]}
+                label={gettext("Show the breadcrumb trail")}
+              />
+
+              <.checkbox
+                field={@form[:show_featured_image]}
+                label={gettext("Show the featured image at the top")}
+              />
+
+              <.checkbox
+                field={@form[:show_reading_time]}
+                label={gettext("Show the estimated reading time")}
+              />
+
+              <.checkbox
+                field={@form[:show_tags]}
+                label={gettext("Show the post's tags")}
+              />
+            </div>
 
             <div class="space-y-4 rounded-lg border border-base-200 p-4">
               <div>

@@ -183,16 +183,21 @@ defmodule PhoenixKit.Modules.Publishing.Web.HTML do
   defp reading_headings_assets do
     ~S"""
     <style>
-    .pk-heading-rail { position: fixed; top: 50%; right: .75rem; transform: translateY(-50%); z-index: 40; display: flex; flex-direction: column; gap: .4rem; max-height: 72vh; overflow-y: auto; padding: .25rem; }
+    .pk-heading-rail { position: fixed; top: 6vh; right: .5rem; height: 88vh; z-index: 40; }
     @media (max-width: 1024px) { .pk-heading-rail { display: none; } }
-    .pk-heading-rail__item { display: flex; align-items: center; justify-content: flex-end; gap: .5rem; text-decoration: none; }
-    .pk-heading-rail__tick { display: block; width: 1.1rem; height: 2px; border-radius: 9999px; background: var(--color-base-content, #9ca3af); opacity: .35; transition: all .15s ease; }
-    .pk-heading-rail__item--h3 .pk-heading-rail__tick { width: .7rem; }
-    .pk-heading-rail__item--h4 .pk-heading-rail__tick { width: .45rem; }
-    .pk-heading-rail__label { font-size: .72rem; line-height: 1.2; color: var(--color-base-content, #1f2937); background: var(--color-base-100, #fff); padding: .2rem .45rem; border-radius: .3rem; box-shadow: 0 1px 4px rgba(0,0,0,.18); white-space: nowrap; max-width: 15rem; overflow: hidden; text-overflow: ellipsis; opacity: 0; transform: translateX(.25rem); transition: all .15s ease; pointer-events: none; }
-    .pk-heading-rail__item:hover .pk-heading-rail__tick, .pk-heading-rail__item.is-active .pk-heading-rail__tick { opacity: 1; width: 1.4rem; background: var(--color-primary, #4f46e5); }
-    .pk-heading-rail__item:hover .pk-heading-rail__label, .pk-heading-rail__item:focus-visible .pk-heading-rail__label { opacity: 1; transform: translateX(0); }
-    .pk-heading-rail__item:focus-visible .pk-heading-rail__tick { outline: 2px solid var(--color-primary, #4f46e5); outline-offset: 3px; }
+    .pk-heading-rail__item { position: absolute; right: 0; transform: translateY(-50%); display: flex; align-items: center; justify-content: flex-end; gap: .5rem; text-decoration: none; padding: .35rem .5rem; border-radius: 9999px; transition: background-color .15s ease; }
+    .pk-heading-rail__tick { display: block; width: .5rem; height: .5rem; border-radius: 9999px; background: var(--color-base-content, #9ca3af); opacity: .45; transition: transform .15s ease, background-color .15s ease, opacity .15s ease; }
+    .pk-heading-rail__item--h3 .pk-heading-rail__tick { width: .4rem; height: .4rem; }
+    .pk-heading-rail__item--h4 .pk-heading-rail__tick { width: .3rem; height: .3rem; }
+    .pk-heading-rail__label { font-size: .72rem; line-height: 1.2; color: var(--color-base-content, #1f2937); background: var(--color-base-100, #fff); padding: .2rem .45rem; border-radius: .3rem; box-shadow: 0 1px 4px rgba(0,0,0,.18); white-space: nowrap; max-width: 16rem; overflow: hidden; text-overflow: ellipsis; opacity: 0; transform: translateX(.25rem); transition: opacity .15s ease, transform .15s ease; pointer-events: none; }
+    .pk-heading-rail__item:hover { background-color: var(--color-base-200, #e5e7eb); z-index: 2; }
+    .pk-heading-rail__item.is-current { z-index: 1; }
+    .pk-heading-rail__item:hover .pk-heading-rail__tick, .pk-heading-rail__item.is-current .pk-heading-rail__tick { opacity: 1; background: var(--color-primary, #4f46e5); transform: scale(1.6); }
+    .pk-heading-rail__item:hover .pk-heading-rail__label, .pk-heading-rail__item.is-current .pk-heading-rail__label, .pk-heading-rail__item:focus-visible .pk-heading-rail__label { opacity: 1; transform: translateX(0); }
+    .pk-heading-rail__item:focus-visible { outline: 2px solid var(--color-primary, #4f46e5); outline-offset: 1px; }
+    @keyframes pk-heading-flash { 0% { box-shadow: 0 0 0 0 var(--color-primary, #4f46e5); } 30% { box-shadow: 0 0 0 6px var(--color-primary, #4f46e5); } 100% { box-shadow: 0 0 0 0 rgba(0,0,0,0); } }
+    .pk-heading-flash { animation: pk-heading-flash 1.2s ease-out 1; border-radius: .25rem; }
+    @media (prefers-reduced-motion: reduce) { .pk-heading-flash { animation: none; outline: 2px solid var(--color-primary, #4f46e5); } }
     </style>
     <script>
     (function () {
@@ -208,7 +213,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.HTML do
         var nav = document.createElement('nav');
         nav.className = 'pk-heading-rail';
         nav.setAttribute('aria-label', 'On this page');
-        var items = {};
+        var items = {}, ids = [];
         heads.forEach(function (h) {
           if (!h.id) { var base = slugify(h.textContent), s = base, i = 1; while (document.getElementById(s)) { s = base + '-' + (i++); } h.id = s; }
           var a = document.createElement('a');
@@ -217,22 +222,82 @@ defmodule PhoenixKit.Modules.Publishing.Web.HTML do
           a.setAttribute('data-target', h.id);
           var label = document.createElement('span'); label.className = 'pk-heading-rail__label'; label.textContent = (h.textContent || '').trim();
           var tick = document.createElement('span'); tick.className = 'pk-heading-rail__tick';
-          a.appendChild(tick); a.appendChild(label);
-          nav.appendChild(a); items[h.id] = a;
+          a.appendChild(label); a.appendChild(tick);
+          nav.appendChild(a); items[h.id] = a; ids.push(h.id);
         });
         document.body.appendChild(nav);
+
+        // Position each dot at the vertical fraction where its heading sits in the
+        // document — same as the timeline rail — so the marks track the content
+        // instead of floating in a centered stack.
+        function position() {
+          var docH = document.documentElement.scrollHeight || 1;
+          var railH = nav.clientHeight || Math.round(window.innerHeight * 0.88);
+          var arr = heads.map(function (h) {
+            var mid = h.getBoundingClientRect().top + window.scrollY + h.offsetHeight / 2;
+            return { id: h.id, pos: Math.max(0, Math.min(1, mid / docH)) * railH };
+          });
+          var minGap = 14;
+          for (var i = 1; i < arr.length; i++) {
+            if (arr[i].pos < arr[i - 1].pos + minGap) arr[i].pos = arr[i - 1].pos + minGap;
+          }
+          var over = arr.length ? arr[arr.length - 1].pos - railH : 0;
+          if (over > 0) arr.forEach(function (p) { p.pos = Math.max(0, p.pos - over); });
+          arr.forEach(function (p) { items[p.id].style.top = p.pos + 'px'; });
+        }
+
         nav.addEventListener('click', function (e) {
           var a = e.target.closest('.pk-heading-rail__item'); if (!a) return;
           e.preventDefault();
-          var el = document.getElementById(a.getAttribute('data-target'));
-          if (el) { el.scrollIntoView({ behavior: reduce ? 'auto' : 'smooth', block: 'start' }); try { history.replaceState(null, '', '#' + a.getAttribute('data-target')); } catch (err) {} }
+          var id = a.getAttribute('data-target');
+          var el = document.getElementById(id);
+          if (el) {
+            el.scrollIntoView({ behavior: reduce ? 'auto' : 'smooth', block: 'start' });
+            try { history.replaceState(null, '', '#' + id); } catch (err) {}
+            setTimeout(function () {
+              el.classList.remove('pk-heading-flash'); void el.offsetWidth; el.classList.add('pk-heading-flash');
+              setTimeout(function () { el.classList.remove('pk-heading-flash'); }, 1300);
+            }, reduce ? 0 : 400);
+          }
         });
-        if ('IntersectionObserver' in window) {
-          var obs = new IntersectionObserver(function (entries) {
-            entries.forEach(function (en) { if (!en.isIntersecting) return; var a = items[en.target.id]; if (!a) return; Object.keys(items).forEach(function (k) { items[k].classList.remove('is-active'); }); a.classList.add('is-active'); });
-          }, { rootMargin: '0px 0px -70% 0px' });
-          heads.forEach(function (h) { obs.observe(h); });
+
+        // Current heading tracks scroll position, matching the listing timeline rail:
+        // a reference line runs from the top of the viewport (scrolled to top) to the
+        // bottom (scrolled to bottom), and the heading whose midpoint sits nearest that
+        // line is emphasized. This ties the highlight to % scrolled rather than to
+        // whichever heading last crossed a fixed top line — so the last heading lights
+        // up when you reach the very bottom, even if it never passes the top of the page.
+        function refresh() {
+          var maxScroll = document.documentElement.scrollHeight - window.innerHeight;
+          var pct = maxScroll > 0 ? Math.min(1, Math.max(0, window.scrollY / maxScroll)) : 0;
+          var refY = pct * window.innerHeight;
+          var current = null, best = Infinity;
+          heads.forEach(function (h) {
+            var r = h.getBoundingClientRect();
+            var dist = Math.abs(r.top + r.height / 2 - refY);
+            if (dist < best) { best = dist; current = h.id; }
+          });
+          ids.forEach(function (id) { items[id].classList.toggle('is-current', id === current); });
         }
+
+        // Hide the whole rail when the page is short enough that there's no
+        // scrollbar — a jump-to-heading rail is pointless with nothing to scroll.
+        // Re-checked on load/resize since late images can make a short page scroll.
+        function updateVisibility() {
+          var d = document.documentElement;
+          nav.style.display = d.scrollHeight > d.clientHeight + 4 ? '' : 'none';
+        }
+
+        position(); refresh(); updateVisibility();
+        var pkTick = false;
+        window.addEventListener('scroll', function () {
+          if (pkTick) return;
+          pkTick = true;
+          requestAnimationFrame(function () { refresh(); pkTick = false; });
+        }, { passive: true });
+        window.addEventListener('resize', function () { position(); refresh(); updateVisibility(); }, { passive: true });
+        window.addEventListener('load', function () { position(); refresh(); updateVisibility(); });
+        setTimeout(function () { position(); refresh(); updateVisibility(); }, 600);
       }
       if (document.readyState !== 'loading') init();
       else document.addEventListener('DOMContentLoaded', init);
@@ -441,72 +506,79 @@ defmodule PhoenixKit.Modules.Publishing.Web.HTML do
   def all_groups(assigns) do
     ~H"""
     <PhoenixKitWeb.Components.LayoutWrapper.app_layout
-    flash={@flash}
-    page_title={@page_title}
-    current_path={@conn.request_path}
-    phoenix_kit_current_scope={assigns[:phoenix_kit_current_scope]}
-    module_assigns={%{phoenix_kit_publishing_translations: assigns[:phoenix_kit_publishing_translations], og: assigns[:og]}}
+      flash={@flash}
+      page_title={@page_title}
+      current_path={@conn.request_path}
+      phoenix_kit_current_scope={assigns[:phoenix_kit_current_scope]}
+      module_assigns={
+        %{
+          phoenix_kit_publishing_translations: assigns[:phoenix_kit_publishing_translations],
+          og: assigns[:og]
+        }
+      }
     >
-    <.og_meta_tags :if={og_tags_enabled?()} og={assigns[:og]} />
-    <div class="groups-overview-container max-w-6xl mx-auto px-6 py-8">
-    <%!-- Page Header --%>
-    <header class="mb-8">
-      <h1 class="text-2xl sm:text-4xl font-bold mb-2">Publishing</h1>
-      <p class="text-base sm:text-lg text-base-content/70">
-        Explore our published content
-      </p>
-    </header>
-    <%!-- Group Cards --%>
-    <%= if length(@groups) > 0 do %>
-      <div class="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-        <%= for group <- @groups do %>
-          <article class="card bg-base-200 shadow-md hover:shadow-lg transition-shadow">
-            <div class="card-body">
-              <h2 class="card-title text-2xl">
-                <.link
-                  navigate={group_listing_path(@current_language, group["slug"])}
-                  class="hover:text-primary"
-                >
-                  {group["name"]}
-                </.link>
-              </h2>
+      <.og_meta_tags :if={og_tags_enabled?()} og={assigns[:og]} />
+      <div class="groups-overview-container max-w-6xl mx-auto px-6 py-8">
+        <%!-- Page Header --%>
+        <header class="mb-8">
+          <h1 class="text-2xl sm:text-4xl font-bold mb-2">Publishing</h1>
+          <p class="text-base sm:text-lg text-base-content/70">
+            Explore our published content
+          </p>
+        </header>
+        <%!-- Group Cards --%>
+        <%= if length(@groups) > 0 do %>
+          <div class="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+            <%= for group <- @groups do %>
+              <article class="card bg-base-200 shadow-md hover:shadow-lg transition-shadow">
+                <div class="card-body">
+                  <h2 class="card-title text-2xl">
+                    <.link
+                      navigate={group_listing_path(@current_language, group["slug"])}
+                      class="hover:text-primary"
+                    >
+                      {group["name"]}
+                    </.link>
+                  </h2>
 
-              <div class="text-sm text-base-content/70 mt-2">
-                <span>{ngettext("%{count} post", "%{count} posts", group["post_count"], count: group["post_count"])}</span>
-              </div>
+                  <div class="text-sm text-base-content/70 mt-2">
+                    <span>{ngettext("%{count} post", "%{count} posts", group["post_count"],
+                      count: group["post_count"]
+                    )}</span>
+                  </div>
 
-              <div class="card-actions justify-end mt-4">
-                <.link
-                  navigate={group_listing_path(@current_language, group["slug"])}
-                  class="btn btn-sm btn-primary"
-                >
-                  {gettext("View Posts")} →
-                </.link>
-              </div>
-            </div>
-          </article>
+                  <div class="card-actions justify-end mt-4">
+                    <.link
+                      navigate={group_listing_path(@current_language, group["slug"])}
+                      class="btn btn-sm btn-primary"
+                    >
+                      {gettext("View Posts")} →
+                    </.link>
+                  </div>
+                </div>
+              </article>
+            <% end %>
+          </div>
+        <% else %>
+          <div class="alert alert-info">
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              fill="none"
+              viewBox="0 0 24 24"
+              class="stroke-current shrink-0 w-6 h-6"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+              >
+              </path>
+            </svg>
+            <span>{gettext("No groups configured yet.")}</span>
+          </div>
         <% end %>
       </div>
-    <% else %>
-      <div class="alert alert-info">
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          fill="none"
-          viewBox="0 0 24 24"
-          class="stroke-current shrink-0 w-6 h-6"
-        >
-          <path
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            stroke-width="2"
-            d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-          >
-          </path>
-        </svg>
-        <span>{gettext("No groups configured yet.")}</span>
-      </div>
-    <% end %>
-    </div>
     </PhoenixKitWeb.Components.LayoutWrapper.app_layout>
     """
   end
@@ -514,379 +586,441 @@ defmodule PhoenixKit.Modules.Publishing.Web.HTML do
   def index(assigns) do
     ~H"""
     <PhoenixKitWeb.Components.LayoutWrapper.app_layout
-    flash={@flash}
-    page_title={@page_title}
-    current_path={@conn.request_path}
-    phoenix_kit_current_scope={assigns[:phoenix_kit_current_scope]}
-    module_assigns={%{phoenix_kit_publishing_translations: assigns[:phoenix_kit_publishing_translations], og: assigns[:og]}}
+      flash={@flash}
+      page_title={@page_title}
+      current_path={@conn.request_path}
+      phoenix_kit_current_scope={assigns[:phoenix_kit_current_scope]}
+      module_assigns={
+        %{
+          phoenix_kit_publishing_translations: assigns[:phoenix_kit_publishing_translations],
+          og: assigns[:og]
+        }
+      }
     >
-    <.og_meta_tags :if={og_tags_enabled?()} og={assigns[:og]} />
-    <.scrollbar_style_tag style={(assigns[:group] && @group["scrollbar_style"]) || "default"} />
-    <.scroll_timeline
-      enabled={(assigns[:group] && @group["scroll_timeline_enabled"]) || false}
-      granularity={(assigns[:group] && @group["scroll_timeline_granularity"]) || "year"}
-    />
-    <div class="group-index-container max-w-6xl mx-auto px-6 py-8">
-    <%!-- Breadcrumb Navigation --%>
-    <div class="breadcrumbs text-sm mb-6">
-      <ul>
-        <%= for breadcrumb <- @breadcrumbs do %>
-          <li>
-            <%= if breadcrumb.url do %>
-              <.link navigate={breadcrumb.url}>{breadcrumb.label}</.link>
-            <% else %>
-              {breadcrumb.label}
-            <% end %>
-          </li>
-        <% end %>
-      </ul>
-    </div>
-    <%!-- Group Header --%>
-    <header class="mb-8">
-      <div class="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <h1 class="text-2xl sm:text-4xl font-bold mb-2">{@group["name"]}</h1>
-          <p class="text-base sm:text-lg text-base-content/70">
-            {ngettext("1 post", "%{count} posts", @total_count)}
-          </p>
-        </div>
-        <%!-- Admin Edit Button --%>
-        <%= if assigns[:admin_edit_url] do %>
-          <a href={@admin_edit_url} class="btn btn-sm btn-outline gap-2">
-            <.icon name="hero-pencil-square" class="w-4 h-4" />
-            {@admin_edit_label || "Edit"}
-          </a>
-        <% end %>
-      </div>
-      <%!-- Language Switcher (gated on `publishing_show_language_switcher` —
-            disable when the host renders its own switcher in the layout). --%>
-      <%= if assigns[:show_language_switcher] != false and length(@translations) > 1 do %>
-        <div class="mt-4">
-          <.language_switcher
-            languages={build_public_translations(@translations, @current_language)}
-            current_language={public_current_language(@translations, @current_language)}
-            show_status={false}
-            size={:sm}
-          />
-        </div>
-      <% end %>
-    </header>
-    <% featured_posts = assigns[:featured_posts] || [] %>
-    <% featured_layout = assigns[:featured_layout] || "hero" %>
-    <% date_counts = build_date_counts(featured_posts ++ @posts) %>
-    <%!-- Featured posts — pinned above the grid on page 1, excluded from it. --%>
-    <%= if featured_posts != [] do %>
-      <section class="mb-10">
-        <h2 class="text-xs font-semibold uppercase tracking-wider text-base-content/50 mb-4">
-          {gettext("Featured")}
-        </h2>
-        <div class={
-          if featured_layout == "card",
-            do: "grid gap-6 md:grid-cols-2",
-            else: "flex flex-col gap-6"
-        }>
-          <%= for post <- featured_posts do %>
-            <article class={[
-              "card bg-base-200 shadow-lg ring-1 ring-primary/20 hover:shadow-xl transition-shadow overflow-hidden",
-              featured_layout != "card" && "lg:card-side"
-            ]}>
-              <%= if img = featured_image_url(post, "large") do %>
-                <figure class={
-                  if featured_layout == "card",
-                    do: "h-52 w-full overflow-hidden bg-base-300",
-                    else: "lg:w-2/5 h-56 lg:h-auto overflow-hidden bg-base-300"
-                }>
-                  <img
-                    src={img}
-                    alt={post.metadata.title || gettext("Featured image")}
-                    class="h-full w-full object-cover"
-                    loading="lazy"
-                  />
-                </figure>
-              <% end %>
-              <div class="card-body">
-                <span class="badge badge-primary badge-sm w-fit gap-1">★ {gettext("Featured")}</span>
-                <h3 class="card-title text-2xl">
-                  <.link
-                    navigate={build_post_url(@group["slug"], post, @current_language, date_counts)}
-                    class="hover:text-primary"
-                  >
-                    {post.metadata.title}
-                  </.link>
-                </h3>
-
-                <% featured_excerpt =
-                  if Map.get(post.metadata, :description) do
-                    post.metadata.description
-                  else
-                    extract_excerpt(post.content)
-                  end %>
-                <%= if featured_excerpt && featured_excerpt != "" do %>
-                  <p class="text-base text-base-content/70 line-clamp-3">
-                    {featured_excerpt}
-                  </p>
-                <% end %>
-
-                <div class="card-actions justify-between items-center mt-4">
-                  <%= if has_publication_date?(post) do %>
-                    <time
-                      class="text-xs text-base-content/60"
-                      datetime={post.metadata.published_at || ""}
-                    >
-                      {format_post_date(post, @group["slug"], date_counts)}
-                    </time>
+      <.og_meta_tags :if={og_tags_enabled?()} og={assigns[:og]} />
+      <.scrollbar_style_tag style={(assigns[:group] && @group["scrollbar_style"]) || "default"} />
+      <.scroll_timeline
+        enabled={(assigns[:group] && @group["scroll_timeline_enabled"]) || false}
+        granularity={(assigns[:group] && @group["scroll_timeline_granularity"]) || "year"}
+      />
+      <div class="group-index-container max-w-6xl mx-auto px-6 py-8">
+        <%!-- Breadcrumb Navigation (gated on the group's show_breadcrumbs setting) --%>
+        <%= if (assigns[:group] && @group["show_breadcrumbs"]) do %>
+          <div class="breadcrumbs text-sm mb-6">
+            <ul>
+              <%= for breadcrumb <- @breadcrumbs do %>
+                <li>
+                  <%= if breadcrumb.url do %>
+                    <.link navigate={breadcrumb.url}>{breadcrumb.label}</.link>
                   <% else %>
-                    <span class="text-xs text-base-content/60"></span>
+                    {breadcrumb.label}
+                  <% end %>
+                </li>
+              <% end %>
+            </ul>
+          </div>
+        <% end %>
+        <%!-- Group Header --%>
+        <header class="mb-8">
+          <div class="flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <h1 class="text-2xl sm:text-4xl font-bold mb-2">{@group["name"]}</h1>
+              <p class="text-base sm:text-lg text-base-content/70">
+                {ngettext("1 post", "%{count} posts", @total_count)}
+              </p>
+            </div>
+            <%!-- Admin Edit Button --%>
+            <%= if assigns[:admin_edit_url] do %>
+              <a href={@admin_edit_url} class="btn btn-sm btn-outline gap-2">
+                <.icon name="hero-pencil-square" class="w-4 h-4" />
+                {@admin_edit_label || "Edit"}
+              </a>
+            <% end %>
+          </div>
+          <%!-- Language Switcher (gated on `publishing_show_language_switcher` —
+            disable when the host renders its own switcher in the layout). --%>
+          <%= if assigns[:show_language_switcher] != false and length(@translations) > 1 do %>
+            <div class="mt-4">
+              <.language_switcher
+                languages={build_public_translations(@translations, @current_language)}
+                current_language={public_current_language(@translations, @current_language)}
+                show_status={false}
+                size={:sm}
+              />
+            </div>
+          <% end %>
+        </header>
+        <% featured_posts = assigns[:featured_posts] || [] %>
+        <% featured_layout = assigns[:featured_layout] || "hero" %>
+        <% date_counts = build_date_counts(featured_posts ++ @posts) %>
+        <%!-- Featured posts — pinned above the grid on page 1, excluded from it. --%>
+        <%= if featured_posts != [] do %>
+          <section class="mb-10">
+            <h2 class="text-xs font-semibold uppercase tracking-wider text-base-content/50 mb-4">
+              {gettext("Featured")}
+            </h2>
+            <div class={
+              if featured_layout == "card",
+                do: "grid gap-6 md:grid-cols-2",
+                else: "flex flex-col gap-6"
+            }>
+              <%= for post <- featured_posts do %>
+                <article class={[
+                  "card bg-base-200 shadow-lg ring-1 ring-primary/20 hover:shadow-xl transition-shadow overflow-hidden",
+                  featured_layout != "card" && "lg:card-side"
+                ]}>
+                  <%= if img = featured_image_url(post, "large") do %>
+                    <figure class={
+                      if featured_layout == "card",
+                        do: "h-52 w-full overflow-hidden bg-base-300",
+                        else: "lg:w-2/5 h-56 lg:h-auto overflow-hidden bg-base-300"
+                    }>
+                      <img
+                        src={img}
+                        alt={post.metadata.title || gettext("Featured image")}
+                        class="h-full w-full object-cover"
+                        loading="lazy"
+                      />
+                    </figure>
+                  <% end %>
+                  <div class="card-body">
+                    <span class="badge badge-primary badge-sm w-fit gap-1">★ {gettext("Featured")}</span>
+                    <h3 class="card-title text-2xl">
+                      <.link
+                        navigate={
+                          build_post_url(@group["slug"], post, @current_language, date_counts)
+                        }
+                        class="hover:text-primary"
+                      >
+                        {post.metadata.title}
+                      </.link>
+                    </h3>
+
+                    <% featured_excerpt =
+                      if Map.get(post.metadata, :description) do
+                        post.metadata.description
+                      else
+                        extract_excerpt(post.content)
+                      end %>
+                    <%= if featured_excerpt && featured_excerpt != "" do %>
+                      <p class="text-base text-base-content/70 line-clamp-3">
+                        {featured_excerpt}
+                      </p>
+                    <% end %>
+
+                    <div class="card-actions justify-between items-center mt-4">
+                      <%= if has_publication_date?(post) do %>
+                        <time
+                          class="text-xs text-base-content/60"
+                          datetime={post.metadata.published_at || ""}
+                        >
+                          {format_post_date(post, @group["slug"], date_counts)}
+                        </time>
+                      <% else %>
+                        <span class="text-xs text-base-content/60"></span>
+                      <% end %>
+
+                      <.link
+                        navigate={
+                          build_post_url(@group["slug"], post, @current_language, date_counts)
+                        }
+                        class="btn btn-sm btn-primary"
+                      >
+                        {gettext("Read More →")}
+                      </.link>
+                    </div>
+                  </div>
+                </article>
+              <% end %>
+            </div>
+          </section>
+        <% end %>
+
+        <%!-- Posts Grid --%>
+        <%= if @posts != [] do %>
+          <div class="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+            <%= for post <- @posts do %>
+              <article
+                class="card bg-base-200 shadow-md hover:shadow-lg transition-shadow"
+                data-post-date={post.metadata.published_at || post.date}
+              >
+                <%= if featured_image_url = featured_image_url(post, "medium") do %>
+                  <figure class="h-40 w-full overflow-hidden rounded-t-2xl bg-base-300">
+                    <img
+                      src={featured_image_url}
+                      alt={post.metadata.title || gettext("Featured image")}
+                      class="h-full w-full object-cover"
+                      loading="lazy"
+                    />
+                  </figure>
+                <% end %>
+                <div class="card-body">
+                  <h2 class="card-title text-xl">
+                    <.link
+                      navigate={build_post_url(@group["slug"], post, @current_language, date_counts)}
+                      class="hover:text-primary"
+                    >
+                      {post.metadata.title}
+                    </.link>
+                  </h2>
+
+                  <% excerpt =
+                    if Map.get(post.metadata, :description) do
+                      post.metadata.description
+                    else
+                      extract_excerpt(post.content)
+                    end %>
+                  <%= if excerpt && excerpt != "" do %>
+                    <p class="text-sm text-base-content/70 line-clamp-3">
+                      {excerpt}
+                    </p>
                   <% end %>
 
-                  <.link
-                    navigate={build_post_url(@group["slug"], post, @current_language, date_counts)}
-                    class="btn btn-sm btn-primary"
-                  >
-                    {gettext("Read More →")}
-                  </.link>
+                  <div class="card-actions justify-between items-center mt-4">
+                    <%= if has_publication_date?(post) do %>
+                      <time
+                        class="text-xs text-base-content/60"
+                        datetime={post.metadata.published_at || ""}
+                      >
+                        {format_post_date(post, @group["slug"], date_counts)}
+                      </time>
+                    <% else %>
+                      <span class="text-xs text-base-content/60"></span>
+                    <% end %>
+
+                    <.link
+                      navigate={build_post_url(@group["slug"], post, @current_language, date_counts)}
+                      class="btn btn-sm btn-primary"
+                    >
+                      {gettext("Read More →")}
+                    </.link>
+                  </div>
                 </div>
-              </div>
-            </article>
-          <% end %>
-        </div>
-      </section>
-    <% end %>
-
-    <%!-- Posts Grid --%>
-    <%= if @posts != [] do %>
-      <div class="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-        <%= for post <- @posts do %>
-          <article
-            class="card bg-base-200 shadow-md hover:shadow-lg transition-shadow"
-            data-post-date={post.metadata.published_at || post.date}
-          >
-            <%= if featured_image_url = featured_image_url(post, "medium") do %>
-              <figure class="h-40 w-full overflow-hidden rounded-t-2xl bg-base-300">
-                <img
-                  src={featured_image_url}
-                  alt={post.metadata.title || gettext("Featured image")}
-                  class="h-full w-full object-cover"
-                  loading="lazy"
-                />
-              </figure>
+              </article>
             <% end %>
-            <div class="card-body">
-              <h2 class="card-title text-xl">
-                <.link
-                  navigate={build_post_url(@group["slug"], post, @current_language, date_counts)}
-                  class="hover:text-primary"
-                >
-                  {post.metadata.title}
-                </.link>
-              </h2>
-
-              <% excerpt =
-                if Map.get(post.metadata, :description) do
-                  post.metadata.description
-                else
-                  extract_excerpt(post.content)
-                end %>
-              <%= if excerpt && excerpt != "" do %>
-                <p class="text-sm text-base-content/70 line-clamp-3">
-                  {excerpt}
-                </p>
-              <% end %>
-
-              <div class="card-actions justify-between items-center mt-4">
-                <%= if has_publication_date?(post) do %>
-                  <time
-                    class="text-xs text-base-content/60"
-                    datetime={post.metadata.published_at || ""}
-                  >
-                    {format_post_date(post, @group["slug"], date_counts)}
-                  </time>
+          </div>
+          <%!-- Pagination --%>
+          <%= if @total_pages > 1 do %>
+            <div class="join mt-8 flex justify-center">
+              <%= for page_num <- 1..@total_pages do %>
+                <%= if page_num == @page do %>
+                  <button class="join-item btn btn-active">{page_num}</button>
                 <% else %>
-                  <span class="text-xs text-base-content/60"></span>
+                  <.link
+                    navigate={group_listing_path(@current_language, @group["slug"], page: page_num)}
+                    class="join-item btn"
+                  >
+                    {page_num}
+                  </.link>
                 <% end %>
-
-                <.link
-                  navigate={build_post_url(@group["slug"], post, @current_language, date_counts)}
-                  class="btn btn-sm btn-primary"
-                >
-                  {gettext("Read More →")}
-                </.link>
-              </div>
+              <% end %>
             </div>
-          </article>
+          <% end %>
+        <% end %>
+
+        <%= if @total_count == 0 do %>
+          <div class="alert alert-info">
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              fill="none"
+              viewBox="0 0 24 24"
+              class="stroke-current shrink-0 w-6 h-6"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+              >
+              </path>
+            </svg>
+            <span>{gettext("No published posts yet.")}</span>
+          </div>
         <% end %>
       </div>
-      <%!-- Pagination --%>
-      <%= if @total_pages > 1 do %>
-        <div class="join mt-8 flex justify-center">
-          <%= for page_num <- 1..@total_pages do %>
-            <%= if page_num == @page do %>
-              <button class="join-item btn btn-active">{page_num}</button>
-            <% else %>
-              <.link
-                navigate={group_listing_path(@current_language, @group["slug"], page: page_num)}
-                class="join-item btn"
-              >
-                {page_num}
-              </.link>
-            <% end %>
-          <% end %>
-        </div>
-      <% end %>
-    <% end %>
-
-    <%= if @total_count == 0 do %>
-      <div class="alert alert-info">
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          fill="none"
-          viewBox="0 0 24 24"
-          class="stroke-current shrink-0 w-6 h-6"
-        >
-          <path
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            stroke-width="2"
-            d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-          >
-          </path>
-        </svg>
-        <span>{gettext("No published posts yet.")}</span>
-      </div>
-    <% end %>
-    </div>
     </PhoenixKitWeb.Components.LayoutWrapper.app_layout>
+    """
+  end
+
+  @doc "Renders a post's publication date (calendar icon + formatted date)."
+  attr :post, :map, required: true
+  attr :group_slug, :string, required: true
+  attr :class, :any, default: nil
+
+  def post_date(assigns) do
+    ~H"""
+    <div class={["flex items-center gap-2 text-sm text-base-content/70", @class]}>
+      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          stroke-width="2"
+          d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"
+        />
+      </svg>
+      <time datetime={@post.metadata.published_at || ""}>
+        {format_post_date(@post, @group_slug)}
+      </time>
+    </div>
     """
   end
 
   def show(assigns) do
     ~H"""
     <PhoenixKitWeb.Components.LayoutWrapper.app_layout
-    flash={@flash}
-    page_title={@page_title}
-    current_path={@conn.request_path}
-    phoenix_kit_current_scope={assigns[:phoenix_kit_current_scope]}
-    module_assigns={%{phoenix_kit_publishing_translations: assigns[:phoenix_kit_publishing_translations], og: assigns[:og]}}
+      flash={@flash}
+      page_title={@page_title}
+      current_path={@conn.request_path}
+      phoenix_kit_current_scope={assigns[:phoenix_kit_current_scope]}
+      module_assigns={
+        %{
+          phoenix_kit_publishing_translations: assigns[:phoenix_kit_publishing_translations],
+          og: assigns[:og]
+        }
+      }
     >
-    <.og_meta_tags :if={og_tags_enabled?()} og={assigns[:og]} />
-    <.scrollbar_style_tag style={assigns[:scrollbar_style] || "default"} />
-    <.reading_progress enabled={assigns[:scroll_progress_enabled] || false} />
-    <.reading_headings enabled={assigns[:scroll_headings_enabled] || false} />
-    <article class="post-container max-w-4xl mx-auto px-6 py-8">
-    <%!-- Breadcrumb Navigation --%>
-    <div class="breadcrumbs text-sm mb-6">
-      <ul>
-        <%= for breadcrumb <- @breadcrumbs do %>
-          <li>
-            <%= if breadcrumb.url do %>
-              <.link navigate={breadcrumb.url}>{breadcrumb.label}</.link>
-            <% else %>
-              {breadcrumb.label}
-            <% end %>
-          </li>
-        <% end %>
-      </ul>
-    </div>
-
-    <%!-- Post Header --%>
-    <header class="mb-8 border-b pb-6">
-      <%= if has_publication_date?(@post) do %>
-        <div class="flex items-center gap-2 text-sm text-base-content/70">
-          <%!-- Publication Date (includes time when multiple posts on same date) --%>
-          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              stroke-width="2"
-              d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"
-            />
-          </svg>
-          <time datetime={@post.metadata.published_at || ""}>
-            {format_post_date(@post, @group_slug)}
-          </time>
-        </div>
-      <% end %>
-      <div class="flex flex-wrap items-center gap-4 mt-4">
-        <%!-- Language Switcher (gated on `publishing_show_language_switcher` —
-              disable when the host renders its own switcher in the layout). --%>
-        <%= if assigns[:show_language_switcher] != false and length(@translations) > 1 do %>
-          <.language_switcher
-            languages={build_public_translations(@translations, @current_language)}
-            current_language={public_current_language(@translations, @current_language)}
-            show_status={false}
-            size={:sm}
-          />
-        <% end %>
-        <%!-- Admin Edit Button --%>
-        <%= if assigns[:admin_edit_url] do %>
-          <a href={@admin_edit_url} class="btn btn-sm btn-outline gap-2">
-            <.icon name="hero-pencil-square" class="w-4 h-4" />
-            {@admin_edit_label || "Edit"}
-          </a>
-        <% end %>
-        <%!-- Version History Dropdown --%>
-        <%= if @version_dropdown do %>
-          <div class="dropdown dropdown-end">
-            <div tabindex="0" role="button" class="btn btn-ghost btn-sm gap-1">
-              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  stroke-width="2"
-                  d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
-                />
-              </svg>
-              v{@version_dropdown.current_version}
-              <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  stroke-width="2"
-                  d="M19 9l-7 7-7-7"
-                />
-              </svg>
-            </div>
-            <ul
-              tabindex="0"
-              class="dropdown-content z-[1] menu p-2 shadow bg-base-100 rounded-box w-40 border border-base-200"
-            >
-              <%= for v <- @version_dropdown.versions do %>
+      <.og_meta_tags :if={og_tags_enabled?()} og={assigns[:og]} />
+      <.scrollbar_style_tag style={assigns[:scrollbar_style] || "default"} />
+      <.reading_progress enabled={assigns[:scroll_progress_enabled] || false} />
+      <.reading_headings enabled={assigns[:scroll_headings_enabled] || false} />
+      <article class={["post-container mx-auto px-6 py-8", post_width_class(assigns[:post_width])]}>
+        <%!-- Breadcrumb Navigation (gated on the group's show_breadcrumbs setting) --%>
+        <%= if assigns[:show_breadcrumbs] do %>
+          <div class="breadcrumbs text-sm mb-6">
+            <ul>
+              <%= for breadcrumb <- @breadcrumbs do %>
                 <li>
-                  <.link
-                    navigate={v.url}
-                    class={"flex items-center justify-between #{if v.is_current, do: "active"}"}
-                  >
-                    <span>v{v.version}</span>
-                    <%= if v.is_live do %>
-                      <span class="badge badge-success badge-xs h-auto">live</span>
-                    <% end %>
-                  </.link>
+                  <%= if breadcrumb.url do %>
+                    <.link navigate={breadcrumb.url}>{breadcrumb.label}</.link>
+                  <% else %>
+                    {breadcrumb.label}
+                  <% end %>
                 </li>
               <% end %>
             </ul>
           </div>
         <% end %>
-      </div>
-      <h1 class="text-3xl font-bold mt-4">
-        {@post.metadata.title || PhoenixKit.Modules.Publishing.Constants.default_title()}
-      </h1>
-    </header>
-    <%!-- Post Content --%>
-    <div class="markdown-content max-w-none">
-      {raw(@html_content)}
-    </div>
-    <%!-- Post Footer --%>
-    <footer class="mt-12 pt-6 border-t">
-      <.link
-        navigate={group_listing_path(@current_language, @group_slug)}
-        class="btn btn-ghost btn-sm"
-      >
-        <.icon name="hero-arrow-left" class="w-4 h-4 mr-2" /> {gettext("Back to %{group}",
-          group: @group_name
-        )}
-      </.link>
-    </footer>
-    </article>
+
+        <%!-- Featured image (gated on the group's show_featured_image setting) --%>
+        <%= if assigns[:show_featured_image] do %>
+          <% hero_url = featured_image_url(@post, "large") %>
+          <figure :if={hero_url} class="mb-8 overflow-hidden rounded-xl bg-base-200">
+            <img
+              src={hero_url}
+              alt={@post.metadata.title || ""}
+              class="w-full h-auto max-h-[28rem] object-cover"
+              loading="lazy"
+            />
+          </figure>
+        <% end %>
+
+        <%!-- Post Header --%>
+        <header class="mb-8 border-b pb-6">
+          <.post_date
+            :if={
+              has_publication_date?(@post) and (assigns[:post_date_position] || "below") == "above"
+            }
+            post={@post}
+            group_slug={@group_slug}
+            class="mb-3"
+          />
+          <h1 class="text-3xl font-bold">
+            {@post.metadata.title || PhoenixKit.Modules.Publishing.Constants.default_title()}
+          </h1>
+          <.post_date
+            :if={
+              has_publication_date?(@post) and (assigns[:post_date_position] || "below") == "below"
+            }
+            post={@post}
+            group_slug={@group_slug}
+            class="mt-3"
+          />
+          <div :if={assigns[:show_reading_time]} class="text-sm text-base-content/60 mt-2">
+            {reading_time_label(@html_content)}
+          </div>
+          <div class="flex flex-wrap items-center gap-4 mt-4">
+            <%!-- Language Switcher (gated on `publishing_show_language_switcher` —
+              disable when the host renders its own switcher in the layout). --%>
+            <%= if assigns[:show_language_switcher] != false and length(@translations) > 1 do %>
+              <.language_switcher
+                languages={build_public_translations(@translations, @current_language)}
+                current_language={public_current_language(@translations, @current_language)}
+                show_status={false}
+                size={:sm}
+              />
+            <% end %>
+            <%!-- Admin Edit Button --%>
+            <%= if assigns[:admin_edit_url] do %>
+              <a href={@admin_edit_url} class="btn btn-sm btn-outline gap-2">
+                <.icon name="hero-pencil-square" class="w-4 h-4" />
+                {@admin_edit_label || "Edit"}
+              </a>
+            <% end %>
+            <%!-- Version History Dropdown --%>
+            <%= if @version_dropdown do %>
+              <div class="dropdown dropdown-end">
+                <div tabindex="0" role="button" class="btn btn-ghost btn-sm gap-1">
+                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      stroke-width="2"
+                      d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+                    />
+                  </svg>
+                  v{@version_dropdown.current_version}
+                  <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      stroke-width="2"
+                      d="M19 9l-7 7-7-7"
+                    />
+                  </svg>
+                </div>
+                <ul
+                  tabindex="0"
+                  class="dropdown-content z-[1] menu p-2 shadow bg-base-100 rounded-box w-40 border border-base-200"
+                >
+                  <%= for v <- @version_dropdown.versions do %>
+                    <li>
+                      <.link
+                        navigate={v.url}
+                        class={"flex items-center justify-between #{if v.is_current, do: "active"}"}
+                      >
+                        <span>v{v.version}</span>
+                        <%= if v.is_live do %>
+                          <span class="badge badge-success badge-xs h-auto">live</span>
+                        <% end %>
+                      </.link>
+                    </li>
+                  <% end %>
+                </ul>
+              </div>
+            <% end %>
+          </div>
+        </header>
+        <%!-- Tags (gated on the group's show_tags setting) --%>
+        <% post_tags = if assigns[:show_tags], do: post_tag_list(@post), else: [] %>
+        <div :if={post_tags != []} class="flex flex-wrap gap-2 mb-8">
+          <span :for={tag <- post_tags} class="badge badge-outline badge-sm">{tag}</span>
+        </div>
+        <%!-- Post Content --%>
+        <div class="markdown-content max-w-none">
+          {raw(@html_content)}
+        </div>
+        <%!-- Post Footer --%>
+        <footer class="mt-12 pt-6 border-t">
+          <.link
+            navigate={group_listing_path(@current_language, @group_slug)}
+            class="btn btn-ghost btn-sm"
+          >
+            <.icon name="hero-arrow-left" class="w-4 h-4 mr-2" /> {gettext("Back to %{group}",
+              group: @group_name
+            )}
+          </.link>
+        </footer>
+      </article>
     </PhoenixKitWeb.Components.LayoutWrapper.app_layout>
     """
   end
@@ -1208,6 +1342,35 @@ defmodule PhoenixKit.Modules.Publishing.Web.HTML do
     |> String.replace(~r/\s+/, " ")
     |> String.trim()
   end
+
+  # Maps the group's post_width setting to a max-width class for the article.
+  defp post_width_class("narrow"), do: "max-w-2xl"
+  defp post_width_class("wide"), do: "max-w-6xl"
+  defp post_width_class(_), do: "max-w-4xl"
+
+  # Estimates reading time from the rendered HTML at ~200 words/min (min 1 min).
+  defp reading_time_label(html) when is_binary(html) do
+    words =
+      html
+      |> strip_html_tags()
+      |> String.split(~r/\s+/, trim: true)
+      |> length()
+
+    minutes = max(1, ceil(words / 200))
+    gettext("%{count} min read", count: minutes)
+  end
+
+  defp reading_time_label(_), do: ""
+
+  # Extracts a clean list of tag strings from a post's metadata.
+  defp post_tag_list(%{metadata: %{tags: tags}}) when is_list(tags) do
+    tags
+    |> Enum.map(&to_string/1)
+    |> Enum.map(&String.trim/1)
+    |> Enum.reject(&(&1 == ""))
+  end
+
+  defp post_tag_list(_), do: []
 
   # Formats a timestamp post's date for display (e.g., "December 31, 2025")
   defp format_timestamp_date(post) do

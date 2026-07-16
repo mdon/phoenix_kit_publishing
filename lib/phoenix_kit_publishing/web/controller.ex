@@ -554,6 +554,12 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller do
     |> assign(:scrollbar_style, group["scrollbar_style"] || "default")
     |> assign(:scroll_progress_enabled, group["scroll_progress_enabled"] || false)
     |> assign(:scroll_headings_enabled, group["scroll_headings_enabled"] || false)
+    |> assign(:show_breadcrumbs, group["show_breadcrumbs"] || false)
+    |> assign(:post_date_position, group["post_date_position"] || "below")
+    |> assign(:post_width, group["post_width"] || "normal")
+    |> assign(:show_featured_image, group["show_featured_image"] || false)
+    |> assign(:show_reading_time, group["show_reading_time"] || false)
+    |> assign(:show_tags, group["show_tags"] || false)
   end
 
   defp maybe_assign_admin_edit(conn, path, label) do

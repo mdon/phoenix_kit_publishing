@@ -30,6 +30,10 @@ defmodule PhoenixKit.Modules.Publishing.Groups do
   @listing_sorts Constants.listing_sorts()
   @default_timeline_granularity Constants.default_timeline_granularity()
   @timeline_granularities Constants.timeline_granularities()
+  @default_post_date_position Constants.default_post_date_position()
+  @post_date_positions Constants.post_date_positions()
+  @default_post_width Constants.default_post_width()
+  @post_widths Constants.post_widths()
   @type_regex ~r/^[a-z][a-z0-9-]{0,31}$/
 
   @type_item_names %{
@@ -292,6 +296,12 @@ defmodule PhoenixKit.Modules.Publishing.Groups do
     |> merge_bool_key(params, "scroll_timeline_enabled")
     |> merge_enum_key(params, "scroll_timeline_granularity", @timeline_granularities)
     |> merge_enum_key(params, "listing_sort", @listing_sorts)
+    |> merge_bool_key(params, "show_breadcrumbs")
+    |> merge_enum_key(params, "post_date_position", @post_date_positions)
+    |> merge_enum_key(params, "post_width", @post_widths)
+    |> merge_bool_key(params, "show_featured_image")
+    |> merge_bool_key(params, "show_reading_time")
+    |> merge_bool_key(params, "show_tags")
   end
 
   defp merge_group_config(existing_data, _params), do: existing_data || %{}
@@ -607,7 +617,13 @@ defmodule PhoenixKit.Modules.Publishing.Groups do
       "scroll_timeline_enabled" => Map.get(data, "scroll_timeline_enabled", false),
       "scroll_timeline_granularity" =>
         Map.get(data, "scroll_timeline_granularity", @default_timeline_granularity),
-      "listing_sort" => Map.get(data, "listing_sort", @default_listing_sort)
+      "listing_sort" => Map.get(data, "listing_sort", @default_listing_sort),
+      "show_breadcrumbs" => Map.get(data, "show_breadcrumbs", false),
+      "post_date_position" => Map.get(data, "post_date_position", @default_post_date_position),
+      "post_width" => Map.get(data, "post_width", @default_post_width),
+      "show_featured_image" => Map.get(data, "show_featured_image", false),
+      "show_reading_time" => Map.get(data, "show_reading_time", false),
+      "show_tags" => Map.get(data, "show_tags", false)
     }
   end
 
