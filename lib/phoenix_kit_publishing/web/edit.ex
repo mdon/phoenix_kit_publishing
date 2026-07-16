@@ -25,8 +25,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Edit do
          |> push_navigate(to: Routes.path("/admin/publishing"))}
 
       group ->
-        form =
-          Component.to_form(%{"name" => group["name"], "slug" => group["slug"]}, as: :group)
+        form = Component.to_form(group_form_params(group), as: :group)
 
         {:ok,
          socket
@@ -57,11 +56,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Edit do
         # Broadcast group updated for live dashboard updates
         PublishingPubSub.broadcast_group_updated(updated_group)
 
-        updated_form =
-          Component.to_form(
-            %{"name" => updated_group["name"], "slug" => updated_group["slug"]},
-            as: :group
-          )
+        updated_form = Component.to_form(group_form_params(updated_group), as: :group)
 
         {:noreply,
          socket
@@ -130,6 +125,24 @@ defmodule PhoenixKit.Modules.Publishing.Web.Edit do
   defp find_group(slug) do
     Publishing.list_groups()
     |> Enum.find(&(&1["slug"] == slug))
+  end
+
+  defp group_form_params(group) do
+    %{
+      "name" => group["name"],
+      "slug" => group["slug"],
+      "featured_enabled" => group["featured_enabled"],
+      "featured_layout" => group["featured_layout"]
+    }
+  end
+
+  # Label/value pairs for the featured-layout <select>. Values must match
+  # Publishing.Constants.featured_layouts/0.
+  defp featured_layout_options do
+    [
+      {gettext("Hero band — a large banner above the list"), "hero"},
+      {gettext("Highlighted card — a larger card within the grid"), "card"}
+    ]
   end
 
   @impl true
@@ -203,6 +216,30 @@ defmodule PhoenixKit.Modules.Publishing.Web.Edit do
                     )}
                 <% end %>
               </p>
+            </div>
+
+            <div class="space-y-4 rounded-lg border border-base-200 p-4">
+              <div>
+                <h3 class="text-sm font-semibold text-base-content">
+                  {gettext("Featured posts")}
+                </h3>
+                <p class="text-xs text-base-content/60 mt-1">
+                  {gettext(
+                    "Posts marked as featured in the editor are pinned to the top of this group's public listing and shown larger. Use these settings to turn that off or change how they look."
+                  )}
+                </p>
+              </div>
+
+              <.checkbox
+                field={@form[:featured_enabled]}
+                label={gettext("Show featured posts on the listing")}
+              />
+
+              <.select
+                field={@form[:featured_layout]}
+                label={gettext("Featured layout")}
+                options={featured_layout_options()}
+              />
             </div>
 
             <div class="flex flex-wrap gap-3 justify-end">

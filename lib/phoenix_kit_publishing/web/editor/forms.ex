@@ -61,6 +61,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor.Forms do
       "status" => post.metadata.status || "draft",
       "published_at" => get_published_at(post),
       "featured_image_uuid" => Map.get(post.metadata, :featured_image_uuid, ""),
+      "featured" => Map.get(post.metadata, :featured, false),
       "url_slug" => get_url_slug_for_form(post),
       "og_title" => og_field(post, "title"),
       "og_description" => og_field(post, "description"),
@@ -135,6 +136,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor.Forms do
         "status" => Map.get(form, "status", "draft") || "draft",
         "published_at" => normalize_published_at(Map.get(form, "published_at")),
         "featured_image_uuid" => featured_image_uuid,
+        "featured" => normalize_featured_flag(form),
         "url_slug" => url_slug,
         "og_title" => normalize_string(form, "og_title"),
         "og_description" => normalize_string(form, "og_description"),
@@ -157,11 +159,18 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor.Forms do
       "published_at" => "",
       "slug" => "",
       "featured_image_uuid" => "",
+      "featured" => false,
       "url_slug" => "",
       "og_title" => "",
       "og_description" => "",
       "og_image_uuid" => ""
     }
+
+  # Normalizes the editor's featured checkbox (hidden "false" + checkbox "true"
+  # idiom, or a boolean from base_form) into a plain boolean.
+  defp normalize_featured_flag(form) do
+    Map.get(form, "featured") in [true, "true", "on"]
+  end
 
   defp normalize_published_at(nil), do: ""
 

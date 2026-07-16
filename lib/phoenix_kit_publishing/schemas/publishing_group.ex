@@ -16,6 +16,11 @@ defmodule PhoenixKit.Modules.Publishing.PublishingGroup do
   - `comments_enabled` - Whether comments are enabled for this group
   - `likes_enabled` - Whether likes are enabled for this group
   - `views_enabled` - Whether view tracking is enabled for this group
+  - `featured_enabled` - Whether featured posts are surfaced on this group's
+    public listing (default `true`). When `false`, posts flagged featured
+    render inline like any other post — no hero band, no pinning.
+  - `featured_layout` - How featured posts render: `"hero"` (a band above the
+    grid) or `"card"` (a larger card within the grid). Default `"hero"`.
   """
 
   use Ecto.Schema
@@ -94,6 +99,13 @@ defmodule PhoenixKit.Modules.Publishing.PublishingGroup do
 
   @doc "Returns whether view tracking is enabled for this group."
   def views_enabled?(%__MODULE__{data: data}), do: Map.get(data, "views_enabled", false)
+
+  @doc "Returns whether featured posts are surfaced on this group's listing (default true)."
+  def featured_enabled?(%__MODULE__{data: data}), do: Map.get(data, "featured_enabled", true)
+
+  @doc ~S|Returns the featured-post layout for this group ("hero" or "card"; default "hero").|
+  def featured_layout(%__MODULE__{data: data}),
+    do: Map.get(data, "featured_layout", Publishing.Constants.default_featured_layout())
 
   defp maybe_generate_slug(changeset) do
     # Only auto-generate slug for new records (no existing slug).

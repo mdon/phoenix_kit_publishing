@@ -161,6 +161,7 @@ defmodule PhoenixKit.Modules.Publishing.DBStorage.Mapper do
       previous_url_slugs: PublishingContent.get_previous_url_slugs(content),
       published_at: format_datetime(version.published_at),
       featured_image_uuid: PublishingVersion.get_featured_image_uuid(version),
+      featured: PublishingVersion.get_featured(version),
       og: PublishingContent.get_og(content)
     }
   end
@@ -174,7 +175,8 @@ defmodule PhoenixKit.Modules.Publishing.DBStorage.Mapper do
       # No version → no version-history access.
       allow_version_access: false,
       published_at: nil,
-      featured_image_uuid: nil
+      featured_image_uuid: nil,
+      featured: false
     }
   end
 
@@ -188,7 +190,8 @@ defmodule PhoenixKit.Modules.Publishing.DBStorage.Mapper do
       # from the cached listing map; omitting it hid the dropdown on a warm cache.
       allow_version_access: PublishingVersion.get_allow_version_access(version),
       published_at: format_datetime(version.published_at),
-      featured_image_uuid: PublishingVersion.get_featured_image_uuid(version)
+      featured_image_uuid: PublishingVersion.get_featured_image_uuid(version),
+      featured: PublishingVersion.get_featured(version)
     }
   end
 
@@ -201,7 +204,8 @@ defmodule PhoenixKit.Modules.Publishing.DBStorage.Mapper do
       # Must mirror build_metadata/4 — see the clause above.
       allow_version_access: PublishingVersion.get_allow_version_access(version),
       published_at: format_datetime(version.published_at),
-      featured_image_uuid: PublishingVersion.get_featured_image_uuid(version)
+      featured_image_uuid: PublishingVersion.get_featured_image_uuid(version),
+      featured: PublishingVersion.get_featured(version)
     }
   end
 

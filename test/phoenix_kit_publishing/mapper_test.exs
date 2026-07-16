@@ -185,6 +185,19 @@ defmodule PhoenixKit.Modules.Publishing.DBStorage.MapperTest do
       assert result.metadata.featured_image_uuid == "img-123"
       assert result.metadata.previous_url_slugs == ["old-url"]
       assert result.metadata.published_at == "2025-06-15T14:30:00Z"
+      # Defaults to false when version.data carries no "featured" key.
+      assert result.metadata.featured == false
+    end
+
+    test "metadata surfaces the featured flag from version.data" do
+      group = build_group()
+      post = build_post(group)
+      version = build_version(post, %{data: %{"featured" => true}})
+      content = build_content(version)
+
+      result = Mapper.to_post_map(post, version, content, [content], [version])
+
+      assert result.metadata.featured == true
     end
 
     test "builds language_slugs map" do
@@ -376,6 +389,27 @@ defmodule PhoenixKit.Modules.Publishing.DBStorage.MapperTest do
 
       assert on_result.metadata.allow_version_access == true
       assert off_result.metadata.allow_version_access == false
+    end
+
+    test "listing metadata carries the featured flag (drives the hero band / pinning)" do
+      group = build_group()
+      post = build_post(group)
+
+      # The public listing partitions on metadata.featured, and the listing map
+      # is what the ListingCache stores — so the flag must ride into it here.
+      featured_version = build_version(post, %{data: %{"featured" => true}})
+      plain_version = build_version(post, %{data: %{}})
+
+      featured_result =
+        Mapper.to_listing_map(post, featured_version, [build_content(featured_version)], [
+          featured_version
+        ])
+
+      plain_result =
+        Mapper.to_listing_map(post, plain_version, [build_content(plain_version)], [plain_version])
+
+      assert featured_result.metadata.featured == true
+      assert plain_result.metadata.featured == false
     end
 
     test "falls back to first content when site default language not found" do

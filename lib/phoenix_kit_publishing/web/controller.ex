@@ -238,6 +238,8 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller do
         |> assign(:page_title, assigns.page_title)
         |> assign(:group, assigns.group)
         |> assign(:posts, assigns.posts)
+        |> assign(:featured_posts, assigns.featured_posts)
+        |> assign(:featured_layout, assigns.featured_layout)
         |> assign(:current_language, assigns.current_language)
         |> assign_publishing_render_context(assigns.translations)
         |> assign(:page, assigns.page)

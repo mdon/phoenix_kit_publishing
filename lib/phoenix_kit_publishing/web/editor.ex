@@ -2841,6 +2841,32 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
                   </details>
                 </div>
 
+                <%!-- Featured post: pins to the top of the public listing and
+                     renders larger. Whether featured posts show at all (and how
+                     they look) is controlled per-group from the group's settings. --%>
+                <div>
+                  <label class="label cursor-pointer justify-start gap-3 py-1">
+                    <input type="hidden" name="featured" value="false" />
+                    <input
+                      type="checkbox"
+                      id="post-featured-checkbox"
+                      name="featured"
+                      value="true"
+                      checked={@form["featured"] in [true, "true"]}
+                      disabled={edit_disabled? or @viewing_older_version}
+                      class="checkbox checkbox-primary checkbox-sm"
+                    />
+                    <span class="label-text text-sm font-semibold text-base-content">
+                      {gettext("Feature this post")}
+                    </span>
+                  </label>
+                  <p class="text-xs text-base-content/60 mt-1 ml-1">
+                    {gettext(
+                      "Pins this post to the top of its listing and shows it larger. The group's settings control whether featured posts appear and how they're displayed."
+                    )}
+                  </p>
+                </div>
+
                 <%!-- Social / OpenGraph overrides (per-language). See the comment
                      on the Manual Media ID details above — `open` is server-state. --%>
                 <details

@@ -201,9 +201,90 @@ defmodule PhoenixKit.Modules.Publishing.Web.HTML do
         </div>
       <% end %>
     </header>
+    <% featured_posts = assigns[:featured_posts] || [] %>
+    <% featured_layout = assigns[:featured_layout] || "hero" %>
+    <% date_counts = build_date_counts(featured_posts ++ @posts) %>
+    <%!-- Featured posts — pinned above the grid on page 1, excluded from it. --%>
+    <%= if featured_posts != [] do %>
+      <section class="mb-10">
+        <h2 class="text-xs font-semibold uppercase tracking-wider text-base-content/50 mb-4">
+          {gettext("Featured")}
+        </h2>
+        <div class={
+          if featured_layout == "card",
+            do: "grid gap-6 md:grid-cols-2",
+            else: "flex flex-col gap-6"
+        }>
+          <%= for post <- featured_posts do %>
+            <article class={[
+              "card bg-base-200 shadow-lg ring-1 ring-primary/20 hover:shadow-xl transition-shadow overflow-hidden",
+              featured_layout != "card" && "lg:card-side"
+            ]}>
+              <%= if img = featured_image_url(post, "large") do %>
+                <figure class={
+                  if featured_layout == "card",
+                    do: "h-52 w-full overflow-hidden bg-base-300",
+                    else: "lg:w-2/5 h-56 lg:h-auto overflow-hidden bg-base-300"
+                }>
+                  <img
+                    src={img}
+                    alt={post.metadata.title || gettext("Featured image")}
+                    class="h-full w-full object-cover"
+                    loading="lazy"
+                  />
+                </figure>
+              <% end %>
+              <div class="card-body">
+                <span class="badge badge-primary badge-sm w-fit gap-1">★ {gettext("Featured")}</span>
+                <h3 class="card-title text-2xl">
+                  <.link
+                    navigate={build_post_url(@group["slug"], post, @current_language, date_counts)}
+                    class="hover:text-primary"
+                  >
+                    {post.metadata.title}
+                  </.link>
+                </h3>
+
+                <% featured_excerpt =
+                  if Map.get(post.metadata, :description) do
+                    post.metadata.description
+                  else
+                    extract_excerpt(post.content)
+                  end %>
+                <%= if featured_excerpt && featured_excerpt != "" do %>
+                  <p class="text-base text-base-content/70 line-clamp-3">
+                    {featured_excerpt}
+                  </p>
+                <% end %>
+
+                <div class="card-actions justify-between items-center mt-4">
+                  <%= if has_publication_date?(post) do %>
+                    <time
+                      class="text-xs text-base-content/60"
+                      datetime={post.metadata.published_at || ""}
+                    >
+                      {format_post_date(post, @group["slug"], date_counts)}
+                    </time>
+                  <% else %>
+                    <span class="text-xs text-base-content/60"></span>
+                  <% end %>
+
+                  <.link
+                    navigate={build_post_url(@group["slug"], post, @current_language, date_counts)}
+                    class="btn btn-sm btn-primary"
+                  >
+                    {gettext("Read More →")}
+                  </.link>
+                </div>
+              </div>
+            </article>
+          <% end %>
+        </div>
+      </section>
+    <% end %>
+
     <%!-- Posts Grid --%>
-    <%= if @total_count > 0 do %>
-      <% date_counts = build_date_counts(@posts) %>
+    <%= if @posts != [] do %>
       <div class="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
         <%= for post <- @posts do %>
           <article class="card bg-base-200 shadow-md hover:shadow-lg transition-shadow">
@@ -279,7 +360,9 @@ defmodule PhoenixKit.Modules.Publishing.Web.HTML do
           <% end %>
         </div>
       <% end %>
-    <% else %>
+    <% end %>
+
+    <%= if @total_count == 0 do %>
       <div class="alert alert-info">
         <svg
           xmlns="http://www.w3.org/2000/svg"

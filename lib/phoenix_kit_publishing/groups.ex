@@ -22,6 +22,8 @@ defmodule PhoenixKit.Modules.Publishing.Groups do
   @default_group_type Constants.default_type()
   @preset_types Constants.preset_types()
   @valid_types Constants.valid_types()
+  @default_featured_layout Constants.default_featured_layout()
+  @featured_layouts Constants.featured_layouts()
   @type_regex ~r/^[a-z][a-z0-9-]{0,31}$/
 
   @type_item_names %{
@@ -225,7 +227,11 @@ defmodule PhoenixKit.Modules.Publishing.Groups do
         with {:ok, name} <- extract_and_validate_name(db_group, params),
              {:ok, sanitized_slug} <- extract_and_validate_slug(db_group, params, name),
              {:ok, updated} <-
-               DBStorage.update_group(db_group, %{name: name, slug: sanitized_slug}) do
+               DBStorage.update_group(db_group, %{
+                 name: name,
+                 slug: sanitized_slug,
+                 data: merge_group_config(db_group.data, params)
+               }) do
           # A slug rename orphans the old slug's listing cache entry — it leaks in
           # :persistent_term and keeps serving stale data under the old key (L6).
           if db_group.slug != updated.slug, do: ListingCache.invalidate(db_group.slug)
@@ -264,6 +270,31 @@ defmodule PhoenixKit.Modules.Publishing.Groups do
   # noticed via FunctionClauseError instead of a silent "error" tag.
   defp to_string_reason(reason) when is_atom(reason), do: Atom.to_string(reason)
   defp to_string_reason(%Ecto.Changeset{}), do: "changeset_error"
+
+  # Merges per-group public-listing config (the featured toggle + layout) from
+  # the edit form into the group's existing `data` JSONB. Only keys the form
+  # actually submitted are touched, so a caller that updates just name/slug (or
+  # a keyword-list caller) leaves featured config untouched. An unknown layout
+  # value is ignored rather than persisted, keeping the column to the whitelist.
+  defp merge_group_config(existing_data, params) when is_map(params) do
+    data = existing_data || %{}
+
+    data =
+      case Map.fetch(params, "featured_enabled") do
+        {:ok, value} -> Map.put(data, "featured_enabled", featured_flag_to_bool(value))
+        :error -> data
+      end
+
+    case Map.fetch(params, "featured_layout") do
+      {:ok, value} when value in @featured_layouts -> Map.put(data, "featured_layout", value)
+      _ -> data
+    end
+  end
+
+  defp merge_group_config(existing_data, _params), do: existing_data || %{}
+
+  defp featured_flag_to_bool(value) when value in [true, "true", "on"], do: true
+  defp featured_flag_to_bool(_value), do: false
 
   @doc """
   Moves a publishing group to trash (soft-delete).
@@ -546,7 +577,9 @@ defmodule PhoenixKit.Modules.Publishing.Groups do
       "status" => status || "active",
       "type" => Map.get(data, "type", @default_group_type),
       "item_singular" => Map.get(data, "item_singular", @default_item_singular),
-      "item_plural" => Map.get(data, "item_plural", @default_item_plural)
+      "item_plural" => Map.get(data, "item_plural", @default_item_plural),
+      "featured_enabled" => Map.get(data, "featured_enabled", true),
+      "featured_layout" => Map.get(data, "featured_layout", @default_featured_layout)
     }
   end
 

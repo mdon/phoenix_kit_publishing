@@ -136,15 +136,28 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller.Listing do
   Renders the group index page with resolved posts.
   """
   def render_group_index(_conn, ctx, all_posts) do
+    featured_enabled = Map.get(ctx.group, "featured_enabled", true)
+    {featured_posts, grid_posts} = partition_featured(all_posts, featured_enabled)
+
+    # Pagination runs over the grid (non-featured) posts only. Featured posts are
+    # pinned into their own section shown on page 1 and excluded from the grid, so
+    # they never appear twice. `total_count` stays the full published count for the
+    # header; `total_pages` is derived from the grid so the pager matches the grid.
     total_count = length(all_posts)
+    grid_count = length(grid_posts)
     per_page = max(ctx.per_page, 1)
-    total_pages = if total_count > 0, do: ceil(total_count / per_page), else: 0
+    total_pages = if grid_count > 0, do: ceil(grid_count / per_page), else: 0
     page = min(ctx.page, max(total_pages, 1))
 
     posts =
-      all_posts
+      grid_posts
       |> paginate(page, per_page)
       |> resolve_posts_for_language(ctx.canonical_language)
+
+    featured =
+      if page <= 1,
+        do: resolve_posts_for_language(featured_posts, ctx.canonical_language),
+        else: []
 
     breadcrumbs = [%{label: ctx.group["name"] || ctx.group_slug, url: nil}]
 
@@ -160,6 +173,8 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller.Listing do
        page_title: ctx.group["name"] || ctx.group_slug,
        group: ctx.group,
        posts: posts,
+       featured_posts: featured,
+       featured_layout: Map.get(ctx.group, "featured_layout", "hero"),
        current_language: ctx.canonical_language,
        translations: translations,
        page: page,
@@ -168,6 +183,22 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller.Listing do
        total_pages: total_pages,
        breadcrumbs: breadcrumbs
      }}
+  end
+
+  # Splits published posts into {featured, regular}, preserving the incoming
+  # newest-first order within each side (Enum.split_with is stable). When the
+  # group has featured display turned off, everything is treated as regular.
+  defp partition_featured(posts, false), do: {[], posts}
+
+  defp partition_featured(posts, true) do
+    Enum.split_with(posts, &featured_post?/1)
+  end
+
+  defp featured_post?(post) do
+    case post[:metadata] do
+      %{featured: true} -> true
+      _ -> false
+    end
   end
 
   # ============================================================================

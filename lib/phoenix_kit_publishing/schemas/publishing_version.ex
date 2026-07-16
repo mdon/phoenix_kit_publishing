@@ -19,6 +19,9 @@ defmodule PhoenixKit.Modules.Publishing.PublishingVersion do
   - `tags` - List of tag strings
   - `description` - SEO meta description
   - `allow_version_access` - Whether older versions are publicly accessible
+  - `featured` - Whether this post is featured (pinned to the top of the group
+    listing and rendered larger). Per-group display is gated by the group's
+    own `featured_enabled`/`featured_layout` config.
 
   ### Version history
   - `created_from` - Source version number this was created from
@@ -106,6 +109,9 @@ defmodule PhoenixKit.Modules.Publishing.PublishingVersion do
   @doc "Returns whether older versions are publicly accessible."
   def get_allow_version_access(%__MODULE__{data: data}),
     do: Map.get(data, "allow_version_access", false)
+
+  @doc "Returns whether this post is featured (pinned + shown larger on the group listing)."
+  def get_featured(%__MODULE__{data: data}), do: Map.get(data, "featured", false)
 
   # ── Version history accessors ──────────────────────────────────
 

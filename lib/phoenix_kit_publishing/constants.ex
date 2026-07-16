@@ -68,6 +68,19 @@ defmodule PhoenixKit.Modules.Publishing.Constants do
   def valid_types, do: @valid_types
 
   # ---------------------------------------------------------------------------
+  # Featured posts (per-group public-listing config)
+  # ---------------------------------------------------------------------------
+
+  @featured_layouts ["hero", "card"]
+  @default_featured_layout "hero"
+
+  @doc ~S|Valid featured-post layouts: "hero" (band above the grid) or "card" (larger card in the grid).|
+  def featured_layouts, do: @featured_layouts
+
+  @doc ~S|Default featured-post layout ("hero").|
+  def default_featured_layout, do: @default_featured_layout
+
+  # ---------------------------------------------------------------------------
   # Defaults
   # ---------------------------------------------------------------------------
 
