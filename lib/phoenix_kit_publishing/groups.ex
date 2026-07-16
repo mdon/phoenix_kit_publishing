@@ -26,6 +26,8 @@ defmodule PhoenixKit.Modules.Publishing.Groups do
   @featured_layouts Constants.featured_layouts()
   @default_scrollbar_style Constants.default_scrollbar_style()
   @scrollbar_styles Constants.scrollbar_styles()
+  @default_listing_sort Constants.default_listing_sort()
+  @listing_sorts Constants.listing_sorts()
   @type_regex ~r/^[a-z][a-z0-9-]{0,31}$/
 
   @type_item_names %{
@@ -286,6 +288,7 @@ defmodule PhoenixKit.Modules.Publishing.Groups do
     |> merge_bool_key(params, "scroll_progress_enabled")
     |> merge_bool_key(params, "scroll_headings_enabled")
     |> merge_bool_key(params, "scroll_timeline_enabled")
+    |> merge_enum_key(params, "listing_sort", @listing_sorts)
   end
 
   defp merge_group_config(existing_data, _params), do: existing_data || %{}
@@ -598,7 +601,8 @@ defmodule PhoenixKit.Modules.Publishing.Groups do
       "scrollbar_style" => Map.get(data, "scrollbar_style", @default_scrollbar_style),
       "scroll_progress_enabled" => Map.get(data, "scroll_progress_enabled", false),
       "scroll_headings_enabled" => Map.get(data, "scroll_headings_enabled", false),
-      "scroll_timeline_enabled" => Map.get(data, "scroll_timeline_enabled", false)
+      "scroll_timeline_enabled" => Map.get(data, "scroll_timeline_enabled", false),
+      "listing_sort" => Map.get(data, "listing_sort", @default_listing_sort)
     }
   end
 

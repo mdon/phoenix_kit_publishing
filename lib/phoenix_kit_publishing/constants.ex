@@ -94,6 +94,19 @@ defmodule PhoenixKit.Modules.Publishing.Constants do
   def default_scrollbar_style, do: @default_scrollbar_style
 
   # ---------------------------------------------------------------------------
+  # Listing sort order (per-group public-listing config)
+  # ---------------------------------------------------------------------------
+
+  @listing_sorts ["newest", "oldest"]
+  @default_listing_sort "newest"
+
+  @doc ~S|Valid public-listing sort orders: "newest" or "oldest", by effective publish date.|
+  def listing_sorts, do: @listing_sorts
+
+  @doc ~S|Default public-listing sort order ("newest" first).|
+  def default_listing_sort, do: @default_listing_sort
+
+  # ---------------------------------------------------------------------------
   # Defaults
   # ---------------------------------------------------------------------------
 

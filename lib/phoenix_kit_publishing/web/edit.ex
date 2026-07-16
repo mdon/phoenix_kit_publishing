@@ -131,6 +131,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Edit do
     %{
       "name" => group["name"],
       "slug" => group["slug"],
+      "listing_sort" => group["listing_sort"],
       "featured_enabled" => group["featured_enabled"],
       "featured_layout" => group["featured_layout"],
       "scrollbar_style" => group["scrollbar_style"],
@@ -146,6 +147,15 @@ defmodule PhoenixKit.Modules.Publishing.Web.Edit do
     [
       {gettext("Hero band — a large banner above the list"), "hero"},
       {gettext("Highlighted card — a larger card within the grid"), "card"}
+    ]
+  end
+
+  # Label/value pairs for the listing-sort <select>. Values must match
+  # Publishing.Constants.listing_sorts/0.
+  defp listing_sort_options do
+    [
+      {gettext("Newest first (by publish date)"), "newest"},
+      {gettext("Oldest first (by publish date)"), "oldest"}
     ]
   end
 
@@ -231,6 +241,12 @@ defmodule PhoenixKit.Modules.Publishing.Web.Edit do
                 <% end %>
               </p>
             </div>
+
+            <.select
+              field={@form[:listing_sort]}
+              label={gettext("Post order")}
+              options={listing_sort_options()}
+            />
 
             <div class="space-y-4 rounded-lg border border-base-200 p-4">
               <div>

@@ -136,6 +136,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller.Listing do
   Renders the group index page with resolved posts.
   """
   def render_group_index(_conn, ctx, all_posts) do
+    all_posts = sort_listing(all_posts, Map.get(ctx.group, "listing_sort", "newest"))
     featured_enabled = Map.get(ctx.group, "featured_enabled", true)
     {featured_posts, grid_posts} = partition_featured(all_posts, featured_enabled)
 
@@ -185,9 +186,36 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller.Listing do
      }}
   end
 
+  # Orders the published posts by effective publish date, newest or oldest first
+  # per the group's `listing_sort`. The effective date is post_date/post_time for
+  # timestamp-mode posts and the version's published_at for slug-mode posts (which
+  # have no post_date) — so a slug-mode blog sorts by when readers saw the post,
+  # not by row-creation time. Keys are ISO-8601 strings, which sort chronologically.
+  defp sort_listing(posts, "oldest"), do: Enum.sort_by(posts, &listing_sort_key/1, :asc)
+  defp sort_listing(posts, _newest), do: Enum.sort_by(posts, &listing_sort_key/1, :desc)
+
+  defp listing_sort_key(post) do
+    cond do
+      match?(%Date{}, post[:date]) ->
+        time =
+          case post[:time] do
+            %Time{} = t -> Time.to_iso8601(t)
+            _ -> "00:00:00"
+          end
+
+        Date.to_iso8601(post.date) <> "T" <> time
+
+      is_binary(get_in(post, [:metadata, :published_at])) and post.metadata.published_at != "" ->
+        post.metadata.published_at
+
+      true ->
+        "0000-01-01T00:00:00"
+    end
+  end
+
   # Splits published posts into {featured, regular}, preserving the incoming
-  # newest-first order within each side (Enum.split_with is stable). When the
-  # group has featured display turned off, everything is treated as regular.
+  # order within each side (Enum.split_with is stable). When the group has
+  # featured display turned off, everything is treated as regular.
   defp partition_featured(posts, false), do: {[], posts}
 
   defp partition_featured(posts, true) do
