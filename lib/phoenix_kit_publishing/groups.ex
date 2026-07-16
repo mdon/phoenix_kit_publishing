@@ -24,6 +24,8 @@ defmodule PhoenixKit.Modules.Publishing.Groups do
   @valid_types Constants.valid_types()
   @default_featured_layout Constants.default_featured_layout()
   @featured_layouts Constants.featured_layouts()
+  @default_scrollbar_style Constants.default_scrollbar_style()
+  @scrollbar_styles Constants.scrollbar_styles()
   @type_regex ~r/^[a-z][a-z0-9-]{0,31}$/
 
   @type_item_names %{
@@ -277,24 +279,37 @@ defmodule PhoenixKit.Modules.Publishing.Groups do
   # a keyword-list caller) leaves featured config untouched. An unknown layout
   # value is ignored rather than persisted, keeping the column to the whitelist.
   defp merge_group_config(existing_data, params) when is_map(params) do
-    data = existing_data || %{}
-
-    data =
-      case Map.fetch(params, "featured_enabled") do
-        {:ok, value} -> Map.put(data, "featured_enabled", featured_flag_to_bool(value))
-        :error -> data
-      end
-
-    case Map.fetch(params, "featured_layout") do
-      {:ok, value} when value in @featured_layouts -> Map.put(data, "featured_layout", value)
-      _ -> data
-    end
+    (existing_data || %{})
+    |> merge_bool_key(params, "featured_enabled")
+    |> merge_enum_key(params, "featured_layout", @featured_layouts)
+    |> merge_enum_key(params, "scrollbar_style", @scrollbar_styles)
+    |> merge_bool_key(params, "scroll_progress_enabled")
+    |> merge_bool_key(params, "scroll_headings_enabled")
+    |> merge_bool_key(params, "scroll_timeline_enabled")
   end
 
   defp merge_group_config(existing_data, _params), do: existing_data || %{}
 
-  defp featured_flag_to_bool(value) when value in [true, "true", "on"], do: true
-  defp featured_flag_to_bool(_value), do: false
+  # Only touch a key the form actually submitted, so a caller that updates just
+  # name/slug (or a keyword-list caller) leaves config untouched.
+  defp merge_bool_key(data, params, key) do
+    case Map.fetch(params, key) do
+      {:ok, value} -> Map.put(data, key, config_flag_to_bool(value))
+      :error -> data
+    end
+  end
+
+  # An unknown enum value is ignored rather than persisted, keeping the column
+  # to the whitelist.
+  defp merge_enum_key(data, params, key, allowed) do
+    case Map.fetch(params, key) do
+      {:ok, value} -> if value in allowed, do: Map.put(data, key, value), else: data
+      :error -> data
+    end
+  end
+
+  defp config_flag_to_bool(value) when value in [true, "true", "on"], do: true
+  defp config_flag_to_bool(_value), do: false
 
   @doc """
   Moves a publishing group to trash (soft-delete).
@@ -579,7 +594,11 @@ defmodule PhoenixKit.Modules.Publishing.Groups do
       "item_singular" => Map.get(data, "item_singular", @default_item_singular),
       "item_plural" => Map.get(data, "item_plural", @default_item_plural),
       "featured_enabled" => Map.get(data, "featured_enabled", true),
-      "featured_layout" => Map.get(data, "featured_layout", @default_featured_layout)
+      "featured_layout" => Map.get(data, "featured_layout", @default_featured_layout),
+      "scrollbar_style" => Map.get(data, "scrollbar_style", @default_scrollbar_style),
+      "scroll_progress_enabled" => Map.get(data, "scroll_progress_enabled", false),
+      "scroll_headings_enabled" => Map.get(data, "scroll_headings_enabled", false),
+      "scroll_timeline_enabled" => Map.get(data, "scroll_timeline_enabled", false)
     }
   end
 

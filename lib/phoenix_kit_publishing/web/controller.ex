@@ -292,6 +292,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller do
           edit_post_admin_url(group_slug, assigns.post.uuid, assigns.current_language),
           "Edit Post"
         )
+        |> assign_scroll_config(group_slug)
         |> render(:show)
 
       {:redirect_301, url} ->
@@ -323,6 +324,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller do
           :og,
           build_og_data(conn, assigns.post, assigns.canonical_url, assigns.current_language)
         )
+        |> assign_scroll_config(group_slug)
         |> render(:show)
 
       {:error, reason} ->
@@ -351,6 +353,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller do
           edit_post_admin_url(group_slug, assigns.post.uuid, assigns.current_language),
           "Edit Post"
         )
+        |> assign_scroll_config(group_slug)
         |> render(:show)
 
       {:redirect, url} ->
@@ -535,6 +538,23 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller do
   defp og_locale(nil), do: nil
   defp og_locale(code) when is_binary(code), do: String.replace(code, "-", "_")
   defp og_locale(code), do: code
+
+  # Assigns the group's per-group scroll-navigation config onto the post-page
+  # conn so Web.HTML.show/1 can style the scrollbar and render reading aids.
+  # The group map (via Groups.db_group_to_map/1) carries these keys; a missing
+  # group degrades to the safe defaults (native bar, all aids off).
+  defp assign_scroll_config(conn, group_slug) do
+    group =
+      case Listing.fetch_group(group_slug) do
+        {:ok, g} -> g
+        _ -> %{}
+      end
+
+    conn
+    |> assign(:scrollbar_style, group["scrollbar_style"] || "default")
+    |> assign(:scroll_progress_enabled, group["scroll_progress_enabled"] || false)
+    |> assign(:scroll_headings_enabled, group["scroll_headings_enabled"] || false)
+  end
 
   defp maybe_assign_admin_edit(conn, path, label) do
     mod = @admin_edit_helper_mod

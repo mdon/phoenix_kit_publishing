@@ -73,6 +73,252 @@ defmodule PhoenixKit.Modules.Publishing.Web.HTML do
     _ -> true
   end
 
+  # ===========================================================================
+  # Scroll navigation (per-group). Additive visuals only — never replaces native
+  # scroll, so keyboard/touch/screen-reader behaviour stays intact. See
+  # dev_docs/research/2026-07-16-custom-scrollbars-accessibility.md.
+  # ===========================================================================
+
+  @doc """
+  Emits a `<style>` that recolors the page's native scrollbar to the daisyUI
+  theme when the group opts into "branded"/"thin". "default" renders nothing
+  (the browser's native bar is untouched). Only recolors/resizes the real
+  scrollbar — scrolling stays native.
+  """
+  attr :style, :string, default: "default"
+
+  def scrollbar_style_tag(assigns) do
+    ~H"""
+    {Phoenix.HTML.raw(scrollbar_style_html(@style))}
+    """
+  end
+
+  defp scrollbar_style_html(style) when style in ["branded", "thin"] do
+    width = if style == "thin", do: "9px", else: "14px"
+    thin = if style == "thin", do: "scrollbar-width: thin;", else: ""
+
+    """
+    <style>
+    :root {
+      scrollbar-color: var(--color-primary, #6b7280) var(--color-base-300, #d1d5db);
+      #{thin}
+    }
+    ::-webkit-scrollbar { width: #{width}; height: #{width}; }
+    ::-webkit-scrollbar-track { background: var(--color-base-200, #e5e7eb); }
+    ::-webkit-scrollbar-thumb {
+      background: var(--color-primary, #6b7280);
+      border-radius: 9999px;
+      border: 3px solid var(--color-base-200, #e5e7eb);
+    }
+    </style>
+    """
+  end
+
+  defp scrollbar_style_html(_style), do: ""
+
+  @doc """
+  Renders a thin reading-progress bar fixed to the top of the viewport that
+  fills as the reader scrolls the article. Decorative (`aria-hidden`), pointer
+  transparent, and honors `prefers-reduced-motion`.
+  """
+  attr :enabled, :boolean, default: false
+
+  def reading_progress(assigns) do
+    ~H"""
+    <%= if @enabled do %>
+      <div class="pk-reading-progress" aria-hidden="true">
+        <div class="pk-reading-progress__bar" id="pk-progress-bar"></div>
+      </div>
+      {Phoenix.HTML.raw(reading_progress_assets())}
+    <% end %>
+    """
+  end
+
+  defp reading_progress_assets do
+    """
+    <style>
+    .pk-reading-progress { position: fixed; top: 0; left: 0; right: 0; height: 3px; z-index: 60; pointer-events: none; background: transparent; }
+    .pk-reading-progress__bar { height: 100%; width: 0; background: var(--color-primary, #6b7280); transition: width .1s linear; }
+    @media (prefers-reduced-motion: reduce) { .pk-reading-progress__bar { transition: none; } }
+    </style>
+    <script>
+    (function () {
+      if (window.__pkReadingProgress) return;
+      window.__pkReadingProgress = true;
+      function update() {
+        var bar = document.getElementById('pk-progress-bar');
+        if (!bar) return;
+        var doc = document.documentElement;
+        var max = doc.scrollHeight - doc.clientHeight;
+        var pct = max > 0 ? (doc.scrollTop / max) * 100 : 0;
+        bar.style.width = pct + '%';
+      }
+      window.addEventListener('scroll', update, { passive: true });
+      window.addEventListener('resize', update, { passive: true });
+      if (document.readyState !== 'loading') update();
+      else document.addEventListener('DOMContentLoaded', update);
+    })();
+    </script>
+    """
+  end
+
+  @doc """
+  Renders a slim heading-anchor rail on post pages: a fixed side rail with a
+  tick per `<h2>/<h3>/<h4>` in the article; hover reveals the heading text,
+  click smooth-scrolls to it, and the current section is highlighted as you
+  scroll. Built client-side (assigns heading ids in the browser, so the cached
+  render pipeline is untouched) as a real `<nav>` of links — keyboard and
+  screen-reader accessible. Hidden on narrow screens; honors reduced-motion.
+  """
+  attr :enabled, :boolean, default: false
+
+  def reading_headings(assigns) do
+    ~H"""
+    <%= if @enabled do %>
+      {Phoenix.HTML.raw(reading_headings_assets())}
+    <% end %>
+    """
+  end
+
+  defp reading_headings_assets do
+    ~S"""
+    <style>
+    .pk-heading-rail { position: fixed; top: 50%; right: .75rem; transform: translateY(-50%); z-index: 40; display: flex; flex-direction: column; gap: .4rem; max-height: 72vh; overflow-y: auto; padding: .25rem; }
+    @media (max-width: 1024px) { .pk-heading-rail { display: none; } }
+    .pk-heading-rail__item { display: flex; align-items: center; justify-content: flex-end; gap: .5rem; text-decoration: none; }
+    .pk-heading-rail__tick { display: block; width: 1.1rem; height: 2px; border-radius: 9999px; background: var(--color-base-content, #9ca3af); opacity: .35; transition: all .15s ease; }
+    .pk-heading-rail__item--h3 .pk-heading-rail__tick { width: .7rem; }
+    .pk-heading-rail__item--h4 .pk-heading-rail__tick { width: .45rem; }
+    .pk-heading-rail__label { font-size: .72rem; line-height: 1.2; color: var(--color-base-content, #1f2937); background: var(--color-base-100, #fff); padding: .2rem .45rem; border-radius: .3rem; box-shadow: 0 1px 4px rgba(0,0,0,.18); white-space: nowrap; max-width: 15rem; overflow: hidden; text-overflow: ellipsis; opacity: 0; transform: translateX(.25rem); transition: all .15s ease; pointer-events: none; }
+    .pk-heading-rail__item:hover .pk-heading-rail__tick, .pk-heading-rail__item.is-active .pk-heading-rail__tick { opacity: 1; width: 1.4rem; background: var(--color-primary, #4f46e5); }
+    .pk-heading-rail__item:hover .pk-heading-rail__label, .pk-heading-rail__item:focus-visible .pk-heading-rail__label { opacity: 1; transform: translateX(0); }
+    .pk-heading-rail__item:focus-visible .pk-heading-rail__tick { outline: 2px solid var(--color-primary, #4f46e5); outline-offset: 3px; }
+    </style>
+    <script>
+    (function () {
+      if (window.__pkHeadingRail) return;
+      window.__pkHeadingRail = true;
+      function slugify(t) { return (t || '').toLowerCase().trim().replace(/[^\w\s-]/g, '').replace(/\s+/g, '-').slice(0, 60) || 'section'; }
+      function init() {
+        var container = document.querySelector('.post-container');
+        if (!container) return;
+        var heads = Array.prototype.slice.call(container.querySelectorAll('h2, h3, h4'));
+        if (heads.length < 2) return;
+        var reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+        var nav = document.createElement('nav');
+        nav.className = 'pk-heading-rail';
+        nav.setAttribute('aria-label', 'On this page');
+        var items = {};
+        heads.forEach(function (h) {
+          if (!h.id) { var base = slugify(h.textContent), s = base, i = 1; while (document.getElementById(s)) { s = base + '-' + (i++); } h.id = s; }
+          var a = document.createElement('a');
+          a.href = '#' + h.id;
+          a.className = 'pk-heading-rail__item pk-heading-rail__item--' + h.tagName.toLowerCase();
+          a.setAttribute('data-target', h.id);
+          var label = document.createElement('span'); label.className = 'pk-heading-rail__label'; label.textContent = (h.textContent || '').trim();
+          var tick = document.createElement('span'); tick.className = 'pk-heading-rail__tick';
+          a.appendChild(tick); a.appendChild(label);
+          nav.appendChild(a); items[h.id] = a;
+        });
+        document.body.appendChild(nav);
+        nav.addEventListener('click', function (e) {
+          var a = e.target.closest('.pk-heading-rail__item'); if (!a) return;
+          e.preventDefault();
+          var el = document.getElementById(a.getAttribute('data-target'));
+          if (el) { el.scrollIntoView({ behavior: reduce ? 'auto' : 'smooth', block: 'start' }); try { history.replaceState(null, '', '#' + a.getAttribute('data-target')); } catch (err) {} }
+        });
+        if ('IntersectionObserver' in window) {
+          var obs = new IntersectionObserver(function (entries) {
+            entries.forEach(function (en) { if (!en.isIntersecting) return; var a = items[en.target.id]; if (!a) return; Object.keys(items).forEach(function (k) { items[k].classList.remove('is-active'); }); a.classList.add('is-active'); });
+          }, { rootMargin: '0px 0px -70% 0px' });
+          heads.forEach(function (h) { obs.observe(h); });
+        }
+      }
+      if (document.readyState !== 'loading') init();
+      else document.addEventListener('DOMContentLoaded', init);
+    })();
+    </script>
+    """
+  end
+
+  @doc """
+  Renders a date-timeline rail on the group listing: a fixed side rail with a
+  marker per distinct year found across the rendered post cards (which carry a
+  `data-post-date`); click a year to smooth-scroll to its first post, and the
+  current year highlights as you scroll. Only appears when 2+ years are present.
+  Built client-side as an accessible `<nav>` of links; hidden on narrow screens.
+  """
+  attr :enabled, :boolean, default: false
+
+  def scroll_timeline(assigns) do
+    ~H"""
+    <%= if @enabled do %>
+      {Phoenix.HTML.raw(scroll_timeline_assets())}
+    <% end %>
+    """
+  end
+
+  defp scroll_timeline_assets do
+    ~S"""
+    <style>
+    .pk-timeline-rail { position: fixed; top: 50%; right: .75rem; transform: translateY(-50%); z-index: 40; display: flex; flex-direction: column; gap: .3rem; max-height: 72vh; overflow-y: auto; padding: .25rem; }
+    @media (max-width: 1024px) { .pk-timeline-rail { display: none; } }
+    .pk-timeline-rail__item { display: flex; align-items: center; justify-content: flex-end; gap: .45rem; text-decoration: none; font-size: .7rem; line-height: 1; color: var(--color-base-content, #6b7280); opacity: .6; transition: all .15s ease; }
+    .pk-timeline-rail__label { font-variant-numeric: tabular-nums; }
+    .pk-timeline-rail__tick { display: block; width: .55rem; height: .55rem; border-radius: 9999px; background: var(--color-base-content, #9ca3af); opacity: .5; transition: all .15s ease; }
+    .pk-timeline-rail__item:hover, .pk-timeline-rail__item.is-active { opacity: 1; color: var(--color-base-content, #111827); }
+    .pk-timeline-rail__item:hover .pk-timeline-rail__tick, .pk-timeline-rail__item.is-active .pk-timeline-rail__tick { background: var(--color-primary, #4f46e5); opacity: 1; transform: scale(1.4); }
+    .pk-timeline-rail__item:focus-visible .pk-timeline-rail__tick { outline: 2px solid var(--color-primary, #4f46e5); outline-offset: 3px; }
+    </style>
+    <script>
+    (function () {
+      if (window.__pkTimelineRail) return;
+      window.__pkTimelineRail = true;
+      function yearOf(el) { var d = el.getAttribute('data-post-date') || ''; var m = d.match(/(\d{4})/); return m ? m[1] : null; }
+      function init() {
+        var container = document.querySelector('.group-index-container');
+        if (!container) return;
+        var cards = Array.prototype.slice.call(container.querySelectorAll('[data-post-date]'));
+        if (!cards.length) return;
+        var years = [], firstOf = {};
+        cards.forEach(function (c) { var y = yearOf(c); if (!y) return; if (!(y in firstOf)) { firstOf[y] = c; years.push(y); } });
+        if (years.length < 2) return;
+        years.sort(function (a, b) { return b - a; });
+        var reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+        var nav = document.createElement('nav');
+        nav.className = 'pk-timeline-rail';
+        nav.setAttribute('aria-label', 'Jump to date');
+        var items = {};
+        years.forEach(function (y) {
+          var c = firstOf[y]; if (!c.id) c.id = 'pk-year-' + y;
+          var a = document.createElement('a');
+          a.href = '#' + c.id; a.className = 'pk-timeline-rail__item'; a.setAttribute('data-year', y);
+          var label = document.createElement('span'); label.className = 'pk-timeline-rail__label'; label.textContent = y;
+          var tick = document.createElement('span'); tick.className = 'pk-timeline-rail__tick';
+          a.appendChild(label); a.appendChild(tick);
+          nav.appendChild(a); items[y] = a;
+        });
+        document.body.appendChild(nav);
+        nav.addEventListener('click', function (e) {
+          var a = e.target.closest('.pk-timeline-rail__item'); if (!a) return;
+          e.preventDefault();
+          var el = document.getElementById(a.getAttribute('href').slice(1));
+          if (el) el.scrollIntoView({ behavior: reduce ? 'auto' : 'smooth', block: 'start' });
+        });
+        if ('IntersectionObserver' in window) {
+          var obs = new IntersectionObserver(function (entries) {
+            entries.forEach(function (en) { if (!en.isIntersecting) return; var y = yearOf(en.target); var a = items[y]; if (!a) return; Object.keys(items).forEach(function (k) { items[k].classList.remove('is-active'); }); a.classList.add('is-active'); });
+          }, { rootMargin: '0px 0px -70% 0px' });
+          cards.forEach(function (c) { obs.observe(c); });
+        }
+      }
+      if (document.readyState !== 'loading') init();
+      else document.addEventListener('DOMContentLoaded', init);
+    })();
+    </script>
+    """
+  end
+
   def all_groups(assigns) do
     ~H"""
     <PhoenixKitWeb.Components.LayoutWrapper.app_layout
@@ -156,6 +402,8 @@ defmodule PhoenixKit.Modules.Publishing.Web.HTML do
     module_assigns={%{phoenix_kit_publishing_translations: assigns[:phoenix_kit_publishing_translations], og: assigns[:og]}}
     >
     <.og_meta_tags :if={og_tags_enabled?()} og={assigns[:og]} />
+    <.scrollbar_style_tag style={(assigns[:group] && @group["scrollbar_style"]) || "default"} />
+    <.scroll_timeline enabled={(assigns[:group] && @group["scroll_timeline_enabled"]) || false} />
     <div class="group-index-container max-w-6xl mx-auto px-6 py-8">
     <%!-- Breadcrumb Navigation --%>
     <div class="breadcrumbs text-sm mb-6">
@@ -287,7 +535,10 @@ defmodule PhoenixKit.Modules.Publishing.Web.HTML do
     <%= if @posts != [] do %>
       <div class="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
         <%= for post <- @posts do %>
-          <article class="card bg-base-200 shadow-md hover:shadow-lg transition-shadow">
+          <article
+            class="card bg-base-200 shadow-md hover:shadow-lg transition-shadow"
+            data-post-date={post.metadata.published_at || post.date}
+          >
             <%= if featured_image_url = featured_image_url(post, "medium") do %>
               <figure class="h-40 w-full overflow-hidden rounded-t-2xl bg-base-300">
                 <img
@@ -396,6 +647,9 @@ defmodule PhoenixKit.Modules.Publishing.Web.HTML do
     module_assigns={%{phoenix_kit_publishing_translations: assigns[:phoenix_kit_publishing_translations], og: assigns[:og]}}
     >
     <.og_meta_tags :if={og_tags_enabled?()} og={assigns[:og]} />
+    <.scrollbar_style_tag style={assigns[:scrollbar_style] || "default"} />
+    <.reading_progress enabled={assigns[:scroll_progress_enabled] || false} />
+    <.reading_headings enabled={assigns[:scroll_headings_enabled] || false} />
     <article class="post-container max-w-4xl mx-auto px-6 py-8">
     <%!-- Breadcrumb Navigation --%>
     <div class="breadcrumbs text-sm mb-6">

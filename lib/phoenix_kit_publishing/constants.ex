@@ -81,6 +81,19 @@ defmodule PhoenixKit.Modules.Publishing.Constants do
   def default_featured_layout, do: @default_featured_layout
 
   # ---------------------------------------------------------------------------
+  # Scroll navigation (per-group public-side config)
+  # ---------------------------------------------------------------------------
+
+  @scrollbar_styles ["default", "branded", "thin"]
+  @default_scrollbar_style "default"
+
+  @doc ~S|Valid scrollbar styles: "default" (native, unstyled), "branded" (theme-colored), "thin" (theme-colored + thin).|
+  def scrollbar_styles, do: @scrollbar_styles
+
+  @doc ~S|Default scrollbar style ("default" — the browser's native bar, untouched).|
+  def default_scrollbar_style, do: @default_scrollbar_style
+
+  # ---------------------------------------------------------------------------
   # Defaults
   # ---------------------------------------------------------------------------
 

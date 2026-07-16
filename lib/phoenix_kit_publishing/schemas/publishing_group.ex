@@ -21,6 +21,12 @@ defmodule PhoenixKit.Modules.Publishing.PublishingGroup do
     render inline like any other post — no hero band, no pinning.
   - `featured_layout` - How featured posts render: `"hero"` (a band above the
     grid) or `"card"` (a larger card within the grid). Default `"hero"`.
+  - `scrollbar_style` - Native scrollbar styling for this group's public pages:
+    `"default"` (untouched), `"branded"` (theme-colored), or `"thin"`. Never
+    replaces native scroll — only recolors/resizes the real bar. Default `"default"`.
+  - `scroll_progress_enabled` - Show a reading-progress bar on post pages (default `false`).
+  - `scroll_headings_enabled` - Show a heading-anchor rail on post pages (default `false`).
+  - `scroll_timeline_enabled` - Show a date-timeline rail on the listing (default `false`).
   """
 
   use Ecto.Schema
@@ -106,6 +112,22 @@ defmodule PhoenixKit.Modules.Publishing.PublishingGroup do
   @doc ~S|Returns the featured-post layout for this group ("hero" or "card"; default "hero").|
   def featured_layout(%__MODULE__{data: data}),
     do: Map.get(data, "featured_layout", Publishing.Constants.default_featured_layout())
+
+  @doc ~S|Returns the scrollbar style for this group's public pages ("default"/"branded"/"thin").|
+  def scrollbar_style(%__MODULE__{data: data}),
+    do: Map.get(data, "scrollbar_style", Publishing.Constants.default_scrollbar_style())
+
+  @doc "Returns whether the reading-progress bar shows on this group's post pages (default false)."
+  def scroll_progress_enabled?(%__MODULE__{data: data}),
+    do: Map.get(data, "scroll_progress_enabled", false)
+
+  @doc "Returns whether the heading-anchor rail shows on this group's post pages (default false)."
+  def scroll_headings_enabled?(%__MODULE__{data: data}),
+    do: Map.get(data, "scroll_headings_enabled", false)
+
+  @doc "Returns whether the date-timeline rail shows on this group's listing page (default false)."
+  def scroll_timeline_enabled?(%__MODULE__{data: data}),
+    do: Map.get(data, "scroll_timeline_enabled", false)
 
   defp maybe_generate_slug(changeset) do
     # Only auto-generate slug for new records (no existing slug).

@@ -132,7 +132,11 @@ defmodule PhoenixKit.Modules.Publishing.Web.Edit do
       "name" => group["name"],
       "slug" => group["slug"],
       "featured_enabled" => group["featured_enabled"],
-      "featured_layout" => group["featured_layout"]
+      "featured_layout" => group["featured_layout"],
+      "scrollbar_style" => group["scrollbar_style"],
+      "scroll_progress_enabled" => group["scroll_progress_enabled"],
+      "scroll_headings_enabled" => group["scroll_headings_enabled"],
+      "scroll_timeline_enabled" => group["scroll_timeline_enabled"]
     }
   end
 
@@ -142,6 +146,16 @@ defmodule PhoenixKit.Modules.Publishing.Web.Edit do
     [
       {gettext("Hero band — a large banner above the list"), "hero"},
       {gettext("Highlighted card — a larger card within the grid"), "card"}
+    ]
+  end
+
+  # Label/value pairs for the scrollbar-style <select>. Values must match
+  # Publishing.Constants.scrollbar_styles/0.
+  defp scrollbar_style_options do
+    [
+      {gettext("Default — the browser's native scrollbar"), "default"},
+      {gettext("Branded — recolored to match the theme"), "branded"},
+      {gettext("Thin — branded and slimmer"), "thin"}
     ]
   end
 
@@ -239,6 +253,40 @@ defmodule PhoenixKit.Modules.Publishing.Web.Edit do
                 field={@form[:featured_layout]}
                 label={gettext("Featured layout")}
                 options={featured_layout_options()}
+              />
+            </div>
+
+            <div class="space-y-4 rounded-lg border border-base-200 p-4">
+              <div>
+                <h3 class="text-sm font-semibold text-base-content">
+                  {gettext("Scroll navigation")}
+                </h3>
+                <p class="text-xs text-base-content/60 mt-1">
+                  {gettext(
+                    "Style this group's scrollbar and add reading aids to its public pages. These never change how scrolling works — they only add visuals — so keyboard and touch scrolling stay intact."
+                  )}
+                </p>
+              </div>
+
+              <.select
+                field={@form[:scrollbar_style]}
+                label={gettext("Scrollbar style")}
+                options={scrollbar_style_options()}
+              />
+
+              <.checkbox
+                field={@form[:scroll_progress_enabled]}
+                label={gettext("Show a reading-progress bar on posts")}
+              />
+
+              <.checkbox
+                field={@form[:scroll_headings_enabled]}
+                label={gettext("Show a heading navigation rail on posts")}
+              />
+
+              <.checkbox
+                field={@form[:scroll_timeline_enabled]}
+                label={gettext("Show a date-timeline rail on the listing")}
               />
             </div>
 
