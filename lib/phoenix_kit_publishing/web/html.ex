@@ -314,7 +314,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.HTML do
   Built client-side as an accessible `<nav>` of links; hidden on narrow screens.
   """
   attr :enabled, :boolean, default: false
-  attr :granularity, :string, default: "year"
+  attr :granularity, :string, default: "auto"
 
   def scroll_timeline(assigns) do
     ~H"""
@@ -426,6 +426,11 @@ defmodule PhoenixKit.Modules.Publishing.Web.HTML do
             var mid = c.getBoundingClientRect().top + window.scrollY + c.offsetHeight / 2;
             return { k: k, pos: Math.max(0, Math.min(1, mid / docH)) * railH };
           });
+          // Order markers by where their post actually sits on the page, not by
+          // the (newest-first) key sort — otherwise an "oldest first" listing,
+          // which renders oldest-at-top, feeds descending positions into the
+          // min-gap and clamp passes below and stacks every marker together.
+          arr.sort(function (a, b) { return a.pos - b.pos; });
           var minGap = nav.classList.contains('pk-timeline-rail--dense') ? 14 : 24;
           for (var i = 1; i < arr.length; i++) {
             if (arr[i].pos < arr[i - 1].pos + minGap) arr[i].pos = arr[i - 1].pos + minGap;
@@ -601,7 +606,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.HTML do
       <.scrollbar_style_tag style={(assigns[:group] && @group["scrollbar_style"]) || "default"} />
       <.scroll_timeline
         enabled={(assigns[:group] && @group["scroll_timeline_enabled"]) || false}
-        granularity={(assigns[:group] && @group["scroll_timeline_granularity"]) || "year"}
+        granularity={(assigns[:group] && @group["scroll_timeline_granularity"]) || "auto"}
       />
       <div class="group-index-container max-w-6xl mx-auto px-6 py-8">
         <%!-- Breadcrumb Navigation (gated on the group's show_breadcrumbs setting) --%>
