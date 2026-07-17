@@ -417,7 +417,37 @@ in its `data` JSONB (scrollbar style, featured posts, scroll rails, post width,
 reading time, tags, post count, etc.), edited on
 `/admin/publishing/edit-group/:slug` and applied via
 `Publishing.update_group(slug, params, opts)`. All default off/neutral, so a
-fresh group's public pages look unchanged until an admin opts in.
+fresh group's public pages look unchanged until an admin opts in — with two
+nuances: `featured_enabled` defaults **true** (inert until a post is actually
+flagged featured in the editor, so still visually neutral), and the
+breadcrumbs + post-count elements used to render unconditionally pre-settings,
+so groups that had them now need `show_breadcrumbs` / `show_post_count` turned
+on (a deliberate default-off migration, not a regression).
+
+Two write-path behaviors to know: `update_group/3` is **lenient** (an
+out-of-whitelist enum value is ignored, a non-truthy bool becomes `false` — the
+admin-form path can't fail on settings), while `validate_group_settings/1` is
+**strict** (returns per-key errors) — programmatic callers should validate
+first if they want feedback. `name_i18n` overrides are hardened at merge:
+non-binary values (nested maps from crafted params) are dropped, and each
+override is capped to `Constants.max_group_name_length()`.
+
+**Host contract for the scroll aids** (scrollbar restyle, reading-progress
+bar, heading rail, timeline rail): they ship as self-contained inline
+`<style>`/`<script>` blocks in the public templates (dead views — full page
+loads, no LiveView). Two consequences: (1) a host with a strict CSP (no
+`'unsafe-inline'`) silently loses them — the pages still render fine without
+them; (2) the scroll math reads `document.documentElement` / `window.scrollY`,
+so the **window must be the scroll owner** — a host app-shell that scrolls an
+inner `overflow-y-auto` container instead of the body disables the aids
+(progress bar never fills, rails hide/stall). The rails' month labels +
+aria-labels localize via `data-months`/`data-label` on the hidden config
+elements (`#pk-timeline-config`, `#pk-headings-config`) — the JS falls back to
+English when absent. The timeline rail bins cards by `data-post-date`, which
+carries the same *effective* publish date the listing sorts by
+(`effective_post_date/1` in `web/html.ex` mirrors `Listing.listing_sort_key/1`
+— don't let the two drift). Known limit: the listing (and so `oldest` sort)
+runs over the listing cache, which caps at the most recent 5,000 posts.
 
 `PhoenixKit.Modules.Publishing.GroupSettings` is the **machine-readable spec**
 of those settings — for AI/agent/MCP/script-driven configuration without the UI:
@@ -443,6 +473,13 @@ helper's `data`-owning convention, which would clobber the settings above. The
 resolve the name via `Publishing.translated_group_name(group_map, lang)` /
 `PublishingGroup.translated_name/2`, which is base-language tolerant (the form
 stores the full code `fr-FR`, the public side asks by the short code `fr`).
+Every public surface that shows a group name resolves through it: the listing
+h1 / page title / OG title / breadcrumb, the post page's breadcrumb + "Back
+to …" footer (via `PostRendering.fetch_group/1` + `resolve_group_name/3` — the
+same fetched group map also feeds the controller's
+`assign_group_display_config/2`, one fetch per request), and the all-groups
+overview cards. Admin surfaces intentionally show the canonical primary-language
+name. `display_settings_render_test.exs` pins the reach.
 
 ## Language switcher integration
 
