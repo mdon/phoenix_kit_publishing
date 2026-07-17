@@ -42,6 +42,10 @@ defmodule PhoenixKit.Modules.Publishing.PublishingGroup do
     page (default `false`).
   - `show_reading_time` - Show an estimated reading time on the post page (default `false`).
   - `show_tags` - Show the post's tags on the post page (default `false`).
+  - `name_i18n` - Per-language overrides for the group's display name, keyed by
+    language code (e.g. `%{"et" => "Blogi"}`). The primary-language name lives in
+    the `name` column; secondary languages fall back to it when absent. The slug
+    is intentionally NOT translated — it stays a single canonical URL segment.
   """
 
   use Ecto.Schema
@@ -177,6 +181,44 @@ defmodule PhoenixKit.Modules.Publishing.PublishingGroup do
 
   @doc "Returns whether a post's tags show on the post page (default false)."
   def show_tags?(%__MODULE__{data: data}), do: Map.get(data, "show_tags", false)
+
+  @doc "Returns the per-language display-name overrides map (language code => name)."
+  def name_translations(%__MODULE__{data: data}) do
+    case Map.get(data, "name_i18n") do
+      map when is_map(map) -> map
+      _ -> %{}
+    end
+  end
+
+  @doc """
+  Returns the group's display name in `lang`, falling back to the primary-language
+  `name` column when there's no translation for that language.
+
+  Matching is base-language tolerant: the admin form stores overrides under the
+  full language code (e.g. `"fr-FR"`) while the public side resolves by the short
+  code (`"fr"`), so a lookup succeeds when either side uses the full or short form
+  (as long as the base is unambiguous).
+  """
+  def translated_name(%__MODULE__{name: name} = group, lang) do
+    resolve_name_translation(name_translations(group), lang) || name
+  end
+
+  @doc false
+  # Shared by the struct accessor above and the public map resolver in
+  # `PhoenixKit.Modules.Publishing.Groups.translated_group_name/2`.
+  def resolve_name_translation(translations, lang) when is_map(translations) do
+    lang = to_string(lang)
+    base = lang |> String.split("-") |> List.first()
+
+    non_blank(translations[lang]) ||
+      non_blank(translations[base]) ||
+      Enum.find_value(translations, fn {code, value} ->
+        if String.split(to_string(code), "-") |> List.first() == base, do: non_blank(value)
+      end)
+  end
+
+  defp non_blank(value) when is_binary(value) and value != "", do: value
+  defp non_blank(_), do: nil
 
   defp maybe_generate_slug(changeset) do
     # Only auto-generate slug for new records (no existing slug).

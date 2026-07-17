@@ -12,6 +12,7 @@ defmodule PhoenixKit.Modules.Publishing.Groups do
   alias PhoenixKit.Modules.Publishing.ActivityLog
   alias PhoenixKit.Modules.Publishing.DBStorage
   alias PhoenixKit.Modules.Publishing.ListingCache
+  alias PhoenixKit.Modules.Publishing.PublishingGroup
   alias PhoenixKit.Modules.Publishing.PubSub, as: PublishingPubSub
   alias PhoenixKit.Modules.Publishing.Shared
   alias PhoenixKit.Modules.Publishing.StaleFixer
@@ -302,9 +303,32 @@ defmodule PhoenixKit.Modules.Publishing.Groups do
     |> merge_bool_key(params, "show_featured_image")
     |> merge_bool_key(params, "show_reading_time")
     |> merge_bool_key(params, "show_tags")
+    |> merge_name_i18n(params)
   end
 
   defp merge_group_config(existing_data, _params), do: existing_data || %{}
+
+  # Per-language display-name overrides arrive as a `%{lang => name}` map (form
+  # inputs named `group[name_i18n][<lang>]`). Store the non-blank set wholesale;
+  # an all-blank submission clears the key. Only touched when submitted, so
+  # callers that don't edit the name (or keyword-list callers) leave it intact.
+  defp merge_name_i18n(data, params) do
+    case Map.fetch(params, "name_i18n") do
+      {:ok, translations} when is_map(translations) ->
+        cleaned =
+          translations
+          |> Enum.map(fn {lang, value} -> {to_string(lang), String.trim(to_string(value))} end)
+          |> Enum.reject(fn {_lang, value} -> value == "" end)
+          |> Map.new()
+
+        if cleaned == %{},
+          do: Map.delete(data, "name_i18n"),
+          else: Map.put(data, "name_i18n", cleaned)
+
+      _ ->
+        data
+    end
+  end
 
   # Only touch a key the form actually submitted, so a caller that updates just
   # name/slug (or a keyword-list caller) leaves config untouched.
@@ -623,8 +647,27 @@ defmodule PhoenixKit.Modules.Publishing.Groups do
       "post_width" => Map.get(data, "post_width", @default_post_width),
       "show_featured_image" => Map.get(data, "show_featured_image", false),
       "show_reading_time" => Map.get(data, "show_reading_time", false),
-      "show_tags" => Map.get(data, "show_tags", false)
+      "show_tags" => Map.get(data, "show_tags", false),
+      "name_i18n" => name_i18n_map(data)
     }
+  end
+
+  defp name_i18n_map(data) do
+    case Map.get(data, "name_i18n") do
+      map when is_map(map) -> map
+      _ -> %{}
+    end
+  end
+
+  @doc """
+  Resolves a group's display name in `lang` from a group MAP (the public-side
+  shape produced by `db_group_to_map/1`), falling back to the primary-language
+  `"name"` when there's no translation. Mirrors
+  `PublishingGroup.translated_name/2` for the struct.
+  """
+  def translated_group_name(group, lang) when is_map(group) do
+    translations = name_i18n_map(group)
+    PublishingGroup.resolve_name_translation(translations, lang) || group["name"]
   end
 
   defp derive_requested_slug(nil, fallback_name) do

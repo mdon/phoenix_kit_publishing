@@ -5,6 +5,8 @@ defmodule PhoenixKit.Modules.Publishing.Web.Edit do
   use PhoenixKitWeb, :live_view
   use Gettext, backend: PhoenixKitPublishing.Gettext
 
+  import PhoenixKitWeb.Components.MultilangForm, only: [multilang_tabs: 1, mount_multilang: 1]
+
   require Logger
 
   alias Phoenix.Component
@@ -36,7 +38,8 @@ defmodule PhoenixKit.Modules.Publishing.Web.Edit do
            Routes.path("/admin/publishing/edit-group/#{group_slug}")
          )
          |> assign(:group, group)
-         |> assign(:form, form)}
+         |> assign(:form, form)
+         |> mount_multilang()}
     end
   end
 
@@ -130,6 +133,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Edit do
   defp group_form_params(group) do
     %{
       "name" => group["name"],
+      "name_i18n" => group["name_i18n"] || %{},
       "slug" => group["slug"],
       "listing_sort" => group["listing_sort"],
       "show_breadcrumbs" => group["show_breadcrumbs"],
@@ -152,6 +156,19 @@ defmodule PhoenixKit.Modules.Publishing.Web.Edit do
   # group map) or a string (a "validate" round-trip serializes checkboxes to
   # "true"/"false"). Used to reveal a dependent field only when its toggle is on.
   defp checked?(value), do: value in [true, "true"]
+
+  # The non-primary language tabs — one translatable name input each.
+  defp secondary_language_tabs(tabs), do: Enum.reject(tabs, & &1.is_primary)
+
+  # Current value of a per-language name override out of the form params. The
+  # form carries `name_i18n` as a `%{lang => name}` map (seeded on mount, echoed
+  # back on every "validate"), so a tab switch never loses a typed translation.
+  defp name_i18n_value(form, code) do
+    case form[:name_i18n].value do
+      %{} = map -> Map.get(map, code, "")
+      _ -> ""
+    end
+  end
 
   # Label/value pairs for the timeline-granularity <select>. Values must match
   # Publishing.Constants.timeline_granularities/0.
@@ -232,13 +249,45 @@ defmodule PhoenixKit.Modules.Publishing.Web.Edit do
               phx-submit="save"
               class="space-y-6"
             >
-              <.input
-                field={@form[:name]}
-                type="text"
-                label={gettext("Group Name")}
-                placeholder={gettext("e.g. Product Updates")}
-                required
-              />
+              <%!-- Group Name — translatable per language. The primary-language
+                    name is the required `name` column; other languages are
+                    optional overrides stored in data["name_i18n"], falling back
+                    to the primary name when blank. All inputs stay in the DOM
+                    (only the active language's is visible) so switching tabs
+                    never drops a typed translation. --%>
+              <div>
+                <.multilang_tabs
+                  :if={@show_multilang_tabs}
+                  multilang_enabled={@multilang_enabled}
+                  language_tabs={@language_tabs}
+                  current_lang={@current_lang}
+                  show_header={false}
+                  class=""
+                />
+
+                <div class={@multilang_enabled && @current_lang != @primary_language && "hidden"}>
+                  <.input
+                    field={@form[:name]}
+                    type="text"
+                    label={gettext("Group Name")}
+                    placeholder={gettext("e.g. Product Updates")}
+                  />
+                </div>
+
+                <div
+                  :for={tab <- secondary_language_tabs(@language_tabs)}
+                  class={@current_lang != tab.code && "hidden"}
+                >
+                  <.input
+                    id={"group_name_i18n_#{tab.code}"}
+                    name={"group[name_i18n][#{tab.code}]"}
+                    value={name_i18n_value(@form, tab.code)}
+                    type="text"
+                    label={gettext("Group Name (%{lang})", lang: tab.name)}
+                    placeholder={@form[:name].value}
+                  />
+                </div>
+              </div>
 
               <div class="space-y-2">
                 <.input

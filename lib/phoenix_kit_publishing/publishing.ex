@@ -97,6 +97,7 @@ defmodule PhoenixKit.Modules.Publishing do
   defdelegate trash_group(slug), to: Groups
   defdelegate trash_group(slug, opts), to: Groups
   defdelegate group_name(slug), to: Groups
+  defdelegate translated_group_name(group, lang), to: Groups
   defdelegate get_group_mode(group_slug), to: Groups
   defdelegate preset_types(), to: Groups
   defdelegate valid_types(), to: Groups

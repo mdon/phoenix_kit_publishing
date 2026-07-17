@@ -629,7 +629,9 @@ defmodule PhoenixKit.Modules.Publishing.Web.HTML do
         <header class="mb-8">
           <div class="flex flex-wrap items-start justify-between gap-4">
             <div>
-              <h1 class="text-2xl sm:text-4xl font-bold mb-2">{@group["name"]}</h1>
+              <h1 class="text-2xl sm:text-4xl font-bold mb-2">
+                {Publishing.translated_group_name(@group, @current_language)}
+              </h1>
               <p class="text-base sm:text-lg text-base-content/70">
                 {ngettext("1 post", "%{count} posts", @total_count)}
               </p>

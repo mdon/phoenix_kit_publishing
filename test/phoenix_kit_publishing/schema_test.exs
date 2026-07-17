@@ -151,6 +151,32 @@ defmodule PhoenixKit.Modules.Publishing.SchemaTest do
       assert PublishingGroup.show_reading_time?(group) == true
       assert PublishingGroup.show_tags?(group) == true
     end
+
+    test "translated_name/2 falls back to the primary name with no override" do
+      group = %PublishingGroup{name: "Blog", data: %{}}
+      assert PublishingGroup.translated_name(group, "fr") == "Blog"
+      assert PublishingGroup.translated_name(group, "en") == "Blog"
+    end
+
+    test "translated_name/2 returns a per-language override, base-tolerant" do
+      group = %PublishingGroup{name: "Blog", data: %{"name_i18n" => %{"fr-FR" => "Blogue"}}}
+
+      # exact full-code match, and short-code lookup (how the public side asks)
+      assert PublishingGroup.translated_name(group, "fr-FR") == "Blogue"
+      assert PublishingGroup.translated_name(group, "fr") == "Blogue"
+      # an unrelated language still falls back to the primary name
+      assert PublishingGroup.translated_name(group, "de") == "Blog"
+    end
+
+    test "translated_name/2 resolves when stored short but asked full" do
+      group = %PublishingGroup{name: "Blog", data: %{"name_i18n" => %{"fr" => "Blogue"}}}
+      assert PublishingGroup.translated_name(group, "fr-FR") == "Blogue"
+    end
+
+    test "translated_name/2 ignores blank overrides" do
+      group = %PublishingGroup{name: "Blog", data: %{"name_i18n" => %{"fr" => ""}}}
+      assert PublishingGroup.translated_name(group, "fr") == "Blog"
+    end
   end
 
   # ============================================================================

@@ -160,7 +160,10 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller.Listing do
         do: resolve_posts_for_language(featured_posts, ctx.canonical_language),
         else: []
 
-    breadcrumbs = [%{label: ctx.group["name"] || ctx.group_slug, url: nil}]
+    display_name =
+      Publishing.translated_group_name(ctx.group, ctx.canonical_language) || ctx.group_slug
+
+    breadcrumbs = [%{label: display_name, url: nil}]
 
     translations =
       Translations.build_listing_translations(
@@ -171,7 +174,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller.Listing do
 
     {:ok,
      %{
-       page_title: ctx.group["name"] || ctx.group_slug,
+       page_title: display_name,
        group: ctx.group,
        posts: posts,
        featured_posts: featured,
