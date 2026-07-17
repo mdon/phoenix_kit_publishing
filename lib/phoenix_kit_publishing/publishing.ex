@@ -77,6 +77,14 @@ defmodule PhoenixKit.Modules.Publishing do
   # ============================================================================
 
   alias PhoenixKit.Modules.Publishing.Groups
+  alias PhoenixKit.Modules.Publishing.GroupSettings
+
+  # Machine-readable spec of the per-group display settings, for AI/agent/script
+  # driven configuration. See PhoenixKit.Modules.Publishing.GroupSettings.
+  defdelegate group_settings_schema(), to: GroupSettings, as: :schema
+  defdelegate group_settings_keys(), to: GroupSettings, as: :keys
+  defdelegate group_settings_defaults(), to: GroupSettings, as: :default_config
+  defdelegate validate_group_settings(params), to: GroupSettings, as: :validate_params
 
   defdelegate list_groups(), to: Groups
   defdelegate list_groups(status), to: Groups

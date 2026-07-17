@@ -410,6 +410,26 @@ Add new error atoms by extending `@type error_atom`, the doctest example, and ad
 | `publishing_show_language_switcher` | `true` | Render the in-page language switcher on listing + post pages. Disable when the host layout already provides one (see "Language switcher integration" below) |
 | `publishing_render_og_tags` | `true` | Render OpenGraph + Twitter Card meta tags **in-page** (inside the public body) so social previews work even when the host root layout doesn't render the forwarded `:og` assign in `<head>`. Disable when the host renders `:og` in `<head>` itself, to avoid duplicate tags (see "OpenGraph metadata" below) |
 
+### Per-group display settings (group `data` JSONB)
+
+Distinct from the site-wide keys above: each group carries ~14 display settings
+in its `data` JSONB (scrollbar style, featured posts, scroll rails, post width,
+reading time, tags, etc.), edited on `/admin/publishing/edit-group/:slug` and
+applied via `Publishing.update_group(slug, params, opts)`.
+
+`PhoenixKit.Modules.Publishing.GroupSettings` is the **machine-readable spec**
+of those settings — for AI/agent/MCP/script-driven configuration without the UI:
+
+- `Publishing.group_settings_schema/0` — list of `%{key, type, allowed, default, scope, label, description, depends_on}` (values/defaults derived from `Constants`, so it can't drift from what `update_group/3` accepts).
+- `Publishing.group_settings_defaults/0` / `group_settings_keys/0`.
+- `Publishing.validate_group_settings/1` — casts/validates a proposed params map, returning `{:ok, normalized}` (booleans + enums coerced, unknown keys like `name`/`slug` passed through) or `{:error, [%{key:, reason:}]}`. Feed the `:ok` result straight to `update_group/3`.
+
+The accessor + default source of truth for each setting is the `PublishingGroup`
+schema moduledoc; add a new setting in `Constants` → `publishing_group.ex`
+accessor → `groups.ex` (`merge_group_config` + `db_group_to_map`) → `edit.ex`
+form → `group_settings.ex` spec (its test asserts the key set matches
+`merge_group_config`).
+
 ## Language switcher integration
 
 Publishing renders an in-page language switcher on group-listing and post pages by default. Most host apps already have one in their header, in which case the in-page switcher is duplicate UI. Three integration points:
