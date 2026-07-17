@@ -412,10 +412,12 @@ Add new error atoms by extending `@type error_atom`, the doctest example, and ad
 
 ### Per-group display settings (group `data` JSONB)
 
-Distinct from the site-wide keys above: each group carries ~14 display settings
+Distinct from the site-wide keys above: each group carries ~15 display settings
 in its `data` JSONB (scrollbar style, featured posts, scroll rails, post width,
-reading time, tags, etc.), edited on `/admin/publishing/edit-group/:slug` and
-applied via `Publishing.update_group(slug, params, opts)`.
+reading time, tags, post count, etc.), edited on
+`/admin/publishing/edit-group/:slug` and applied via
+`Publishing.update_group(slug, params, opts)`. All default off/neutral, so a
+fresh group's public pages look unchanged until an admin opts in.
 
 `PhoenixKit.Modules.Publishing.GroupSettings` is the **machine-readable spec**
 of those settings — for AI/agent/MCP/script-driven configuration without the UI:
@@ -429,6 +431,18 @@ schema moduledoc; add a new setting in `Constants` → `publishing_group.ex`
 accessor → `groups.ex` (`merge_group_config` + `db_group_to_map`) → `edit.ex`
 form → `group_settings.ex` spec (its test asserts the key set matches
 `merge_group_config`).
+
+### Translatable group name
+
+The group's **display name** is translatable per language via the core
+`PhoenixKitWeb.Components.MultilangForm` tabs on the edit page. The
+primary-language name stays in the `name` column; per-language overrides live in
+an isolated `data["name_i18n"]` map (`%{lang => name}`) — NOT the multilang
+helper's `data`-owning convention, which would clobber the settings above. The
+**slug is intentionally not translated** (single canonical URL). Public pages
+resolve the name via `Publishing.translated_group_name(group_map, lang)` /
+`PublishingGroup.translated_name/2`, which is base-language tolerant (the form
+stores the full code `fr-FR`, the public side asks by the short code `fr`).
 
 ## Language switcher integration
 
