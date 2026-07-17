@@ -23,10 +23,10 @@ defmodule PhoenixKit.Modules.Publishing.GroupSettingsTest do
       # Mirror of Groups.merge_group_config/2's key list — if a setting is added
       # to one and not the other, this fails.
       expected =
-        ~w(listing_sort featured_enabled featured_layout scroll_timeline_enabled
-           scroll_timeline_granularity post_width post_date_position show_breadcrumbs
-           show_featured_image show_reading_time show_tags scroll_progress_enabled
-           scroll_headings_enabled scrollbar_style)
+        ~w(listing_sort show_post_count featured_enabled featured_layout
+           scroll_timeline_enabled scroll_timeline_granularity post_width
+           post_date_position show_breadcrumbs show_featured_image show_reading_time
+           show_tags scroll_progress_enabled scroll_headings_enabled scrollbar_style)
 
       assert Enum.sort(GroupSettings.keys()) == Enum.sort(expected)
     end

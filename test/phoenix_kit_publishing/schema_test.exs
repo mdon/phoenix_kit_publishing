@@ -114,6 +114,7 @@ defmodule PhoenixKit.Modules.Publishing.SchemaTest do
       assert PublishingGroup.show_featured_image?(group) == false
       assert PublishingGroup.show_reading_time?(group) == false
       assert PublishingGroup.show_tags?(group) == false
+      assert PublishingGroup.show_post_count?(group) == false
     end
 
     test "public-side display accessors return custom values" do
@@ -132,7 +133,8 @@ defmodule PhoenixKit.Modules.Publishing.SchemaTest do
           "post_width" => "wide",
           "show_featured_image" => true,
           "show_reading_time" => true,
-          "show_tags" => true
+          "show_tags" => true,
+          "show_post_count" => true
         }
       }
 
@@ -150,6 +152,7 @@ defmodule PhoenixKit.Modules.Publishing.SchemaTest do
       assert PublishingGroup.show_featured_image?(group) == true
       assert PublishingGroup.show_reading_time?(group) == true
       assert PublishingGroup.show_tags?(group) == true
+      assert PublishingGroup.show_post_count?(group) == true
     end
 
     test "translated_name/2 falls back to the primary name with no override" do

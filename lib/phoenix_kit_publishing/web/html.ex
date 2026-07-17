@@ -632,7 +632,10 @@ defmodule PhoenixKit.Modules.Publishing.Web.HTML do
               <h1 class="text-2xl sm:text-4xl font-bold mb-2">
                 {Publishing.translated_group_name(@group, @current_language)}
               </h1>
-              <p class="text-base sm:text-lg text-base-content/70">
+              <p
+                :if={assigns[:group] && @group["show_post_count"]}
+                class="text-base sm:text-lg text-base-content/70"
+              >
                 {ngettext("1 post", "%{count} posts", @total_count)}
               </p>
             </div>

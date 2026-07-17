@@ -42,6 +42,8 @@ defmodule PhoenixKit.Modules.Publishing.PublishingGroup do
     page (default `false`).
   - `show_reading_time` - Show an estimated reading time on the post page (default `false`).
   - `show_tags` - Show the post's tags on the post page (default `false`).
+  - `show_post_count` - Show the total post count under the title on the group's
+    public listing (default `false`).
   - `name_i18n` - Per-language overrides for the group's display name, keyed by
     language code (e.g. `%{"et" => "Blogi"}`). The primary-language name lives in
     the `name` column; secondary languages fall back to it when absent. The slug
@@ -181,6 +183,9 @@ defmodule PhoenixKit.Modules.Publishing.PublishingGroup do
 
   @doc "Returns whether a post's tags show on the post page (default false)."
   def show_tags?(%__MODULE__{data: data}), do: Map.get(data, "show_tags", false)
+
+  @doc "Returns whether the post count shows on the group's public listing (default false)."
+  def show_post_count?(%__MODULE__{data: data}), do: Map.get(data, "show_post_count", false)
 
   @doc "Returns the per-language display-name overrides map (language code => name)."
   def name_translations(%__MODULE__{data: data}) do

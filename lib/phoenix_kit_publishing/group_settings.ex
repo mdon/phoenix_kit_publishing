@@ -69,6 +69,16 @@ defmodule PhoenixKit.Modules.Publishing.GroupSettings do
         depends_on: nil
       },
       %{
+        key: "show_post_count",
+        type: :boolean,
+        allowed: @boolean_allowed,
+        default: false,
+        scope: :listing,
+        label: "Show the post count",
+        description: "Show the total number of posts under the listing title.",
+        depends_on: nil
+      },
+      %{
         key: "featured_enabled",
         type: :boolean,
         allowed: @boolean_allowed,

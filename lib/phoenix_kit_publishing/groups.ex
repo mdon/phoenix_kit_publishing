@@ -303,6 +303,7 @@ defmodule PhoenixKit.Modules.Publishing.Groups do
     |> merge_bool_key(params, "show_featured_image")
     |> merge_bool_key(params, "show_reading_time")
     |> merge_bool_key(params, "show_tags")
+    |> merge_bool_key(params, "show_post_count")
     |> merge_name_i18n(params)
   end
 
@@ -648,6 +649,7 @@ defmodule PhoenixKit.Modules.Publishing.Groups do
       "show_featured_image" => Map.get(data, "show_featured_image", false),
       "show_reading_time" => Map.get(data, "show_reading_time", false),
       "show_tags" => Map.get(data, "show_tags", false),
+      "show_post_count" => Map.get(data, "show_post_count", false),
       "name_i18n" => name_i18n_map(data)
     }
   end

@@ -149,6 +149,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Edit do
       "name_i18n" => group["name_i18n"] || %{},
       "slug" => group["slug"],
       "listing_sort" => group["listing_sort"],
+      "show_post_count" => group["show_post_count"],
       "show_breadcrumbs" => group["show_breadcrumbs"],
       "post_date_position" => group["post_date_position"],
       "post_width" => group["post_width"],
@@ -385,6 +386,13 @@ defmodule PhoenixKit.Modules.Publishing.Web.Edit do
                   label={gettext("Post order")}
                   options={listing_sort_options()}
                 />
+
+                <.checkbox field={@form[:show_post_count]}>
+                  {gettext("Show the post count")}
+                  <:description>
+                    {gettext("The total number of posts, shown under the listing title.")}
+                  </:description>
+                </.checkbox>
 
                 <.checkbox field={@form[:featured_enabled]}>
                   {gettext("Highlight featured posts")}
