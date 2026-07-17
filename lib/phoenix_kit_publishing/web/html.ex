@@ -175,6 +175,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.HTML do
   def reading_headings(assigns) do
     ~H"""
     <%= if @enabled do %>
+      <div id="pk-headings-config" data-label={gettext("On this page")} hidden></div>
       {Phoenix.HTML.raw(reading_headings_assets())}
     <% end %>
     """
@@ -210,9 +211,10 @@ defmodule PhoenixKit.Modules.Publishing.Web.HTML do
         var heads = Array.prototype.slice.call(container.querySelectorAll('h2, h3, h4'));
         if (heads.length < 2) return;
         var reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+        var cfg = document.getElementById('pk-headings-config');
         var nav = document.createElement('nav');
         nav.className = 'pk-heading-rail';
-        nav.setAttribute('aria-label', 'On this page');
+        nav.setAttribute('aria-label', (cfg && cfg.getAttribute('data-label')) || 'On this page');
         var items = {}, ids = [];
         heads.forEach(function (h) {
           if (!h.id) { var base = slugify(h.textContent), s = base, i = 1; while (document.getElementById(s)) { s = base + '-' + (i++); } h.id = s; }
@@ -317,9 +319,22 @@ defmodule PhoenixKit.Modules.Publishing.Web.HTML do
   attr :granularity, :string, default: "auto"
 
   def scroll_timeline(assigns) do
+    # The rail is built client-side, so its month labels + aria-label ride the
+    # config element — otherwise they'd be hardcoded English inside the static
+    # JS string on otherwise fully-localized public pages.
+    assigns =
+      assign(assigns, :months_json, Jason.encode!(translated_abbreviated_month_names()))
+
     ~H"""
     <%= if @enabled do %>
-      <div id="pk-timeline-config" data-granularity={@granularity} hidden></div>
+      <div
+        id="pk-timeline-config"
+        data-granularity={@granularity}
+        data-months={@months_json}
+        data-label={gettext("Jump to date")}
+        hidden
+      >
+      </div>
       {Phoenix.HTML.raw(scroll_timeline_assets())}
     <% end %>
     """
@@ -388,6 +403,10 @@ defmodule PhoenixKit.Modules.Publishing.Web.HTML do
       function init() {
         var cfg = document.getElementById('pk-timeline-config');
         var gran = (cfg && cfg.getAttribute('data-granularity')) || 'year';
+        try {
+          var m = cfg && JSON.parse(cfg.getAttribute('data-months') || 'null');
+          if (m && m.length === 12) MONTHS = m;
+        } catch (err) {}
         var container = document.querySelector('.group-index-container');
         if (!container) return;
         var cards = Array.prototype.slice.call(container.querySelectorAll('[data-post-date]'));
@@ -400,7 +419,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.HTML do
         var reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
         var nav = document.createElement('nav');
         nav.className = 'pk-timeline-rail' + (keys.length > 24 ? ' pk-timeline-rail--dense' : '');
-        nav.setAttribute('aria-label', 'Jump to date');
+        nav.setAttribute('aria-label', (cfg && cfg.getAttribute('data-label')) || 'Jump to date');
         var items = {};
         keys.forEach(function (k) {
           var c = firstOf[k]; if (!c.id) c.id = 'pk-t-' + k.replace(/[^0-9]/g, '');
@@ -526,9 +545,9 @@ defmodule PhoenixKit.Modules.Publishing.Web.HTML do
       <div class="groups-overview-container max-w-6xl mx-auto px-6 py-8">
         <%!-- Page Header --%>
         <header class="mb-8">
-          <h1 class="text-2xl sm:text-4xl font-bold mb-2">Publishing</h1>
+          <h1 class="text-2xl sm:text-4xl font-bold mb-2">{gettext("Publishing")}</h1>
           <p class="text-base sm:text-lg text-base-content/70">
-            Explore our published content
+            {gettext("Explore our published content")}
           </p>
         </header>
         <%!-- Group Cards --%>
@@ -542,7 +561,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.HTML do
                       navigate={group_listing_path(@current_language, group["slug"])}
                       class="hover:text-primary"
                     >
-                      {group["name"]}
+                      {Publishing.translated_group_name(group, @current_language)}
                     </.link>
                   </h2>
 
@@ -674,74 +693,14 @@ defmodule PhoenixKit.Modules.Publishing.Web.HTML do
                 do: "grid gap-6 md:grid-cols-2",
                 else: "flex flex-col gap-6"
             }>
-              <%= for post <- featured_posts do %>
-                <article class={[
-                  "card bg-base-200 shadow-lg ring-1 ring-primary/20 hover:shadow-xl transition-shadow overflow-hidden",
-                  featured_layout != "card" && "lg:card-side"
-                ]}>
-                  <%= if img = featured_image_url(post, "large") do %>
-                    <figure class={
-                      if featured_layout == "card",
-                        do: "h-52 w-full overflow-hidden bg-base-300",
-                        else: "lg:w-2/5 h-56 lg:h-auto overflow-hidden bg-base-300"
-                    }>
-                      <img
-                        src={img}
-                        alt={post.metadata.title || gettext("Featured image")}
-                        class="h-full w-full object-cover"
-                        loading="lazy"
-                      />
-                    </figure>
-                  <% end %>
-                  <div class="card-body">
-                    <span class="badge badge-primary badge-sm w-fit gap-1">★ {gettext("Featured")}</span>
-                    <h3 class="card-title text-2xl">
-                      <.link
-                        navigate={
-                          build_post_url(@group["slug"], post, @current_language, date_counts)
-                        }
-                        class="hover:text-primary"
-                      >
-                        {post.metadata.title}
-                      </.link>
-                    </h3>
-
-                    <% featured_excerpt =
-                      if Map.get(post.metadata, :description) do
-                        post.metadata.description
-                      else
-                        extract_excerpt(post.content)
-                      end %>
-                    <%= if featured_excerpt && featured_excerpt != "" do %>
-                      <p class="text-base text-base-content/70 line-clamp-3">
-                        {featured_excerpt}
-                      </p>
-                    <% end %>
-
-                    <div class="card-actions justify-between items-center mt-4">
-                      <%= if has_publication_date?(post) do %>
-                        <time
-                          class="text-xs text-base-content/60"
-                          datetime={post.metadata.published_at || ""}
-                        >
-                          {format_post_date(post, @group["slug"], date_counts)}
-                        </time>
-                      <% else %>
-                        <span class="text-xs text-base-content/60"></span>
-                      <% end %>
-
-                      <.link
-                        navigate={
-                          build_post_url(@group["slug"], post, @current_language, date_counts)
-                        }
-                        class="btn btn-sm btn-primary"
-                      >
-                        {gettext("Read More →")}
-                      </.link>
-                    </div>
-                  </div>
-                </article>
-              <% end %>
+              <.listing_post_card
+                :for={post <- featured_posts}
+                post={post}
+                group_slug={@group["slug"]}
+                current_language={@current_language}
+                date_counts={date_counts}
+                variant={if featured_layout == "card", do: :featured_card, else: :featured_hero}
+              />
             </div>
           </section>
         <% end %>
@@ -749,65 +708,14 @@ defmodule PhoenixKit.Modules.Publishing.Web.HTML do
         <%!-- Posts Grid --%>
         <%= if @posts != [] do %>
           <div class="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-            <%= for post <- @posts do %>
-              <article
-                class="card bg-base-200 shadow-md hover:shadow-lg transition-shadow"
-                data-post-date={post.metadata.published_at || post.date}
-              >
-                <%= if featured_image_url = featured_image_url(post, "medium") do %>
-                  <figure class="h-40 w-full overflow-hidden rounded-t-2xl bg-base-300">
-                    <img
-                      src={featured_image_url}
-                      alt={post.metadata.title || gettext("Featured image")}
-                      class="h-full w-full object-cover"
-                      loading="lazy"
-                    />
-                  </figure>
-                <% end %>
-                <div class="card-body">
-                  <h2 class="card-title text-xl">
-                    <.link
-                      navigate={build_post_url(@group["slug"], post, @current_language, date_counts)}
-                      class="hover:text-primary"
-                    >
-                      {post.metadata.title}
-                    </.link>
-                  </h2>
-
-                  <% excerpt =
-                    if Map.get(post.metadata, :description) do
-                      post.metadata.description
-                    else
-                      extract_excerpt(post.content)
-                    end %>
-                  <%= if excerpt && excerpt != "" do %>
-                    <p class="text-sm text-base-content/70 line-clamp-3">
-                      {excerpt}
-                    </p>
-                  <% end %>
-
-                  <div class="card-actions justify-between items-center mt-4">
-                    <%= if has_publication_date?(post) do %>
-                      <time
-                        class="text-xs text-base-content/60"
-                        datetime={post.metadata.published_at || ""}
-                      >
-                        {format_post_date(post, @group["slug"], date_counts)}
-                      </time>
-                    <% else %>
-                      <span class="text-xs text-base-content/60"></span>
-                    <% end %>
-
-                    <.link
-                      navigate={build_post_url(@group["slug"], post, @current_language, date_counts)}
-                      class="btn btn-sm btn-primary"
-                    >
-                      {gettext("Read More →")}
-                    </.link>
-                  </div>
-                </div>
-              </article>
-            <% end %>
+            <.listing_post_card
+              :for={post <- @posts}
+              post={post}
+              group_slug={@group["slug"]}
+              current_language={@current_language}
+              date_counts={date_counts}
+              variant={:grid}
+            />
           </div>
           <%!-- Pagination --%>
           <%= if @total_pages > 1 do %>
@@ -873,6 +781,129 @@ defmodule PhoenixKit.Modules.Publishing.Web.HTML do
       </time>
     </div>
     """
+  end
+
+  # One card for every public-listing variant — the featured band (hero),
+  # featured-in-grid (card), and the regular grid share the same article shell;
+  # only sizing, badge, and heading level differ. All variants carry
+  # `data-post-date` so the timeline rail sees featured posts too.
+  attr :post, :map, required: true
+  attr :group_slug, :string, required: true
+  attr :current_language, :string, required: true
+  attr :date_counts, :map, required: true
+  attr :variant, :atom, required: true, values: [:featured_hero, :featured_card, :grid]
+
+  defp listing_post_card(assigns) do
+    featured? = assigns.variant != :grid
+
+    assigns =
+      assigns
+      |> assign(:featured?, featured?)
+      |> assign(
+        :img,
+        featured_image_url(assigns.post, if(featured?, do: "large", else: "medium"))
+      )
+      |> assign(:excerpt, post_card_excerpt(assigns.post))
+      |> assign(
+        :post_url,
+        build_post_url(
+          assigns.group_slug,
+          assigns.post,
+          assigns.current_language,
+          assigns.date_counts
+        )
+      )
+
+    ~H"""
+    <article
+      class={[
+        "card bg-base-200 transition-shadow",
+        @featured? && "shadow-lg ring-1 ring-primary/20 hover:shadow-xl overflow-hidden",
+        !@featured? && "shadow-md hover:shadow-lg",
+        @variant == :featured_hero && "lg:card-side"
+      ]}
+      data-post-date={effective_post_date(@post)}
+    >
+      <%= if @img do %>
+        <figure class={card_figure_class(@variant)}>
+          <img
+            src={@img}
+            alt={@post.metadata.title || gettext("Featured image")}
+            class="h-full w-full object-cover"
+            loading="lazy"
+          />
+        </figure>
+      <% end %>
+      <div class="card-body">
+        <span :if={@featured?} class="badge badge-primary badge-sm w-fit gap-1">
+          ★ {gettext("Featured")}
+        </span>
+        <h3 :if={@featured?} class="card-title text-2xl">
+          <.link navigate={@post_url} class="hover:text-primary">{@post.metadata.title}</.link>
+        </h3>
+        <h2 :if={!@featured?} class="card-title text-xl">
+          <.link navigate={@post_url} class="hover:text-primary">{@post.metadata.title}</.link>
+        </h2>
+
+        <%= if @excerpt && @excerpt != "" do %>
+          <p class={[
+            "text-base-content/70 line-clamp-3",
+            (@featured? && "text-base") || "text-sm"
+          ]}>
+            {@excerpt}
+          </p>
+        <% end %>
+
+        <div class="card-actions justify-between items-center mt-4">
+          <%= if has_publication_date?(@post) do %>
+            <time class="text-xs text-base-content/60" datetime={@post.metadata.published_at || ""}>
+              {format_post_date(@post, @group_slug, @date_counts)}
+            </time>
+          <% else %>
+            <span class="text-xs text-base-content/60"></span>
+          <% end %>
+
+          <.link navigate={@post_url} class="btn btn-sm btn-primary">
+            {gettext("Read More →")}
+          </.link>
+        </div>
+      </div>
+    </article>
+    """
+  end
+
+  defp card_figure_class(:grid), do: "h-40 w-full overflow-hidden rounded-t-2xl bg-base-300"
+  defp card_figure_class(:featured_card), do: "h-52 w-full overflow-hidden bg-base-300"
+
+  defp card_figure_class(:featured_hero),
+    do: "lg:w-2/5 h-56 lg:h-auto overflow-hidden bg-base-300"
+
+  # An explicit description wins; otherwise derive an excerpt from the content.
+  defp post_card_excerpt(post) do
+    if desc = Map.get(post.metadata, :description) do
+      desc
+    else
+      extract_excerpt(post.content)
+    end
+  end
+
+  # The date the timeline rail bins a card under — MUST match the effective
+  # publish date the listing sorts by (Listing.listing_sort_key/1): the
+  # post_date for timestamp-mode posts (metadata.published_at is the version's
+  # publish timestamp and can differ from the URL date), the version's
+  # published_at for slug-mode posts. Nil (attribute omitted) when the post has
+  # neither, so the rail skips the card.
+  defp effective_post_date(post) do
+    cond do
+      match?(%Date{}, post[:date]) ->
+        Date.to_iso8601(post.date)
+
+      is_binary(get_in(post, [:metadata, :published_at])) and post.metadata.published_at != "" ->
+        post.metadata.published_at
+
+      true ->
+        nil
+    end
   end
 
   def show(assigns) do
@@ -1367,7 +1398,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.HTML do
       |> length()
 
     minutes = max(1, ceil(words / 200))
-    gettext("%{count} min read", count: minutes)
+    ngettext("%{count} min read", "%{count} min read", minutes)
   end
 
   defp reading_time_label(_), do: ""
