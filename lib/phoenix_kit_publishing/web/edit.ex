@@ -6,7 +6,12 @@ defmodule PhoenixKit.Modules.Publishing.Web.Edit do
   use Gettext, backend: PhoenixKitPublishing.Gettext
 
   import PhoenixKitWeb.Components.MultilangForm,
-    only: [multilang_tabs: 1, mount_multilang: 1, handle_switch_language: 2]
+    only: [
+      multilang_tabs: 1,
+      multilang_fields_wrapper: 1,
+      mount_multilang: 1,
+      handle_switch_language: 2
+    ]
 
   require Logger
 
@@ -263,41 +268,56 @@ defmodule PhoenixKit.Modules.Publishing.Web.Edit do
                     to the primary name when blank. All inputs stay in the DOM
                     (only the active language's is visible) so switching tabs
                     never drops a typed translation. --%>
-              <div class="space-y-3">
+              <div>
                 <.multilang_tabs
                   :if={@show_multilang_tabs}
                   multilang_enabled={@multilang_enabled}
                   language_tabs={@language_tabs}
                   current_lang={@current_lang}
-                  show_header={false}
-                  class="mb-1"
+                  class="pb-3"
                 />
 
-                <div class={@multilang_enabled && @current_lang != @primary_language && "hidden"}>
-                  <.input
-                    field={@form[:name]}
-                    type="text"
-                    label={gettext("Group Name")}
-                    placeholder={gettext("e.g. Product Updates")}
-                  />
-                </div>
-
-                <div
-                  :for={tab <- secondary_language_tabs(@language_tabs)}
-                  class={@current_lang != tab.code && "hidden"}
+                <.multilang_fields_wrapper
+                  multilang_enabled={@multilang_enabled}
+                  current_lang={@current_lang}
                 >
-                  <.input
-                    id={"group_name_i18n_#{tab.code}"}
-                    name={"group[name_i18n][#{tab.code}]"}
-                    value={name_i18n_value(@form, tab.code)}
-                    type="text"
-                    label={gettext("Group Name (%{lang})", lang: tab.name)}
-                    placeholder={@form[:name].value}
-                  />
-                  <p class="text-xs text-base-content/60 mt-1">
-                    {gettext("Leave blank to use the primary-language name.")}
-                  </p>
-                </div>
+                  <:skeleton>
+                    <div class="space-y-2">
+                      <div class="bg-base-content/15 rounded h-4 w-24 animate-pulse"></div>
+                      <div class="bg-base-content/15 rounded h-12 w-full animate-pulse"></div>
+                    </div>
+                  </:skeleton>
+
+                  <%!-- The primary-language name is the required `name` column;
+                        other languages are optional overrides in data["name_i18n"].
+                        All inputs stay in the DOM (only the active language's is
+                        visible) so switching tabs never drops a typed value. --%>
+                  <div class={@multilang_enabled && @current_lang != @primary_language && "hidden"}>
+                    <.input
+                      field={@form[:name]}
+                      type="text"
+                      label={gettext("Group Name")}
+                      placeholder={gettext("e.g. Product Updates")}
+                    />
+                  </div>
+
+                  <div
+                    :for={tab <- secondary_language_tabs(@language_tabs)}
+                    class={@current_lang != tab.code && "hidden"}
+                  >
+                    <.input
+                      id={"group_name_i18n_#{tab.code}"}
+                      name={"group[name_i18n][#{tab.code}]"}
+                      value={name_i18n_value(@form, tab.code)}
+                      type="text"
+                      label={gettext("Group Name (%{lang})", lang: tab.name)}
+                      placeholder={@form[:name].value}
+                    />
+                    <p class="text-xs text-base-content/60 mt-1">
+                      {gettext("Leave blank to use the primary-language name.")}
+                    </p>
+                  </div>
+                </.multilang_fields_wrapper>
               </div>
 
               <div class="space-y-2">
