@@ -12,6 +12,7 @@ defmodule PhoenixKit.Modules.Publishing.Groups do
   alias PhoenixKit.Modules.Publishing.ActivityLog
   alias PhoenixKit.Modules.Publishing.DBStorage
   alias PhoenixKit.Modules.Publishing.ListingCache
+  alias PhoenixKit.Modules.Publishing.PublishingGroup
   alias PhoenixKit.Modules.Publishing.PubSub, as: PublishingPubSub
   alias PhoenixKit.Modules.Publishing.Shared
   alias PhoenixKit.Modules.Publishing.StaleFixer
@@ -22,6 +23,18 @@ defmodule PhoenixKit.Modules.Publishing.Groups do
   @default_group_type Constants.default_type()
   @preset_types Constants.preset_types()
   @valid_types Constants.valid_types()
+  @default_featured_layout Constants.default_featured_layout()
+  @featured_layouts Constants.featured_layouts()
+  @default_scrollbar_style Constants.default_scrollbar_style()
+  @scrollbar_styles Constants.scrollbar_styles()
+  @default_listing_sort Constants.default_listing_sort()
+  @listing_sorts Constants.listing_sorts()
+  @default_timeline_granularity Constants.default_timeline_granularity()
+  @timeline_granularities Constants.timeline_granularities()
+  @default_post_date_position Constants.default_post_date_position()
+  @post_date_positions Constants.post_date_positions()
+  @default_post_width Constants.default_post_width()
+  @post_widths Constants.post_widths()
   @type_regex ~r/^[a-z][a-z0-9-]{0,31}$/
 
   @type_item_names %{
@@ -225,7 +238,11 @@ defmodule PhoenixKit.Modules.Publishing.Groups do
         with {:ok, name} <- extract_and_validate_name(db_group, params),
              {:ok, sanitized_slug} <- extract_and_validate_slug(db_group, params, name),
              {:ok, updated} <-
-               DBStorage.update_group(db_group, %{name: name, slug: sanitized_slug}) do
+               DBStorage.update_group(db_group, %{
+                 name: name,
+                 slug: sanitized_slug,
+                 data: merge_group_config(db_group.data, params)
+               }) do
           # A slug rename orphans the old slug's listing cache entry — it leaks in
           # :persistent_term and keeps serving stale data under the old key (L6).
           if db_group.slug != updated.slug, do: ListingCache.invalidate(db_group.slug)
@@ -264,6 +281,109 @@ defmodule PhoenixKit.Modules.Publishing.Groups do
   # noticed via FunctionClauseError instead of a silent "error" tag.
   defp to_string_reason(reason) when is_atom(reason), do: Atom.to_string(reason)
   defp to_string_reason(%Ecto.Changeset{}), do: "changeset_error"
+
+  # The full set of per-group display settings `update_group/3` persists into
+  # the group's `data` JSONB. `GroupSettings.schema/0` mirrors this list as a
+  # machine-readable spec; the key-parity test in group_settings_test.exs
+  # asserts the two can't drift (it compares against `config_setting_keys/0`,
+  # not a hand-maintained copy).
+  @bool_setting_keys ~w(featured_enabled scroll_progress_enabled scroll_headings_enabled
+                        scroll_timeline_enabled show_breadcrumbs show_featured_image
+                        show_reading_time show_tags show_post_count)
+  @enum_settings [
+    {"featured_layout", @featured_layouts},
+    {"scrollbar_style", @scrollbar_styles},
+    {"scroll_timeline_granularity", @timeline_granularities},
+    {"listing_sort", @listing_sorts},
+    {"post_date_position", @post_date_positions},
+    {"post_width", @post_widths}
+  ]
+
+  @doc false
+  # Source of truth for the settings keys `merge_group_config/2` persists —
+  # exposed (undocumented) so the GroupSettings spec test can assert parity
+  # against the real write path instead of a hardcoded list.
+  def config_setting_keys do
+    @bool_setting_keys ++ Enum.map(@enum_settings, &elem(&1, 0))
+  end
+
+  # Merges the per-group display settings from the edit form (or a programmatic
+  # caller) into the group's existing `data` JSONB. Only keys the caller
+  # actually submitted are touched, so a caller that updates just name/slug (or
+  # a keyword-list caller) leaves config untouched. An unknown enum value is
+  # ignored rather than persisted, keeping the column to the whitelist.
+  # `existing_data` is never nil — the schema types `data: map()` (default
+  # `%{}`) and every PublishingGroup accessor already relies on that.
+  defp merge_group_config(existing_data, params) when is_map(params) do
+    data =
+      Enum.reduce(@bool_setting_keys, existing_data, fn key, acc ->
+        merge_bool_key(acc, params, key)
+      end)
+
+    data =
+      Enum.reduce(@enum_settings, data, fn {key, allowed}, acc ->
+        merge_enum_key(acc, params, key, allowed)
+      end)
+
+    merge_name_i18n(data, params)
+  end
+
+  defp merge_group_config(existing_data, _params), do: existing_data
+
+  # Per-language display-name overrides arrive as a `%{lang => name}` map (form
+  # inputs named `group[name_i18n][<lang>]`). Store the non-blank set wholesale;
+  # an all-blank submission clears the key. Only touched when submitted, so
+  # callers that don't edit the name (or keyword-list callers) leave it intact.
+  # Entries with a non-binary value (e.g. a nested map from crafted params or a
+  # programmatic caller) are dropped rather than raising, and each override is
+  # capped to the same max length the primary `name` column enforces.
+  defp merge_name_i18n(data, params) do
+    case Map.fetch(params, "name_i18n") do
+      {:ok, translations} when is_map(translations) ->
+        cleaned =
+          translations
+          |> Enum.flat_map(&clean_name_i18n_entry/1)
+          |> Map.new()
+
+        if cleaned == %{},
+          do: Map.delete(data, "name_i18n"),
+          else: Map.put(data, "name_i18n", cleaned)
+
+      _ ->
+        data
+    end
+  end
+
+  defp clean_name_i18n_entry({lang, value})
+       when (is_binary(lang) or is_atom(lang)) and is_binary(value) do
+    case value |> String.trim() |> String.slice(0, Constants.max_group_name_length()) do
+      "" -> []
+      trimmed -> [{to_string(lang), trimmed}]
+    end
+  end
+
+  defp clean_name_i18n_entry(_other), do: []
+
+  # Only touch a key the form actually submitted, so a caller that updates just
+  # name/slug (or a keyword-list caller) leaves config untouched.
+  defp merge_bool_key(data, params, key) do
+    case Map.fetch(params, key) do
+      {:ok, value} -> Map.put(data, key, config_flag_to_bool(value))
+      :error -> data
+    end
+  end
+
+  # An unknown enum value is ignored rather than persisted, keeping the column
+  # to the whitelist.
+  defp merge_enum_key(data, params, key, allowed) do
+    case Map.fetch(params, key) do
+      {:ok, value} -> if value in allowed, do: Map.put(data, key, value), else: data
+      :error -> data
+    end
+  end
+
+  defp config_flag_to_bool(value) when value in [true, "true", "on"], do: true
+  defp config_flag_to_bool(_value), do: false
 
   @doc """
   Moves a publishing group to trash (soft-delete).
@@ -546,8 +666,44 @@ defmodule PhoenixKit.Modules.Publishing.Groups do
       "status" => status || "active",
       "type" => Map.get(data, "type", @default_group_type),
       "item_singular" => Map.get(data, "item_singular", @default_item_singular),
-      "item_plural" => Map.get(data, "item_plural", @default_item_plural)
+      "item_plural" => Map.get(data, "item_plural", @default_item_plural),
+      "featured_enabled" => Map.get(data, "featured_enabled", true),
+      "featured_layout" => Map.get(data, "featured_layout", @default_featured_layout),
+      "scrollbar_style" => Map.get(data, "scrollbar_style", @default_scrollbar_style),
+      "scroll_progress_enabled" => Map.get(data, "scroll_progress_enabled", false),
+      "scroll_headings_enabled" => Map.get(data, "scroll_headings_enabled", false),
+      "scroll_timeline_enabled" => Map.get(data, "scroll_timeline_enabled", false),
+      "scroll_timeline_granularity" =>
+        Map.get(data, "scroll_timeline_granularity", @default_timeline_granularity),
+      "listing_sort" => Map.get(data, "listing_sort", @default_listing_sort),
+      "show_breadcrumbs" => Map.get(data, "show_breadcrumbs", false),
+      "post_date_position" => Map.get(data, "post_date_position", @default_post_date_position),
+      "post_width" => Map.get(data, "post_width", @default_post_width),
+      "show_featured_image" => Map.get(data, "show_featured_image", false),
+      "show_reading_time" => Map.get(data, "show_reading_time", false),
+      "show_tags" => Map.get(data, "show_tags", false),
+      "show_post_count" => Map.get(data, "show_post_count", false),
+      "name_i18n" => name_i18n_map(data)
     }
+  end
+
+  defp name_i18n_map(data) do
+    case Map.get(data, "name_i18n") do
+      map when is_map(map) -> map
+      _ -> %{}
+    end
+  end
+
+  @doc """
+  Resolves a group's display name in `lang` from a group MAP (the public-side
+  shape produced by `db_group_to_map/1`), falling back to the primary-language
+  `"name"` when there's no translation. Mirrors
+  `PublishingGroup.translated_name/2` for the struct.
+  """
+  @spec translated_group_name(map(), String.t() | nil) :: String.t() | nil
+  def translated_group_name(group, lang) when is_map(group) do
+    translations = name_i18n_map(group)
+    PublishingGroup.resolve_name_translation(translations, lang) || group["name"]
   end
 
   defp derive_requested_slug(nil, fallback_name) do

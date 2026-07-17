@@ -69,6 +69,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor.Persistence do
         "published_at",
         "slug",
         "featured_image_uuid",
+        "featured",
         "url_slug",
         "title",
         "og_title",

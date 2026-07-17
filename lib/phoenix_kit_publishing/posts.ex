@@ -1300,6 +1300,7 @@ defmodule PhoenixKit.Modules.Publishing.Posts do
       |> maybe_put_version_field("seo_title", Map.get(params, "seo_title"))
       |> maybe_put_version_field("tags", Map.get(params, "tags"))
       |> maybe_put_version_field("excerpt", Map.get(params, "excerpt"))
+      |> maybe_put_version_field("featured", normalize_featured(Map.get(params, "featured")))
 
     # Also update version-level status and published_at if provided.
     # "published" is NEVER written here — it is set atomically with
@@ -1320,6 +1321,15 @@ defmodule PhoenixKit.Modules.Publishing.Posts do
 
   defp maybe_put_version_field(data, _key, nil), do: data
   defp maybe_put_version_field(data, key, value), do: Map.put(data, key, value)
+
+  # Normalizes the editor's "featured" checkbox into a boolean for version.data.
+  # `nil` (key absent) is preserved so a save that doesn't carry the field leaves
+  # the existing flag untouched; the editor always submits "true"/"false", so an
+  # explicit uncheck writes `false` (maybe_put_version_field only skips nil).
+  defp normalize_featured(nil), do: nil
+  defp normalize_featured(value) when value in [true, "true", "on"], do: true
+  defp normalize_featured(value) when value in [false, "false", "off", ""], do: false
+  defp normalize_featured(_value), do: nil
 
   # Drop a "published" status so it is never written outside publish_version/4's
   # atomic transaction (see update_version_defaults/4). draft/archived/nil pass

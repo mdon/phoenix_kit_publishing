@@ -410,6 +410,77 @@ Add new error atoms by extending `@type error_atom`, the doctest example, and ad
 | `publishing_show_language_switcher` | `true` | Render the in-page language switcher on listing + post pages. Disable when the host layout already provides one (see "Language switcher integration" below) |
 | `publishing_render_og_tags` | `true` | Render OpenGraph + Twitter Card meta tags **in-page** (inside the public body) so social previews work even when the host root layout doesn't render the forwarded `:og` assign in `<head>`. Disable when the host renders `:og` in `<head>` itself, to avoid duplicate tags (see "OpenGraph metadata" below) |
 
+### Per-group display settings (group `data` JSONB)
+
+Distinct from the site-wide keys above: each group carries ~15 display settings
+in its `data` JSONB (scrollbar style, featured posts, scroll rails, post width,
+reading time, tags, post count, etc.), edited on
+`/admin/publishing/edit-group/:slug` and applied via
+`Publishing.update_group(slug, params, opts)`. All default off/neutral, so a
+fresh group's public pages look unchanged until an admin opts in — with two
+nuances: `featured_enabled` defaults **true** (inert until a post is actually
+flagged featured in the editor, so still visually neutral), and the
+breadcrumbs + post-count elements used to render unconditionally pre-settings,
+so groups that had them now need `show_breadcrumbs` / `show_post_count` turned
+on (a deliberate default-off migration, not a regression).
+
+Two write-path behaviors to know: `update_group/3` is **lenient** (an
+out-of-whitelist enum value is ignored, a non-truthy bool becomes `false` — the
+admin-form path can't fail on settings), while `validate_group_settings/1` is
+**strict** (returns per-key errors) — programmatic callers should validate
+first if they want feedback. `name_i18n` overrides are hardened at merge:
+non-binary values (nested maps from crafted params) are dropped, and each
+override is capped to `Constants.max_group_name_length()`.
+
+**Host contract for the scroll aids** (scrollbar restyle, reading-progress
+bar, heading rail, timeline rail): they ship as self-contained inline
+`<style>`/`<script>` blocks in the public templates (dead views — full page
+loads, no LiveView). Two consequences: (1) a host with a strict CSP (no
+`'unsafe-inline'`) silently loses them — the pages still render fine without
+them; (2) the scroll math reads `document.documentElement` / `window.scrollY`,
+so the **window must be the scroll owner** — a host app-shell that scrolls an
+inner `overflow-y-auto` container instead of the body disables the aids
+(progress bar never fills, rails hide/stall). The rails' month labels +
+aria-labels localize via `data-months`/`data-label` on the hidden config
+elements (`#pk-timeline-config`, `#pk-headings-config`) — the JS falls back to
+English when absent. The timeline rail bins cards by `data-post-date`, which
+carries the same *effective* publish date the listing sorts by
+(`effective_post_date/1` in `web/html.ex` mirrors `Listing.listing_sort_key/1`
+— don't let the two drift). Known limit: the listing (and so `oldest` sort)
+runs over the listing cache, which caps at the most recent 5,000 posts.
+
+`PhoenixKit.Modules.Publishing.GroupSettings` is the **machine-readable spec**
+of those settings — for AI/agent/MCP/script-driven configuration without the UI:
+
+- `Publishing.group_settings_schema/0` — list of `%{key, type, allowed, default, scope, label, description, depends_on}` (values/defaults derived from `Constants`, so it can't drift from what `update_group/3` accepts).
+- `Publishing.group_settings_defaults/0` / `group_settings_keys/0`.
+- `Publishing.validate_group_settings/1` — casts/validates a proposed params map, returning `{:ok, normalized}` (booleans + enums coerced, unknown keys like `name`/`slug` passed through) or `{:error, [%{key:, reason:}]}`. Feed the `:ok` result straight to `update_group/3`.
+
+The accessor + default source of truth for each setting is the `PublishingGroup`
+schema moduledoc; add a new setting in `Constants` → `publishing_group.ex`
+accessor → `groups.ex` (`merge_group_config` + `db_group_to_map`) → `edit.ex`
+form → `group_settings.ex` spec (its test asserts the key set matches
+`merge_group_config`).
+
+### Translatable group name
+
+The group's **display name** is translatable per language via the core
+`PhoenixKitWeb.Components.MultilangForm` tabs on the edit page. The
+primary-language name stays in the `name` column; per-language overrides live in
+an isolated `data["name_i18n"]` map (`%{lang => name}`) — NOT the multilang
+helper's `data`-owning convention, which would clobber the settings above. The
+**slug is intentionally not translated** (single canonical URL). Public pages
+resolve the name via `Publishing.translated_group_name(group_map, lang)` /
+`PublishingGroup.translated_name/2`, which is base-language tolerant (the form
+stores the full code `fr-FR`, the public side asks by the short code `fr`).
+Every public surface that shows a group name resolves through it: the listing
+h1 / page title / OG title / breadcrumb, the post page's breadcrumb + "Back
+to …" footer (via `PostRendering.fetch_group/1` + `resolve_group_name/3` — the
+same fetched group map also feeds the controller's
+`assign_group_display_config/2`, one fetch per request), and the all-groups
+overview cards. Admin surfaces intentionally show the canonical primary-language
+name. `display_settings_render_test.exs` pins the reach.
+
 ## Language switcher integration
 
 Publishing renders an in-page language switcher on group-listing and post pages by default. Most host apps already have one in their header, in which case the in-page switcher is duplicate UI. Three integration points:

@@ -96,6 +96,90 @@ defmodule PhoenixKit.Modules.Publishing.SchemaTest do
       assert PublishingGroup.likes_enabled?(group) == true
       assert PublishingGroup.views_enabled?(group) == true
     end
+
+    test "public-side display accessors return defaults" do
+      group = %PublishingGroup{data: %{}}
+
+      assert PublishingGroup.featured_enabled?(group) == true
+      assert PublishingGroup.featured_layout(group) == "hero"
+      assert PublishingGroup.scrollbar_style(group) == "default"
+      assert PublishingGroup.scroll_progress_enabled?(group) == false
+      assert PublishingGroup.scroll_headings_enabled?(group) == false
+      assert PublishingGroup.scroll_timeline_enabled?(group) == false
+      assert PublishingGroup.scroll_timeline_granularity(group) == "auto"
+      assert PublishingGroup.listing_sort(group) == "newest"
+      assert PublishingGroup.show_breadcrumbs?(group) == false
+      assert PublishingGroup.post_date_position(group) == "below"
+      assert PublishingGroup.post_width(group) == "normal"
+      assert PublishingGroup.show_featured_image?(group) == false
+      assert PublishingGroup.show_reading_time?(group) == false
+      assert PublishingGroup.show_tags?(group) == false
+      assert PublishingGroup.show_post_count?(group) == false
+    end
+
+    test "public-side display accessors return custom values" do
+      group = %PublishingGroup{
+        data: %{
+          "featured_enabled" => false,
+          "featured_layout" => "card",
+          "scrollbar_style" => "branded",
+          "scroll_progress_enabled" => true,
+          "scroll_headings_enabled" => true,
+          "scroll_timeline_enabled" => true,
+          "scroll_timeline_granularity" => "month",
+          "listing_sort" => "oldest",
+          "show_breadcrumbs" => true,
+          "post_date_position" => "above",
+          "post_width" => "wide",
+          "show_featured_image" => true,
+          "show_reading_time" => true,
+          "show_tags" => true,
+          "show_post_count" => true
+        }
+      }
+
+      assert PublishingGroup.featured_enabled?(group) == false
+      assert PublishingGroup.featured_layout(group) == "card"
+      assert PublishingGroup.scrollbar_style(group) == "branded"
+      assert PublishingGroup.scroll_progress_enabled?(group) == true
+      assert PublishingGroup.scroll_headings_enabled?(group) == true
+      assert PublishingGroup.scroll_timeline_enabled?(group) == true
+      assert PublishingGroup.scroll_timeline_granularity(group) == "month"
+      assert PublishingGroup.listing_sort(group) == "oldest"
+      assert PublishingGroup.show_breadcrumbs?(group) == true
+      assert PublishingGroup.post_date_position(group) == "above"
+      assert PublishingGroup.post_width(group) == "wide"
+      assert PublishingGroup.show_featured_image?(group) == true
+      assert PublishingGroup.show_reading_time?(group) == true
+      assert PublishingGroup.show_tags?(group) == true
+      assert PublishingGroup.show_post_count?(group) == true
+    end
+
+    test "translated_name/2 falls back to the primary name with no override" do
+      group = %PublishingGroup{name: "Blog", data: %{}}
+      assert PublishingGroup.translated_name(group, "fr") == "Blog"
+      assert PublishingGroup.translated_name(group, "en") == "Blog"
+    end
+
+    test "translated_name/2 returns a per-language override, base-tolerant" do
+      group = %PublishingGroup{name: "Blog", data: %{"name_i18n" => %{"fr-FR" => "Blogue"}}}
+
+      # exact full-code match, and short-code lookup (how the public side asks)
+      assert PublishingGroup.translated_name(group, "fr-FR") == "Blogue"
+      assert PublishingGroup.translated_name(group, "fr") == "Blogue"
+      # an unrelated language still falls back to the primary name
+      assert PublishingGroup.translated_name(group, "de") == "Blog"
+    end
+
+    test "translated_name/2 resolves when stored short but asked full" do
+      group = %PublishingGroup{name: "Blog", data: %{"name_i18n" => %{"fr" => "Blogue"}}}
+      assert PublishingGroup.translated_name(group, "fr-FR") == "Blogue"
+    end
+
+    test "translated_name/2 ignores blank overrides" do
+      group = %PublishingGroup{name: "Blog", data: %{"name_i18n" => %{"fr" => ""}}}
+      assert PublishingGroup.translated_name(group, "fr") == "Blog"
+    end
   end
 
   # ============================================================================

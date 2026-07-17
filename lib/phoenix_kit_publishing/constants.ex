@@ -68,6 +68,72 @@ defmodule PhoenixKit.Modules.Publishing.Constants do
   def valid_types, do: @valid_types
 
   # ---------------------------------------------------------------------------
+  # Featured posts (per-group public-listing config)
+  # ---------------------------------------------------------------------------
+
+  @featured_layouts ["hero", "card"]
+  @default_featured_layout "hero"
+
+  @doc ~S|Valid featured-post layouts: "hero" (band above the grid) or "card" (larger card in the grid).|
+  def featured_layouts, do: @featured_layouts
+
+  @doc ~S|Default featured-post layout ("hero").|
+  def default_featured_layout, do: @default_featured_layout
+
+  # ---------------------------------------------------------------------------
+  # Scroll navigation (per-group public-side config)
+  # ---------------------------------------------------------------------------
+
+  @scrollbar_styles ["default", "branded", "thin"]
+  @default_scrollbar_style "default"
+
+  @doc ~S|Valid scrollbar styles: "default" (native, unstyled), "branded" (theme-colored), "thin" (theme-colored + thin).|
+  def scrollbar_styles, do: @scrollbar_styles
+
+  @doc ~S|Default scrollbar style ("default" — the browser's native bar, untouched).|
+  def default_scrollbar_style, do: @default_scrollbar_style
+
+  @timeline_granularities ["auto", "year", "month", "day"]
+  @default_timeline_granularity "auto"
+
+  @doc ~S|Valid date-timeline granularities: "auto" (fit to the posts' date span), "year", "month", or "day".|
+  def timeline_granularities, do: @timeline_granularities
+
+  @doc ~S|Default date-timeline granularity ("auto").|
+  def default_timeline_granularity, do: @default_timeline_granularity
+
+  # ---------------------------------------------------------------------------
+  # Listing sort order (per-group public-listing config)
+  # ---------------------------------------------------------------------------
+
+  @listing_sorts ["newest", "oldest"]
+  @default_listing_sort "newest"
+
+  @doc ~S|Valid public-listing sort orders: "newest" or "oldest", by effective publish date.|
+  def listing_sorts, do: @listing_sorts
+
+  @doc ~S|Default public-listing sort order ("newest" first).|
+  def default_listing_sort, do: @default_listing_sort
+
+  @post_date_positions ["above", "below", "hidden"]
+  @default_post_date_position "below"
+
+  @doc ~S|Valid post-date positions relative to the title: "above", "below", or "hidden".|
+  def post_date_positions, do: @post_date_positions
+
+  @doc ~S|Default post-date position ("below" the title).|
+  def default_post_date_position, do: @default_post_date_position
+
+  @post_widths ["narrow", "normal", "wide"]
+  @default_post_width "normal"
+
+  @doc ~S|Valid post-page content widths: "narrow", "normal", or "wide".|
+  def post_widths, do: @post_widths
+
+  @doc ~S|Default post-page content width ("normal").|
+  def default_post_width, do: @default_post_width
+
+  # ---------------------------------------------------------------------------
   # Defaults
   # ---------------------------------------------------------------------------
 
