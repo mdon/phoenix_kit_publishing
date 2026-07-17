@@ -5,7 +5,8 @@ defmodule PhoenixKit.Modules.Publishing.Web.Edit do
   use PhoenixKitWeb, :live_view
   use Gettext, backend: PhoenixKitPublishing.Gettext
 
-  import PhoenixKitWeb.Components.MultilangForm, only: [multilang_tabs: 1, mount_multilang: 1]
+  import PhoenixKitWeb.Components.MultilangForm,
+    only: [multilang_tabs: 1, mount_multilang: 1, handle_switch_language: 2]
 
   require Logger
 
@@ -49,6 +50,13 @@ defmodule PhoenixKit.Modules.Publishing.Web.Edit do
   @impl true
   def handle_event("validate", %{"group" => params}, socket) do
     {:noreply, assign(socket, :form, Component.to_form(params, as: :group))}
+  end
+
+  # Language tab switch from <.multilang_tabs>. handle_switch_language/2 debounces
+  # and, via the hook mount_multilang/1 attached, flips :current_lang — which
+  # re-renders the name inputs so the active language's field is shown.
+  def handle_event("switch_language", %{"lang" => lang_code}, socket) do
+    {:noreply, handle_switch_language(socket, lang_code)}
   end
 
   def handle_event("save", %{"group" => params}, socket) do
@@ -255,14 +263,14 @@ defmodule PhoenixKit.Modules.Publishing.Web.Edit do
                     to the primary name when blank. All inputs stay in the DOM
                     (only the active language's is visible) so switching tabs
                     never drops a typed translation. --%>
-              <div>
+              <div class="space-y-3">
                 <.multilang_tabs
                   :if={@show_multilang_tabs}
                   multilang_enabled={@multilang_enabled}
                   language_tabs={@language_tabs}
                   current_lang={@current_lang}
                   show_header={false}
-                  class=""
+                  class="mb-1"
                 />
 
                 <div class={@multilang_enabled && @current_lang != @primary_language && "hidden"}>
@@ -286,6 +294,9 @@ defmodule PhoenixKit.Modules.Publishing.Web.Edit do
                     label={gettext("Group Name (%{lang})", lang: tab.name)}
                     placeholder={@form[:name].value}
                   />
+                  <p class="text-xs text-base-content/60 mt-1">
+                    {gettext("Leave blank to use the primary-language name.")}
+                  </p>
                 </div>
               </div>
 
