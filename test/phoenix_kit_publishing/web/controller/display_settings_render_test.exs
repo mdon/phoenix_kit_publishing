@@ -195,6 +195,42 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller.DisplaySettingsRenderTest
     end
   end
 
+  describe "listing: group-wide date counts with a pinned Latest post" do
+    test "a page-2 same-day sibling of the pinned newest post keeps its time-segment URL", %{
+      conn: conn
+    } do
+      {:ok, group} = Groups.add_group(unique_name(), mode: "timestamp")
+      slug = group["slug"]
+
+      make = fn title, iso ->
+        {:ok, p} = Posts.create_post(slug, %{title: title, content: "Body."})
+        :ok = Versions.publish_version(slug, p.uuid, 1)
+        {:ok, _} = Posts.update_post(slug, p, %{"published_at" => iso}, %{})
+      end
+
+      make.("Newest Pin", "2020-06-01T10:00:00Z")
+      make.("Mid Same Day", "2020-06-01T09:00:00Z")
+      make.("Sibling Same Day", "2020-06-01T08:00:00Z")
+
+      prior_per_page = Settings.get_setting("publishing_posts_per_page")
+      {:ok, _} = Settings.update_setting("publishing_posts_per_page", "1")
+
+      on_exit(fn ->
+        {:ok, _} = Settings.update_setting("publishing_posts_per_page", prior_per_page || "20")
+      end)
+
+      set!(slug, %{"newest_enabled" => "true"})
+
+      html = get(conn, "/#{slug}", %{"page" => "2"}) |> html_response(200)
+      # Page 2 shows only the oldest same-day post; the pinned newest and the
+      # page-1 post are outside the visible set, but the group-wide date counts
+      # must still see all three 2020-06-01 posts and keep the time segment
+      # that disambiguates the URL (regression pin for per-page date_counts).
+      assert html =~ "Sibling Same Day"
+      assert html =~ "2020-06-01/08:00"
+    end
+  end
+
   describe "listing: listing_sort" do
     test "newest first by default, oldest first when configured", %{
       conn: conn,

@@ -244,6 +244,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller do
         |> assign(:featured_layout, assigns.featured_layout)
         |> assign(:newest_posts, assigns.newest_posts)
         |> assign(:newest_layout, assigns.newest_layout)
+        |> assign(:date_counts, assigns.date_counts)
         |> assign(:current_language, assigns.current_language)
         |> assign_publishing_render_context(assigns.translations)
         |> assign(:page, assigns.page)

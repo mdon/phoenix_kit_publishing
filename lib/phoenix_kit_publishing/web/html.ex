@@ -684,7 +684,10 @@ defmodule PhoenixKit.Modules.Publishing.Web.HTML do
         <% newest_posts = assigns[:newest_posts] || [] %>
         <% newest_layout = assigns[:newest_layout] || "hero" %>
         <% image_links = (assigns[:group] && @group["listing_image_links"]) != false %>
-        <% date_counts = build_date_counts(featured_posts ++ newest_posts ++ @posts) %>
+        <%!-- Prefer the controller's group-wide counts (all pages + pinned
+          bands); the visible-set fallback covers direct template renders. --%>
+        <% date_counts =
+          assigns[:date_counts] || build_date_counts(featured_posts ++ newest_posts ++ @posts) %>
         <%!-- Featured posts — pinned above the grid on page 1, excluded from it. --%>
         <%= if featured_posts != [] do %>
           <section class="mb-10">
@@ -866,7 +869,10 @@ defmodule PhoenixKit.Modules.Publishing.Web.HTML do
       <%= if @img do %>
         <figure class={card_figure_class(@variant)}>
           <%= if @image_links do %>
-            <.link navigate={@post_url} class="block h-full w-full" tabindex="-1">
+            <%!-- aria-hidden + tabindex=-1: the title link right below is the
+              accessible route to the same destination — screen readers and the
+              tab order shouldn't hit it twice. --%>
+            <.link navigate={@post_url} class="block h-full w-full" tabindex="-1" aria-hidden="true">
               <img
                 src={@img}
                 alt={@post.metadata.title || gettext("Featured image")}
