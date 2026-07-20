@@ -139,11 +139,14 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller.Listing do
     all_posts = sort_listing(all_posts, Map.get(ctx.group, "listing_sort", "newest"))
     featured_enabled = Map.get(ctx.group, "featured_enabled", true)
     {featured_posts, grid_posts} = partition_featured(all_posts, featured_enabled)
+    newest_enabled = Map.get(ctx.group, "newest_enabled", false)
+    {newest_posts, grid_posts} = split_newest(grid_posts, newest_enabled)
 
-    # Pagination runs over the grid (non-featured) posts only. Featured posts are
-    # pinned into their own section shown on page 1 and excluded from the grid, so
-    # they never appear twice. `total_count` stays the full published count for the
-    # header; `total_pages` is derived from the grid so the pager matches the grid.
+    # Pagination runs over the grid (non-featured, non-latest) posts only. Featured
+    # and latest posts are pinned into their own sections shown on page 1 and
+    # excluded from the grid, so they never appear twice. `total_count` stays the
+    # full published count for the header; `total_pages` is derived from the grid
+    # so the pager matches the grid.
     total_count = length(all_posts)
     grid_count = length(grid_posts)
     per_page = max(ctx.per_page, 1)
@@ -158,6 +161,11 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller.Listing do
     featured =
       if page <= 1,
         do: resolve_posts_for_language(featured_posts, ctx.canonical_language),
+        else: []
+
+    newest =
+      if page <= 1,
+        do: resolve_posts_for_language(newest_posts, ctx.canonical_language),
         else: []
 
     display_name =
@@ -179,6 +187,8 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller.Listing do
        posts: posts,
        featured_posts: featured,
        featured_layout: Map.get(ctx.group, "featured_layout", "hero"),
+       newest_posts: newest,
+       newest_layout: Map.get(ctx.group, "newest_layout", "hero"),
        current_language: ctx.canonical_language,
        translations: translations,
        page: page,
@@ -230,6 +240,19 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller.Listing do
       %{featured: true} -> true
       _ -> false
     end
+  end
+
+  # Pulls the chronologically newest post out of the grid for the "Latest"
+  # band. Picked by the same effective-date key the listing sorts by, so it is
+  # the newest post regardless of the group's listing_sort direction. Runs
+  # after partition_featured/2 — a featured newest post stays in the Featured
+  # band (more important) and Latest takes the next-newest.
+  defp split_newest(posts, false), do: {[], posts}
+  defp split_newest([], true), do: {[], []}
+
+  defp split_newest(posts, true) do
+    newest = Enum.max_by(posts, &listing_sort_key/1)
+    {[newest], List.delete(posts, newest)}
   end
 
   # ============================================================================

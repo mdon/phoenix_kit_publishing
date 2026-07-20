@@ -130,6 +130,71 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller.DisplaySettingsRenderTest
     end
   end
 
+  describe "listing: newest post band" do
+    test "off by default, Latest band pulls the newest post out of the grid", %{
+      conn: conn,
+      group_slug: slug
+    } do
+      {:ok, second} =
+        Posts.create_post(slug, %{
+          title: "Second Post",
+          slug: "second-post",
+          content: "Newer content."
+        })
+
+      :ok = Versions.publish_version(slug, second.uuid, 1)
+      {:ok, _} = Posts.update_post(slug, second, %{"published_at" => "2031-06-01T00:00:00Z"}, %{})
+
+      refute listing_html(conn, slug) =~ "badge-secondary badge-sm"
+
+      set!(slug, %{"newest_enabled" => "true"})
+      html = listing_html(conn, slug)
+      assert html =~ "badge-secondary badge-sm"
+      # The newest post renders once — in the Latest band, not also in the grid.
+      assert length(String.split(html, "Second Post")) - 1 == 1
+      # The older post stays in the grid.
+      assert html =~ "Display Post"
+    end
+
+    test "a featured newest post stays in the Featured band; Latest takes the next-newest", %{
+      conn: conn,
+      group_slug: slug
+    } do
+      {:ok, second} =
+        Posts.create_post(slug, %{
+          title: "Second Post",
+          slug: "second-post",
+          content: "Newer content."
+        })
+
+      :ok = Versions.publish_version(slug, second.uuid, 1)
+
+      {:ok, _} =
+        Posts.update_post(
+          slug,
+          second,
+          %{"published_at" => "2031-06-01T00:00:00Z", "featured" => "true"},
+          %{}
+        )
+
+      set!(slug, %{"newest_enabled" => "true"})
+      html = listing_html(conn, slug)
+
+      # Featured band (first) carries the newer post; Latest band the older one.
+      {latest_pos, _} = :binary.match(html, "badge-secondary badge-sm")
+      {featured_pos, _} = :binary.match(html, "badge-primary badge-sm")
+      assert featured_pos < latest_pos
+
+      {newer_pos, _} = :binary.match(html, "Second Post")
+      {older_pos, _} = :binary.match(html, "Display Post")
+
+      assert newer_pos < latest_pos,
+             "the featured newer post should render before the Latest band"
+
+      assert older_pos > latest_pos, "the older post should render inside the Latest band"
+    end
+  end
+
   describe "listing: listing_sort" do
     test "newest first by default, oldest first when configured", %{
       conn: conn,
@@ -165,6 +230,21 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller.DisplaySettingsRenderTest
   # ==========================================================================
   # Post page
   # ==========================================================================
+
+  describe "post page: show_top_back_link" do
+    test "renders top + footer back links by default, footer only when disabled", %{
+      conn: conn,
+      group_slug: slug,
+      post: post
+    } do
+      html = post_html(conn, slug, post.slug)
+      assert length(String.split(html, "Back to")) - 1 == 2
+
+      set!(slug, %{"show_top_back_link" => "false"})
+      html = post_html(conn, slug, post.slug)
+      assert length(String.split(html, "Back to")) - 1 == 1
+    end
+  end
 
   describe "post page: show_reading_time" do
     test "hidden by default, shown when enabled", %{conn: conn, group_slug: slug, post: post} do

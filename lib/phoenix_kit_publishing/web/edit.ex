@@ -157,6 +157,10 @@ defmodule PhoenixKit.Modules.Publishing.Web.Edit do
       "show_tags" => group["show_tags"],
       "featured_enabled" => group["featured_enabled"],
       "featured_layout" => group["featured_layout"],
+      "newest_enabled" => group["newest_enabled"],
+      "newest_layout" => group["newest_layout"],
+      "show_top_back_link" => group["show_top_back_link"],
+      "listing_image_links" => group["listing_image_links"],
       "scrollbar_style" => group["scrollbar_style"],
       "scroll_progress_enabled" => group["scroll_progress_enabled"],
       "scroll_headings_enabled" => group["scroll_headings_enabled"],
@@ -202,6 +206,10 @@ defmodule PhoenixKit.Modules.Publishing.Web.Edit do
       {gettext("Highlighted card — a larger card within the grid"), "card"}
     ]
   end
+
+  # Same vocabulary for the latest-post <select> — values must match
+  # Publishing.Constants.newest_layouts/0, which mirrors featured_layouts/0.
+  defp newest_layout_options, do: featured_layout_options()
 
   # Label/value pairs for the listing-sort <select>. Values must match
   # Publishing.Constants.listing_sorts/0.
@@ -410,6 +418,30 @@ defmodule PhoenixKit.Modules.Publishing.Web.Edit do
                   />
                 </div>
 
+                <.checkbox field={@form[:newest_enabled]}>
+                  {gettext("Highlight the latest post")}
+                  <:description>
+                    {gettext(
+                      "The most recent post is pinned into its own 'Latest' band under any featured posts and shown larger."
+                    )}
+                  </:description>
+                </.checkbox>
+
+                <div :if={checked?(@form[:newest_enabled].value)} class="pl-8">
+                  <.select
+                    field={@form[:newest_layout]}
+                    label={gettext("Latest layout")}
+                    options={newest_layout_options()}
+                  />
+                </div>
+
+                <.checkbox field={@form[:listing_image_links]}>
+                  {gettext("Clickable card images")}
+                  <:description>
+                    {gettext("A post card's image clicks through to the post, same as the title.")}
+                  </:description>
+                </.checkbox>
+
                 <.checkbox field={@form[:scroll_timeline_enabled]}>
                   {gettext("Show a date-timeline rail")}
                   <:description>
@@ -460,6 +492,16 @@ defmodule PhoenixKit.Modules.Publishing.Web.Edit do
                   {gettext("Show the featured image")}
                   <:description>
                     {gettext("A large hero image above the title.")}
+                  </:description>
+                </.checkbox>
+
+                <.checkbox field={@form[:show_top_back_link]}>
+                  {gettext("Show the top back link")}
+                  <:description>
+                    {gettext(
+                      "A subtle 'Back to %{group}' link above the post, mirroring the footer button.",
+                      group: @group["name"]
+                    )}
                   </:description>
                 </.checkbox>
 

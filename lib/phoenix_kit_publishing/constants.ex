@@ -81,6 +81,19 @@ defmodule PhoenixKit.Modules.Publishing.Constants do
   def default_featured_layout, do: @default_featured_layout
 
   # ---------------------------------------------------------------------------
+  # Latest post (per-group public-listing config)
+  # ---------------------------------------------------------------------------
+
+  @newest_layouts ["hero", "card"]
+  @default_newest_layout "hero"
+
+  @doc ~S|Valid latest-post layouts: "hero" (band above the grid) or "card" (larger card in the grid).|
+  def newest_layouts, do: @newest_layouts
+
+  @doc ~S|Default latest-post layout ("hero").|
+  def default_newest_layout, do: @default_newest_layout
+
+  # ---------------------------------------------------------------------------
   # Scroll navigation (per-group public-side config)
   # ---------------------------------------------------------------------------
 

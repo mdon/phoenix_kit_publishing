@@ -101,6 +101,39 @@ defmodule PhoenixKit.Modules.Publishing.GroupSettings do
         depends_on: "featured_enabled"
       },
       %{
+        key: "newest_enabled",
+        type: :boolean,
+        allowed: @boolean_allowed,
+        default: false,
+        scope: :listing,
+        label: "Highlight the latest post",
+        description:
+          "When true, the most recent post is pulled out of the grid into its own \"Latest\" band under any featured posts and shown larger.",
+        depends_on: nil
+      },
+      %{
+        key: "newest_layout",
+        type: :enum,
+        allowed: Constants.newest_layouts(),
+        default: Constants.default_newest_layout(),
+        scope: :listing,
+        label: "Latest layout",
+        description:
+          "How the latest post renders: \"hero\" (a band above the grid) or \"card\" (a larger card within the grid).",
+        depends_on: "newest_enabled"
+      },
+      %{
+        key: "listing_image_links",
+        type: :boolean,
+        allowed: @boolean_allowed,
+        default: true,
+        scope: :listing,
+        label: "Clickable card images",
+        description:
+          "When true (the default), a post card's image clicks through to the post, same as the title.",
+        depends_on: nil
+      },
+      %{
         key: "scroll_timeline_enabled",
         type: :boolean,
         allowed: @boolean_allowed,
@@ -164,6 +197,17 @@ defmodule PhoenixKit.Modules.Publishing.GroupSettings do
         scope: :post,
         label: "Featured image",
         description: "Show the post's featured image as a hero at the top of the post page.",
+        depends_on: nil
+      },
+      %{
+        key: "show_top_back_link",
+        type: :boolean,
+        allowed: @boolean_allowed,
+        default: true,
+        scope: :post,
+        label: "Top back link",
+        description:
+          "Show the subtle \"Back to <group>\" link at the top of the post page, mirroring the footer button (default on).",
         depends_on: nil
       },
       %{

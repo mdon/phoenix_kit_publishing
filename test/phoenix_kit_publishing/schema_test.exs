@@ -102,6 +102,8 @@ defmodule PhoenixKit.Modules.Publishing.SchemaTest do
 
       assert PublishingGroup.featured_enabled?(group) == true
       assert PublishingGroup.featured_layout(group) == "hero"
+      assert PublishingGroup.newest_enabled?(group) == false
+      assert PublishingGroup.newest_layout(group) == "hero"
       assert PublishingGroup.scrollbar_style(group) == "default"
       assert PublishingGroup.scroll_progress_enabled?(group) == false
       assert PublishingGroup.scroll_headings_enabled?(group) == false
@@ -115,6 +117,8 @@ defmodule PhoenixKit.Modules.Publishing.SchemaTest do
       assert PublishingGroup.show_reading_time?(group) == false
       assert PublishingGroup.show_tags?(group) == false
       assert PublishingGroup.show_post_count?(group) == false
+      assert PublishingGroup.show_top_back_link?(group) == true
+      assert PublishingGroup.listing_image_links?(group) == true
     end
 
     test "public-side display accessors return custom values" do
@@ -122,6 +126,8 @@ defmodule PhoenixKit.Modules.Publishing.SchemaTest do
         data: %{
           "featured_enabled" => false,
           "featured_layout" => "card",
+          "newest_enabled" => true,
+          "newest_layout" => "card",
           "scrollbar_style" => "branded",
           "scroll_progress_enabled" => true,
           "scroll_headings_enabled" => true,
@@ -134,12 +140,16 @@ defmodule PhoenixKit.Modules.Publishing.SchemaTest do
           "show_featured_image" => true,
           "show_reading_time" => true,
           "show_tags" => true,
-          "show_post_count" => true
+          "show_post_count" => true,
+          "show_top_back_link" => false,
+          "listing_image_links" => false
         }
       }
 
       assert PublishingGroup.featured_enabled?(group) == false
       assert PublishingGroup.featured_layout(group) == "card"
+      assert PublishingGroup.newest_enabled?(group) == true
+      assert PublishingGroup.newest_layout(group) == "card"
       assert PublishingGroup.scrollbar_style(group) == "branded"
       assert PublishingGroup.scroll_progress_enabled?(group) == true
       assert PublishingGroup.scroll_headings_enabled?(group) == true
@@ -153,6 +163,8 @@ defmodule PhoenixKit.Modules.Publishing.SchemaTest do
       assert PublishingGroup.show_reading_time?(group) == true
       assert PublishingGroup.show_tags?(group) == true
       assert PublishingGroup.show_post_count?(group) == true
+      assert PublishingGroup.show_top_back_link?(group) == false
+      assert PublishingGroup.listing_image_links?(group) == false
     end
 
     test "translated_name/2 falls back to the primary name with no override" do
