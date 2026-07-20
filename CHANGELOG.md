@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.4.1 - 2026-07-20
+
+PR #33 — guard the `phoenix_kit_og` refine seam against crashes and document
+Phase 2 (the OG-image plugin extension point), plus a post-merge review fix.
+See `dev_docs/pull_requests/2026/33-og-seam-rescue-and-docs/` for the review.
+
+### Fixed
+- `maybe_refine_og_with_module/4` now rescues around the optional
+  `phoenix_kit_og` plugin's `refine_og/4` call — a raising plugin previously
+  crashed every public post-page render; it now falls back to the per-post
+  override/default OG map.
+- Removed a stale, unused `mix.lock` entry (`beamlab_ex_aws_sqs`, orphaned by
+  an earlier rename to `ex_aws_sqs`) that was failing `mix deps.unlock
+  --check-unused` in the release gate.
+
+### Added
+- Regression test (`test/phoenix_kit_publishing/web/controller/og_refine_crash_test.exs`)
+  covering the crash-guard end-to-end, plus a `PhoenixKitOG` test stub.
+- `AGENTS.md` now documents the three-layer OG precedence (derived default →
+  per-post override → `phoenix_kit_og` plugin) and how `build_og_data/4`
+  resolves it.
+
 ## 0.4.0 - 2026-07-17
 
 PR #32 — public-side publishing: featured posts, timeline/headings scroll
