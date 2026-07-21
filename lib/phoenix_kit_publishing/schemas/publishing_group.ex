@@ -21,6 +21,11 @@ defmodule PhoenixKit.Modules.Publishing.PublishingGroup do
     render inline like any other post — no hero band, no pinning.
   - `featured_layout` - How featured posts render: `"hero"` (a band above the
     grid) or `"card"` (a larger card within the grid). Default `"hero"`.
+  - `newest_enabled` - Whether the most recent post is pulled out of the grid
+    into its own "Latest" band under any featured posts and shown larger
+    (default `false`).
+  - `newest_layout` - How the latest post renders: `"hero"` (a band above the
+    grid) or `"card"` (a larger card within the grid). Default `"hero"`.
   - `scrollbar_style` - Native scrollbar styling for this group's public pages:
     `"default"` (untouched), `"branded"` (theme-colored), or `"thin"`. Never
     replaces native scroll — only recolors/resizes the real bar. Default `"default"`.
@@ -44,6 +49,10 @@ defmodule PhoenixKit.Modules.Publishing.PublishingGroup do
   - `show_tags` - Show the post's tags on the post page (default `false`).
   - `show_post_count` - Show the total post count under the title on the group's
     public listing (default `false`).
+  - `show_top_back_link` - Show the subtle "Back to <group>" link at the top of
+    the post page, mirroring the footer button (default `true`).
+  - `listing_image_links` - Make the post-card images on the public listing
+    click through to the post, same as the title (default `true`).
   - `name_i18n` - Per-language overrides for the group's display name, keyed by
     language code (e.g. `%{"et" => "Blogi"}`). The primary-language name lives in
     the `name` column; secondary languages fall back to it when absent. The slug
@@ -134,6 +143,13 @@ defmodule PhoenixKit.Modules.Publishing.PublishingGroup do
   def featured_layout(%__MODULE__{data: data}),
     do: Map.get(data, "featured_layout", Publishing.Constants.default_featured_layout())
 
+  @doc "Returns whether the latest post is surfaced in its own listing band (default false)."
+  def newest_enabled?(%__MODULE__{data: data}), do: Map.get(data, "newest_enabled", false)
+
+  @doc ~S|Returns the latest-post layout for this group ("hero" or "card"; default "hero").|
+  def newest_layout(%__MODULE__{data: data}),
+    do: Map.get(data, "newest_layout", Publishing.Constants.default_newest_layout())
+
   @doc ~S|Returns the scrollbar style for this group's public pages ("default"/"branded"/"thin").|
   def scrollbar_style(%__MODULE__{data: data}),
     do: Map.get(data, "scrollbar_style", Publishing.Constants.default_scrollbar_style())
@@ -186,6 +202,14 @@ defmodule PhoenixKit.Modules.Publishing.PublishingGroup do
 
   @doc "Returns whether the post count shows on the group's public listing (default false)."
   def show_post_count?(%__MODULE__{data: data}), do: Map.get(data, "show_post_count", false)
+
+  @doc "Returns whether the top back link shows on the post page (default true)."
+  def show_top_back_link?(%__MODULE__{data: data}),
+    do: Map.get(data, "show_top_back_link", true)
+
+  @doc "Returns whether listing card images click through to the post (default true)."
+  def listing_image_links?(%__MODULE__{data: data}),
+    do: Map.get(data, "listing_image_links", true)
 
   @doc "Returns the per-language display-name overrides map (language code => name)."
   def name_translations(%__MODULE__{data: data}) do

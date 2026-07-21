@@ -412,17 +412,26 @@ Add new error atoms by extending `@type error_atom`, the doctest example, and ad
 
 ### Per-group display settings (group `data` JSONB)
 
-Distinct from the site-wide keys above: each group carries ~15 display settings
-in its `data` JSONB (scrollbar style, featured posts, scroll rails, post width,
-reading time, tags, post count, etc.), edited on
+Distinct from the site-wide keys above: each group carries ~19 display settings
+in its `data` JSONB (scrollbar style, featured posts, the latest-post band,
+scroll rails, post width, reading time, tags, post count, top back link,
+clickable card images, etc.), edited on
 `/admin/publishing/edit-group/:slug` and applied via
 `Publishing.update_group(slug, params, opts)`. All default off/neutral, so a
-fresh group's public pages look unchanged until an admin opts in — with two
+fresh group's public pages look unchanged until an admin opts in — with these
 nuances: `featured_enabled` defaults **true** (inert until a post is actually
-flagged featured in the editor, so still visually neutral), and the
+flagged featured in the editor, so still visually neutral); the
 breadcrumbs + post-count elements used to render unconditionally pre-settings,
 so groups that had them now need `show_breadcrumbs` / `show_post_count` turned
-on (a deliberate default-off migration, not a regression).
+on (a deliberate default-off migration, not a regression); and
+`show_top_back_link` + `listing_image_links` default **true** (deliberate
+default-on features — the subtle top "Back to <group>" link on post pages and
+the card images clicking through to the post; the settings exist to turn them
+off per group). `newest_enabled` (+ `newest_layout`, hero/card) is default-off:
+when on, the chronologically newest post is pulled out of the grid into its own
+"Latest" band under any featured posts (a featured newest post stays in the
+Featured band — Latest takes the next-newest; `split_newest/2` in
+`controller/listing.ex`).
 
 Two write-path behaviors to know: `update_group/3` is **lenient** (an
 out-of-whitelist enum value is ignored, a non-truthy bool becomes `false` — the

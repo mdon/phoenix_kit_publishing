@@ -44,6 +44,8 @@ defmodule PhoenixKit.Modules.Publishing.GroupSettingsTest do
 
       assert defaults["featured_enabled"] == PublishingGroup.featured_enabled?(empty)
       assert defaults["featured_layout"] == PublishingGroup.featured_layout(empty)
+      assert defaults["newest_enabled"] == PublishingGroup.newest_enabled?(empty)
+      assert defaults["newest_layout"] == PublishingGroup.newest_layout(empty)
       assert defaults["scrollbar_style"] == PublishingGroup.scrollbar_style(empty)
 
       assert defaults["scroll_progress_enabled"] ==
@@ -66,6 +68,8 @@ defmodule PhoenixKit.Modules.Publishing.GroupSettingsTest do
       assert defaults["show_reading_time"] == PublishingGroup.show_reading_time?(empty)
       assert defaults["show_tags"] == PublishingGroup.show_tags?(empty)
       assert defaults["show_post_count"] == PublishingGroup.show_post_count?(empty)
+      assert defaults["show_top_back_link"] == PublishingGroup.show_top_back_link?(empty)
+      assert defaults["listing_image_links"] == PublishingGroup.listing_image_links?(empty)
     end
 
     test "covers every schema key (no accessor-parity blind spots)" do

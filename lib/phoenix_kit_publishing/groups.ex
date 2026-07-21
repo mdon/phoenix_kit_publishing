@@ -25,6 +25,8 @@ defmodule PhoenixKit.Modules.Publishing.Groups do
   @valid_types Constants.valid_types()
   @default_featured_layout Constants.default_featured_layout()
   @featured_layouts Constants.featured_layouts()
+  @default_newest_layout Constants.default_newest_layout()
+  @newest_layouts Constants.newest_layouts()
   @default_scrollbar_style Constants.default_scrollbar_style()
   @scrollbar_styles Constants.scrollbar_styles()
   @default_listing_sort Constants.default_listing_sort()
@@ -287,11 +289,13 @@ defmodule PhoenixKit.Modules.Publishing.Groups do
   # machine-readable spec; the key-parity test in group_settings_test.exs
   # asserts the two can't drift (it compares against `config_setting_keys/0`,
   # not a hand-maintained copy).
-  @bool_setting_keys ~w(featured_enabled scroll_progress_enabled scroll_headings_enabled
-                        scroll_timeline_enabled show_breadcrumbs show_featured_image
-                        show_reading_time show_tags show_post_count)
+  @bool_setting_keys ~w(featured_enabled newest_enabled scroll_progress_enabled
+                        scroll_headings_enabled scroll_timeline_enabled show_breadcrumbs
+                        show_featured_image show_reading_time show_tags show_post_count
+                        show_top_back_link listing_image_links)
   @enum_settings [
     {"featured_layout", @featured_layouts},
+    {"newest_layout", @newest_layouts},
     {"scrollbar_style", @scrollbar_styles},
     {"scroll_timeline_granularity", @timeline_granularities},
     {"listing_sort", @listing_sorts},
@@ -669,6 +673,8 @@ defmodule PhoenixKit.Modules.Publishing.Groups do
       "item_plural" => Map.get(data, "item_plural", @default_item_plural),
       "featured_enabled" => Map.get(data, "featured_enabled", true),
       "featured_layout" => Map.get(data, "featured_layout", @default_featured_layout),
+      "newest_enabled" => Map.get(data, "newest_enabled", false),
+      "newest_layout" => Map.get(data, "newest_layout", @default_newest_layout),
       "scrollbar_style" => Map.get(data, "scrollbar_style", @default_scrollbar_style),
       "scroll_progress_enabled" => Map.get(data, "scroll_progress_enabled", false),
       "scroll_headings_enabled" => Map.get(data, "scroll_headings_enabled", false),
@@ -683,6 +689,8 @@ defmodule PhoenixKit.Modules.Publishing.Groups do
       "show_reading_time" => Map.get(data, "show_reading_time", false),
       "show_tags" => Map.get(data, "show_tags", false),
       "show_post_count" => Map.get(data, "show_post_count", false),
+      "show_top_back_link" => Map.get(data, "show_top_back_link", true),
+      "listing_image_links" => Map.get(data, "listing_image_links", true),
       "name_i18n" => name_i18n_map(data)
     }
   end

@@ -681,7 +681,13 @@ defmodule PhoenixKit.Modules.Publishing.Web.HTML do
         </header>
         <% featured_posts = assigns[:featured_posts] || [] %>
         <% featured_layout = assigns[:featured_layout] || "hero" %>
-        <% date_counts = build_date_counts(featured_posts ++ @posts) %>
+        <% newest_posts = assigns[:newest_posts] || [] %>
+        <% newest_layout = assigns[:newest_layout] || "hero" %>
+        <% image_links = (assigns[:group] && @group["listing_image_links"]) != false %>
+        <%!-- Prefer the controller's group-wide counts (all pages + pinned
+          bands); the visible-set fallback covers direct template renders. --%>
+        <% date_counts =
+          assigns[:date_counts] || build_date_counts(featured_posts ++ newest_posts ++ @posts) %>
         <%!-- Featured posts — pinned above the grid on page 1, excluded from it. --%>
         <%= if featured_posts != [] do %>
           <section class="mb-10">
@@ -700,6 +706,32 @@ defmodule PhoenixKit.Modules.Publishing.Web.HTML do
                 current_language={@current_language}
                 date_counts={date_counts}
                 variant={if featured_layout == "card", do: :featured_card, else: :featured_hero}
+                image_links={image_links}
+              />
+            </div>
+          </section>
+        <% end %>
+
+        <%!-- Latest post — pinned under the featured band on page 1, excluded
+          from the grid (a featured newest post stays in the Featured band). --%>
+        <%= if newest_posts != [] do %>
+          <section class="mb-10">
+            <h2 class="text-xs font-semibold uppercase tracking-wider text-base-content/50 mb-4">
+              {gettext("Latest")}
+            </h2>
+            <div class={
+              if newest_layout == "card",
+                do: "grid gap-6 md:grid-cols-2",
+                else: "flex flex-col gap-6"
+            }>
+              <.listing_post_card
+                :for={post <- newest_posts}
+                post={post}
+                group_slug={@group["slug"]}
+                current_language={@current_language}
+                date_counts={date_counts}
+                variant={if newest_layout == "card", do: :newest_card, else: :newest_hero}
+                image_links={image_links}
               />
             </div>
           </section>
@@ -715,6 +747,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.HTML do
               current_language={@current_language}
               date_counts={date_counts}
               variant={:grid}
+              image_links={image_links}
             />
           </div>
           <%!-- Pagination --%>
@@ -784,24 +817,32 @@ defmodule PhoenixKit.Modules.Publishing.Web.HTML do
   end
 
   # One card for every public-listing variant — the featured band (hero),
-  # featured-in-grid (card), and the regular grid share the same article shell;
-  # only sizing, badge, and heading level differ. All variants carry
-  # `data-post-date` so the timeline rail sees featured posts too.
+  # featured-in-grid (card), their Latest-band twins, and the regular grid
+  # share the same article shell; only sizing, badge, accent color, and
+  # heading level differ. All variants carry `data-post-date` so the timeline
+  # rail sees highlighted posts too.
   attr :post, :map, required: true
   attr :group_slug, :string, required: true
   attr :current_language, :string, required: true
   attr :date_counts, :map, required: true
-  attr :variant, :atom, required: true, values: [:featured_hero, :featured_card, :grid]
+
+  attr :variant, :atom,
+    required: true,
+    values: [:featured_hero, :featured_card, :newest_hero, :newest_card, :grid]
+
+  attr :image_links, :boolean, default: true
 
   defp listing_post_card(assigns) do
-    featured? = assigns.variant != :grid
+    highlight? = assigns.variant != :grid
+    newest? = assigns.variant in [:newest_hero, :newest_card]
 
     assigns =
       assigns
-      |> assign(:featured?, featured?)
+      |> assign(:highlight?, highlight?)
+      |> assign(:newest?, newest?)
       |> assign(
         :img,
-        featured_image_url(assigns.post, if(featured?, do: "large", else: "medium"))
+        featured_image_url(assigns.post, if(highlight?, do: "large", else: "medium"))
       )
       |> assign(:excerpt, post_card_excerpt(assigns.post))
       |> assign(
@@ -818,37 +859,55 @@ defmodule PhoenixKit.Modules.Publishing.Web.HTML do
     <article
       class={[
         "card bg-base-200 transition-shadow",
-        @featured? && "shadow-lg ring-1 ring-primary/20 hover:shadow-xl overflow-hidden",
-        !@featured? && "shadow-md hover:shadow-lg",
-        @variant == :featured_hero && "lg:card-side"
+        @highlight? && "shadow-lg ring-1 hover:shadow-xl overflow-hidden",
+        @highlight? && ((@newest? && "ring-secondary/20") || "ring-primary/20"),
+        !@highlight? && "shadow-md hover:shadow-lg",
+        @variant in [:featured_hero, :newest_hero] && "lg:card-side"
       ]}
       data-post-date={effective_post_date(@post)}
     >
       <%= if @img do %>
         <figure class={card_figure_class(@variant)}>
-          <img
-            src={@img}
-            alt={@post.metadata.title || gettext("Featured image")}
-            class="h-full w-full object-cover"
-            loading="lazy"
-          />
+          <%= if @image_links do %>
+            <%!-- aria-hidden + tabindex=-1: the title link right below is the
+              accessible route to the same destination — screen readers and the
+              tab order shouldn't hit it twice. --%>
+            <.link navigate={@post_url} class="block h-full w-full" tabindex="-1" aria-hidden="true">
+              <img
+                src={@img}
+                alt={@post.metadata.title || gettext("Featured image")}
+                class="h-full w-full object-cover transition-opacity hover:opacity-90"
+                loading="lazy"
+              />
+            </.link>
+          <% else %>
+            <img
+              src={@img}
+              alt={@post.metadata.title || gettext("Featured image")}
+              class="h-full w-full object-cover"
+              loading="lazy"
+            />
+          <% end %>
         </figure>
       <% end %>
       <div class="card-body">
-        <span :if={@featured?} class="badge badge-primary badge-sm w-fit gap-1">
+        <span :if={@highlight? and not @newest?} class="badge badge-primary badge-sm w-fit gap-1">
           ★ {gettext("Featured")}
         </span>
-        <h3 :if={@featured?} class="card-title text-2xl">
+        <span :if={@newest?} class="badge badge-secondary badge-sm w-fit gap-1">
+          ✦ {gettext("Latest")}
+        </span>
+        <h3 :if={@highlight?} class="card-title text-2xl">
           <.link navigate={@post_url} class="hover:text-primary">{@post.metadata.title}</.link>
         </h3>
-        <h2 :if={!@featured?} class="card-title text-xl">
+        <h2 :if={!@highlight?} class="card-title text-xl">
           <.link navigate={@post_url} class="hover:text-primary">{@post.metadata.title}</.link>
         </h2>
 
         <%= if @excerpt && @excerpt != "" do %>
           <p class={[
             "text-base-content/70 line-clamp-3",
-            (@featured? && "text-base") || "text-sm"
+            (@highlight? && "text-base") || "text-sm"
           ]}>
             {@excerpt}
           </p>
@@ -873,9 +932,11 @@ defmodule PhoenixKit.Modules.Publishing.Web.HTML do
   end
 
   defp card_figure_class(:grid), do: "h-40 w-full overflow-hidden rounded-t-2xl bg-base-300"
-  defp card_figure_class(:featured_card), do: "h-52 w-full overflow-hidden bg-base-300"
 
-  defp card_figure_class(:featured_hero),
+  defp card_figure_class(variant) when variant in [:featured_card, :newest_card],
+    do: "h-52 w-full overflow-hidden bg-base-300"
+
+  defp card_figure_class(variant) when variant in [:featured_hero, :newest_hero],
     do: "lg:w-2/5 h-56 lg:h-auto overflow-hidden bg-base-300"
 
   # An explicit description wins; otherwise derive an excerpt from the content.
@@ -925,6 +986,19 @@ defmodule PhoenixKit.Modules.Publishing.Web.HTML do
       <.reading_progress enabled={assigns[:scroll_progress_enabled] || false} />
       <.reading_headings enabled={assigns[:scroll_headings_enabled] || false} />
       <article class={["post-container mx-auto px-6 py-8", post_width_class(assigns[:post_width])]}>
+        <%!-- Top back link (gated on the group's show_top_back_link setting,
+          default on) — the footer has the full button; this is its subtle twin
+          so a reader who lands mid-archive can leave without scrolling. --%>
+        <nav :if={assigns[:show_top_back_link] != false} class="mb-6">
+          <.link
+            navigate={group_listing_path(@current_language, @group_slug)}
+            class="inline-flex items-center gap-1.5 text-sm text-base-content/60 hover:text-primary transition-colors"
+          >
+            <.icon name="hero-arrow-left" class="w-3.5 h-3.5" /> {gettext("Back to %{group}",
+              group: @group_name
+            )}
+          </.link>
+        </nav>
         <%!-- Breadcrumb Navigation (gated on the group's show_breadcrumbs setting) --%>
         <%= if assigns[:show_breadcrumbs] do %>
           <div class="breadcrumbs text-sm mb-6">

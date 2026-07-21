@@ -242,6 +242,9 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller do
         |> assign(:posts, assigns.posts)
         |> assign(:featured_posts, assigns.featured_posts)
         |> assign(:featured_layout, assigns.featured_layout)
+        |> assign(:newest_posts, assigns.newest_posts)
+        |> assign(:newest_layout, assigns.newest_layout)
+        |> assign(:date_counts, assigns.date_counts)
         |> assign(:current_language, assigns.current_language)
         |> assign_publishing_render_context(assigns.translations)
         |> assign(:page, assigns.page)
@@ -560,7 +563,8 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller do
       post_width: Constants.default_post_width(),
       show_featured_image: false,
       show_reading_time: false,
-      show_tags: false
+      show_tags: false,
+      show_top_back_link: true
     }
   end
 
@@ -569,9 +573,14 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller do
   # Web.HTML.show/1 can render them. Takes the group map the post-rendering
   # path already fetched (PostRendering.fetch_group/1) — no second fetch. A
   # missing group (%{}) degrades to the safe defaults (native bar, aids off).
+  # Only nil falls back — a stored `false` must survive for default-true
+  # settings (`||` would silently flip show_top_back_link back on).
   defp assign_group_display_config(conn, group) when is_map(group) do
     Enum.reduce(post_display_defaults(), conn, fn {key, default}, acc ->
-      assign(acc, key, Map.get(group, Atom.to_string(key)) || default)
+      case Map.get(group, Atom.to_string(key)) do
+        nil -> assign(acc, key, default)
+        value -> assign(acc, key, value)
+      end
     end)
   end
 
