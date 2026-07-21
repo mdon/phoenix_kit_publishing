@@ -43,6 +43,15 @@ defmodule PhoenixKit.Modules.Publishing.Web.ListingLiveTest do
     assert html =~ "Sample post for listing"
   end
 
+  test "header actions link to the group's settings page", %{conn: conn, group: group} do
+    {:ok, _view, html} =
+      conn
+      |> put_test_scope(fake_scope())
+      |> live("/admin/publishing/#{group["slug"]}")
+
+    assert html =~ "/admin/publishing/edit-group/#{group["slug"]}"
+  end
+
   test "switch_post_view toggles between active and trashed", %{conn: conn, group: group} do
     {:ok, view, _html} =
       conn
