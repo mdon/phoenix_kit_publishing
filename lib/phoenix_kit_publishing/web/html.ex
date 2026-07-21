@@ -1576,22 +1576,34 @@ defmodule PhoenixKit.Modules.Publishing.Web.HTML do
 
   # Gets the URL slug for a specific language
   # Priority:
-  # 1. Direct url_slug field on post (set by controller for specific language)
-  # 2. language_slugs map (from cache, contains all languages)
+  # 1. language_slugs map (from cache/mapper — the per-language slugs) when
+  #    the requested language resolves to one of its keys
+  # 2. Direct url_slug field on post (set by controller for specific language)
   # 3. metadata.url_slug (from content record, current language only)
   # 4. post.slug (post slug fallback)
+  #
+  # The per-language map MUST outrank the top-level :url_slug: listing maps
+  # (Mapper.to_listing_map/5) always fill :url_slug with the PRIMARY
+  # language's slug, so checking it first made a custom slug set in any other
+  # language unreachable from listing links — cards on /de/... linked the
+  # primary slug. When the language does NOT resolve (post has no content in
+  # it), the old chain applies unchanged.
   defp get_url_slug_for_language(post, language) do
+    language_slugs = Map.get(post, :language_slugs) || %{}
+
+    resolved_key =
+      if map_size(language_slugs) > 0 do
+        LanguageHelpers.resolve_language_key(language, Map.keys(language_slugs))
+      end
+
     cond do
-      # Direct url_slug on post (highest priority, set by controller)
+      # Per-language slug for the requested (resolved) language
+      resolved_key != nil and Map.get(language_slugs, resolved_key) not in [nil, ""] ->
+        Map.get(language_slugs, resolved_key)
+
+      # Direct url_slug on post (set by controller)
       Map.get(post, :url_slug) not in [nil, ""] ->
         post.url_slug
-
-      # language_slugs map from cache
-      map_size(Map.get(post, :language_slugs, %{})) > 0 ->
-        resolved_key =
-          LanguageHelpers.resolve_language_key(language, Map.keys(post.language_slugs))
-
-        Map.get(post.language_slugs, resolved_key, post.slug)
 
       # metadata.url_slug
       is_map(Map.get(post, :metadata)) and Map.get(post.metadata, :url_slug) not in [nil, ""] ->
