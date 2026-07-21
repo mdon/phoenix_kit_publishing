@@ -1324,14 +1324,14 @@ defmodule PhoenixKit.Modules.Publishing.Web.HTML do
       <.reading_headings enabled={assigns[:scroll_headings_enabled] || false} />
       <article class={["post-container mx-auto px-6 py-8", post_width_class(assigns[:post_width])]}>
         <%!-- Top back link (gated on the group's show_top_back_link setting,
-          default on) — the footer has the full button; this is its subtle twin
-          so a reader who lands mid-archive can leave without scrolling. --%>
-        <nav :if={assigns[:show_top_back_link] != false} class="mb-6">
+          default on) — a compact muted twin of the footer link, hugging the
+          title so it doesn't cost the page a band of empty space. --%>
+        <nav :if={assigns[:show_top_back_link] != false} class="mb-1">
           <.link
             navigate={group_listing_path(@current_language, @group_slug)}
-            class="inline-flex items-center gap-1.5 text-sm text-base-content/60 hover:text-primary transition-colors"
+            class="inline-flex items-center gap-1 text-xs text-base-content/50 hover:text-primary transition-colors"
           >
-            <.icon name="hero-arrow-left" class="w-3.5 h-3.5" /> {gettext("Back to %{group}",
+            <.icon name="hero-arrow-left" class="w-3 h-3" /> {gettext("Back to %{group}",
               group: @group_name
             )}
           </.link>
@@ -1461,13 +1461,13 @@ defmodule PhoenixKit.Modules.Publishing.Web.HTML do
         <div class="markdown-content max-w-none">
           {raw(@html_content)}
         </div>
-        <%!-- Post Footer --%>
-        <footer class="mt-12 pt-6 border-t">
+        <%!-- Post Footer — same compact muted link as the top, no button chrome. --%>
+        <footer class="mt-6 border-t pt-2">
           <.link
             navigate={group_listing_path(@current_language, @group_slug)}
-            class="btn btn-ghost btn-sm"
+            class="inline-flex items-center gap-1 text-xs text-base-content/50 hover:text-primary transition-colors"
           >
-            <.icon name="hero-arrow-left" class="w-4 h-4 mr-2" /> {gettext("Back to %{group}",
+            <.icon name="hero-arrow-left" class="w-3 h-3" /> {gettext("Back to %{group}",
               group: @group_name
             )}
           </.link>
