@@ -178,8 +178,10 @@ defmodule PhoenixKit.Modules.Publishing.Web.Edit do
       "show_tags" => group["show_tags"],
       "featured_enabled" => group["featured_enabled"],
       "featured_layout" => group["featured_layout"],
+      "featured_style" => group["featured_style"],
       "newest_enabled" => group["newest_enabled"],
       "newest_layout" => group["newest_layout"],
+      "newest_style" => group["newest_style"],
       "show_top_back_link" => group["show_top_back_link"],
       "listing_image_links" => group["listing_image_links"],
       "scrollbar_style" => group["scrollbar_style"],
@@ -231,6 +233,18 @@ defmodule PhoenixKit.Modules.Publishing.Web.Edit do
   # Same vocabulary for the latest-post <select> — values must match
   # Publishing.Constants.newest_layouts/0, which mirrors featured_layouts/0.
   defp newest_layout_options, do: featured_layout_options()
+
+  # Label/value pairs for the band-style <select>s (Featured + Latest share
+  # the vocabulary). Values must match Publishing.Constants.band_styles/0.
+  defp band_style_options do
+    [
+      {gettext("Classic — image beside or above the text"), "classic"},
+      {gettext("Cover — the image is the background, text overlaid"), "cover"},
+      {gettext("Cover panel — background image with a solid text panel"), "cover_panel"},
+      {gettext("Minimal — text only, no image"), "minimal"},
+      {gettext("Top image — a wide image banner above the text"), "top"}
+    ]
+  end
 
   # Label/value pairs for the listing-sort <select>. Values must match
   # Publishing.Constants.listing_sorts/0.
@@ -431,11 +445,16 @@ defmodule PhoenixKit.Modules.Publishing.Web.Edit do
                   </:description>
                 </.checkbox>
 
-                <div :if={checked?(@form[:featured_enabled].value)} class="pl-8">
+                <div :if={checked?(@form[:featured_enabled].value)} class="pl-8 space-y-4">
                   <.select
                     field={@form[:featured_layout]}
                     label={gettext("Featured layout")}
                     options={featured_layout_options()}
+                  />
+                  <.select
+                    field={@form[:featured_style]}
+                    label={gettext("Featured style")}
+                    options={band_style_options()}
                   />
                 </div>
 
@@ -448,11 +467,16 @@ defmodule PhoenixKit.Modules.Publishing.Web.Edit do
                   </:description>
                 </.checkbox>
 
-                <div :if={checked?(@form[:newest_enabled].value)} class="pl-8">
+                <div :if={checked?(@form[:newest_enabled].value)} class="pl-8 space-y-4">
                   <.select
                     field={@form[:newest_layout]}
                     label={gettext("Latest layout")}
                     options={newest_layout_options()}
+                  />
+                  <.select
+                    field={@form[:newest_style]}
+                    label={gettext("Latest style")}
+                    options={band_style_options()}
                   />
                 </div>
 

@@ -26,6 +26,10 @@ defmodule PhoenixKit.Modules.Publishing.PublishingGroup do
     (default `false`).
   - `newest_layout` - How the latest post renders: `"hero"` (a band above the
     grid) or `"card"` (a larger card within the grid). Default `"hero"`.
+  - `featured_style` - The paint of featured-band cards, orthogonal to the
+    layout: `"classic"`, `"cover"`, `"cover_panel"`, `"minimal"`, or `"top"`.
+    Default `"classic"`.
+  - `newest_style` - Same vocabulary for the Latest band. Default `"classic"`.
   - `scrollbar_style` - Native scrollbar styling for this group's public pages:
     `"default"` (untouched), `"branded"` (theme-colored), or `"thin"`. Never
     replaces native scroll — only recolors/resizes the real bar. Default `"default"`.
@@ -149,6 +153,14 @@ defmodule PhoenixKit.Modules.Publishing.PublishingGroup do
   @doc ~S|Returns the latest-post layout for this group ("hero" or "card"; default "hero").|
   def newest_layout(%__MODULE__{data: data}),
     do: Map.get(data, "newest_layout", Publishing.Constants.default_newest_layout())
+
+  @doc ~S|Returns the featured-band style ("classic"/"cover"/"cover_panel"/"minimal"/"top"; default "classic").|
+  def featured_style(%__MODULE__{data: data}),
+    do: Map.get(data, "featured_style", Publishing.Constants.default_band_style())
+
+  @doc ~S|Returns the Latest-band style (same vocabulary as featured_style; default "classic").|
+  def newest_style(%__MODULE__{data: data}),
+    do: Map.get(data, "newest_style", Publishing.Constants.default_band_style())
 
   @doc ~S|Returns the scrollbar style for this group's public pages ("default"/"branded"/"thin").|
   def scrollbar_style(%__MODULE__{data: data}),

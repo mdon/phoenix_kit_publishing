@@ -412,7 +412,7 @@ Add new error atoms by extending `@type error_atom`, the doctest example, and ad
 
 ### Per-group display settings (group `data` JSONB)
 
-Distinct from the site-wide keys above: each group carries ~19 display settings
+Distinct from the site-wide keys above: each group carries ~21 display settings
 in its `data` JSONB (scrollbar style, featured posts, the latest-post band,
 scroll rails, post width, reading time, tags, post count, top back link,
 clickable card images, etc.), edited on
@@ -431,7 +431,20 @@ off per group). `newest_enabled` (+ `newest_layout`, hero/card) is default-off:
 when on, the chronologically newest post is pulled out of the grid into its own
 "Latest" band under any featured posts (a featured newest post stays in the
 Featured band — Latest takes the next-newest; `split_newest/2` in
-`controller/listing.ex`).
+`controller/listing.ex`). Both bands also carry a **style** key
+(`featured_style` / `newest_style`: `classic | cover | cover_panel | minimal |
+top`, default `classic`) orthogonal to the layout — layout is size/placement
+(hero band vs card in the 2-col grid), style is paint. `cover` = the featured
+image as the card background under a HARDCODED gradient scrim with fixed light
+text (a real lazy `<img>` layer, not a CSS background; no image → a branded
+primary/secondary gradient banner, secondary-leaning for Latest);
+`cover_panel` = image with an opaque `bg-base-100/95` text panel (the
+a11y-safe cover); `minimal` = text-only accent-border editorial band; `top` =
+16:9 banner above the text. Dispatch lives in `html.ex`'s
+`listing_band_card/1` — `classic`/unknown delegates to the original
+`listing_post_card` variants, so pre-styles groups render unchanged. Scrim
+strength, band height, and text placement are deliberately hardcoded (5-AI
+panel consensus: good defaults over option bloat).
 
 Two write-path behaviors to know: `update_group/3` is **lenient** (an
 out-of-whitelist enum value is ignored, a non-truthy bool becomes `false` — the

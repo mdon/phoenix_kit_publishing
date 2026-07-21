@@ -195,6 +195,62 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller.DisplaySettingsRenderTest
     end
   end
 
+  describe "listing: band styles (featured_style / newest_style)" do
+    test "classic by default — no style markers", %{conn: conn, group_slug: slug} do
+      set!(slug, %{"newest_enabled" => "true"})
+      html = listing_html(conn, slug)
+      refute html =~ "from-black/80"
+      refute html =~ "border-s-4"
+      refute html =~ "bg-base-100/95"
+    end
+
+    test "cover renders the scrim and, with no image, the branded gradient fallback", %{
+      conn: conn,
+      group_slug: slug
+    } do
+      set!(slug, %{"newest_enabled" => "true", "newest_style" => "cover"})
+      html = listing_html(conn, slug)
+      # Hardcoded scrim + the Latest band's secondary-leaning no-image gradient.
+      assert html =~ "from-black/80"
+      assert html =~ "from-secondary to-primary"
+      assert html =~ "✦"
+    end
+
+    test "featured cover uses the primary-leaning fallback gradient", %{
+      conn: conn,
+      group_slug: slug,
+      post: post
+    } do
+      {:ok, _} = Posts.update_post(slug, post, %{"featured" => "true"}, %{})
+      set!(slug, %{"featured_style" => "cover"})
+      html = listing_html(conn, slug)
+      assert html =~ "from-primary to-secondary"
+    end
+
+    test "cover_panel renders the opaque text panel", %{conn: conn, group_slug: slug} do
+      set!(slug, %{"newest_enabled" => "true", "newest_style" => "cover_panel"})
+      assert listing_html(conn, slug) =~ "bg-base-100/95"
+    end
+
+    test "minimal renders the accent-border editorial band", %{conn: conn, group_slug: slug} do
+      set!(slug, %{"newest_enabled" => "true", "newest_style" => "minimal"})
+      html = listing_html(conn, slug)
+      assert html =~ "border-s-4"
+      assert html =~ "border-secondary"
+    end
+
+    test "top drops the image banner cleanly when the post has none", %{
+      conn: conn,
+      group_slug: slug
+    } do
+      set!(slug, %{"newest_enabled" => "true", "newest_style" => "top"})
+      html = listing_html(conn, slug)
+      # Badge + body render; the 16:9 banner is absent without an image.
+      assert html =~ "badge-secondary badge-sm"
+      refute html =~ "aspect-video"
+    end
+  end
+
   describe "listing: group-wide date counts with a pinned Latest post" do
     test "a page-2 same-day sibling of the pinned newest post keeps its time-segment URL", %{
       conn: conn

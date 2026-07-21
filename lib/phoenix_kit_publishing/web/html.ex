@@ -681,8 +681,10 @@ defmodule PhoenixKit.Modules.Publishing.Web.HTML do
         </header>
         <% featured_posts = assigns[:featured_posts] || [] %>
         <% featured_layout = assigns[:featured_layout] || "hero" %>
+        <% featured_style = assigns[:featured_style] || "classic" %>
         <% newest_posts = assigns[:newest_posts] || [] %>
         <% newest_layout = assigns[:newest_layout] || "hero" %>
+        <% newest_style = assigns[:newest_style] || "classic" %>
         <% image_links = (assigns[:group] && @group["listing_image_links"]) != false %>
         <%!-- Prefer the controller's group-wide counts (all pages + pinned
           bands); the visible-set fallback covers direct template renders. --%>
@@ -699,13 +701,15 @@ defmodule PhoenixKit.Modules.Publishing.Web.HTML do
                 do: "grid gap-6 md:grid-cols-2",
                 else: "flex flex-col gap-6"
             }>
-              <.listing_post_card
+              <.listing_band_card
                 :for={post <- featured_posts}
                 post={post}
                 group_slug={@group["slug"]}
                 current_language={@current_language}
                 date_counts={date_counts}
-                variant={if featured_layout == "card", do: :featured_card, else: :featured_hero}
+                band={:featured}
+                layout={featured_layout}
+                style={featured_style}
                 image_links={image_links}
               />
             </div>
@@ -724,13 +728,15 @@ defmodule PhoenixKit.Modules.Publishing.Web.HTML do
                 do: "grid gap-6 md:grid-cols-2",
                 else: "flex flex-col gap-6"
             }>
-              <.listing_post_card
+              <.listing_band_card
                 :for={post <- newest_posts}
                 post={post}
                 group_slug={@group["slug"]}
                 current_language={@current_language}
                 date_counts={date_counts}
-                variant={if newest_layout == "card", do: :newest_card, else: :newest_hero}
+                band={:newest}
+                layout={newest_layout}
+                style={newest_style}
                 image_links={image_links}
               />
             </div>
@@ -938,6 +944,286 @@ defmodule PhoenixKit.Modules.Publishing.Web.HTML do
 
   defp card_figure_class(variant) when variant in [:featured_hero, :newest_hero],
     do: "lg:w-2/5 h-56 lg:h-auto overflow-hidden bg-base-300"
+
+  # ---------------------------------------------------------------------------
+  # Band cards — the Featured/Latest bands' style-aware wrapper.
+  #
+  # `layout` stays size/placement (hero band vs card in a 2-col grid); `style`
+  # owns the paint. "classic" (and any unknown value — defensive, the write
+  # path whitelists) delegates to the original listing_post_card variants so
+  # pre-styles groups render pixel-identical.
+  # ---------------------------------------------------------------------------
+  attr :post, :map, required: true
+  attr :group_slug, :string, required: true
+  attr :current_language, :string, required: true
+  attr :date_counts, :map, required: true
+  attr :band, :atom, required: true, values: [:featured, :newest]
+  attr :layout, :string, required: true
+  attr :style, :string, required: true
+  attr :image_links, :boolean, default: true
+
+  defp listing_band_card(%{style: style} = assigns)
+       when style in ["cover", "cover_panel", "minimal", "top"] do
+    assigns =
+      assigns
+      |> assign(:img, featured_image_url(assigns.post, "large"))
+      |> assign(:excerpt, post_card_excerpt(assigns.post))
+      |> assign(
+        :post_url,
+        build_post_url(
+          assigns.group_slug,
+          assigns.post,
+          assigns.current_language,
+          assigns.date_counts
+        )
+      )
+
+    case assigns.style do
+      "cover" -> band_cover(assigns)
+      "cover_panel" -> band_cover_panel(assigns)
+      "minimal" -> band_minimal(assigns)
+      "top" -> band_top(assigns)
+    end
+  end
+
+  defp listing_band_card(assigns) do
+    assigns =
+      assign(
+        assigns,
+        :variant,
+        case {assigns.band, assigns.layout} do
+          {:featured, "card"} -> :featured_card
+          {:featured, _} -> :featured_hero
+          {:newest, "card"} -> :newest_card
+          {:newest, _} -> :newest_hero
+        end
+      )
+
+    ~H"""
+    <.listing_post_card
+      post={@post}
+      group_slug={@group_slug}
+      current_language={@current_language}
+      date_counts={@date_counts}
+      variant={@variant}
+      image_links={@image_links}
+    />
+    """
+  end
+
+  # Cover — the featured image fills the card; text overlaid in the dark zone
+  # of a hardcoded bottom-heavy scrim (the accessibility guarantee — never an
+  # option). No image degrades to a branded gradient banner, scrim on top, so
+  # the fixed light text keeps contrast either way. A real <img> (not a CSS
+  # background) so the browser can lazy-load it.
+  defp band_cover(assigns) do
+    ~H"""
+    <article
+      class={[
+        "relative flex items-end overflow-hidden rounded-2xl shadow-lg ring-1 transition-shadow hover:shadow-xl",
+        (@band == :featured && "ring-primary/20") || "ring-secondary/20",
+        (@layout == "card" && "min-h-64") || "min-h-80 lg:min-h-96"
+      ]}
+      data-post-date={effective_post_date(@post)}
+    >
+      <%!-- Decorative — the title link below is the accessible route. --%>
+      <img
+        :if={@img}
+        src={@img}
+        alt=""
+        aria-hidden="true"
+        loading="lazy"
+        class="absolute inset-0 h-full w-full object-cover"
+      />
+      <div
+        :if={!@img}
+        aria-hidden="true"
+        class={[
+          "absolute inset-0",
+          (@band == :featured && "bg-gradient-to-br from-primary to-secondary") ||
+            "bg-gradient-to-br from-secondary to-primary"
+        ]}
+      >
+      </div>
+      <div
+        aria-hidden="true"
+        class="absolute inset-0 bg-gradient-to-t from-black/80 via-black/40 to-black/10"
+      >
+      </div>
+      <div class="relative z-10 flex w-full flex-col gap-2 p-6 lg:p-8 text-white">
+        <.band_badge band={@band} />
+        <h3 class={["font-bold", (@layout == "card" && "text-2xl") || "text-2xl lg:text-3xl"]}>
+          <.link
+            navigate={@post_url}
+            class="text-white hover:text-white/80 focus-visible:outline-white"
+          >
+            {@post.metadata.title}
+          </.link>
+        </h3>
+        <p :if={@excerpt && @excerpt != ""} class="line-clamp-2 max-w-3xl text-white/80">
+          {@excerpt}
+        </p>
+        <div class="mt-2 flex items-center justify-between gap-4">
+          <%= if has_publication_date?(@post) do %>
+            <time class="text-xs text-white/70" datetime={@post.metadata.published_at || ""}>
+              {format_post_date(@post, @group_slug, @date_counts)}
+            </time>
+          <% else %>
+            <span></span>
+          <% end %>
+          <.link navigate={@post_url} class="btn btn-sm btn-primary">
+            {gettext("Read More →")}
+          </.link>
+        </div>
+      </div>
+    </article>
+    """
+  end
+
+  # Cover panel — full-bleed image with an opaque theme panel for the text:
+  # the a11y-safe cover (contrast comes from the panel, not a scrim, so any
+  # uploaded photo works). No image reads as a normal panel on bg-base-200.
+  defp band_cover_panel(assigns) do
+    ~H"""
+    <article
+      class={[
+        "relative flex items-end overflow-hidden rounded-2xl bg-base-200 shadow-lg ring-1 transition-shadow hover:shadow-xl",
+        (@band == :featured && "ring-primary/20") || "ring-secondary/20",
+        (@layout == "card" && "min-h-64") || "min-h-80 lg:min-h-96"
+      ]}
+      data-post-date={effective_post_date(@post)}
+    >
+      <img
+        :if={@img}
+        src={@img}
+        alt=""
+        aria-hidden="true"
+        loading="lazy"
+        class="absolute inset-0 h-full w-full object-cover"
+      />
+      <div class="relative z-10 w-full p-5 lg:p-8">
+        <div class="flex max-w-xl flex-col gap-2 rounded-2xl bg-base-100/95 p-6 shadow-xl">
+          <.band_badge band={@band} />
+          <h3 class="text-2xl font-bold">
+            <.link navigate={@post_url} class="hover:text-primary">{@post.metadata.title}</.link>
+          </h3>
+          <p :if={@excerpt && @excerpt != ""} class="line-clamp-2 text-base-content/70">
+            {@excerpt}
+          </p>
+          <.band_card_footer post={@post} group_slug={@group_slug} date_counts={@date_counts} post_url={@post_url} />
+        </div>
+      </div>
+    </article>
+    """
+  end
+
+  # Minimal — typography-first editorial band; the image is deliberately
+  # ignored, so it doubles as the canonical no-image look.
+  defp band_minimal(assigns) do
+    ~H"""
+    <article
+      class={[
+        "rounded-e-2xl border-s-4 bg-base-100 shadow-sm",
+        (@band == :featured && "border-primary") || "border-secondary",
+        (@layout == "card" && "px-5 py-6") || "px-6 py-8 lg:px-10"
+      ]}
+      data-post-date={effective_post_date(@post)}
+    >
+      <div class="flex flex-col gap-2">
+        <.band_badge band={@band} />
+        <h3 class="text-2xl font-bold tracking-tight lg:text-3xl">
+          <.link navigate={@post_url} class="hover:text-primary">{@post.metadata.title}</.link>
+        </h3>
+        <p :if={@excerpt && @excerpt != ""} class="line-clamp-3 max-w-2xl text-base-content/70">
+          {@excerpt}
+        </p>
+        <.band_card_footer post={@post} group_slug={@group_slug} date_counts={@date_counts} post_url={@post_url} />
+      </div>
+    </article>
+    """
+  end
+
+  # Top — a wide 16:9 image banner stacked above the text, even at hero
+  # width. The one style that gets native lazy-loading for free; no image
+  # simply drops the banner.
+  defp band_top(assigns) do
+    ~H"""
+    <article
+      class={[
+        "card overflow-hidden bg-base-200 shadow-lg ring-1 transition-shadow hover:shadow-xl",
+        (@band == :featured && "ring-primary/20") || "ring-secondary/20"
+      ]}
+      data-post-date={effective_post_date(@post)}
+    >
+      <figure :if={@img} class="aspect-video w-full overflow-hidden bg-base-300">
+        <%= if @image_links do %>
+          <.link navigate={@post_url} class="block h-full w-full" tabindex="-1" aria-hidden="true">
+            <img
+              src={@img}
+              alt={@post.metadata.title || gettext("Featured image")}
+              class="h-full w-full object-cover transition-opacity hover:opacity-90"
+              loading="lazy"
+            />
+          </.link>
+        <% else %>
+          <img
+            src={@img}
+            alt={@post.metadata.title || gettext("Featured image")}
+            class="h-full w-full object-cover"
+            loading="lazy"
+          />
+        <% end %>
+      </figure>
+      <div class="card-body">
+        <.band_badge band={@band} />
+        <h3 class="card-title text-2xl">
+          <.link navigate={@post_url} class="hover:text-primary">{@post.metadata.title}</.link>
+        </h3>
+        <p :if={@excerpt && @excerpt != ""} class="text-base line-clamp-3 text-base-content/70">
+          {@excerpt}
+        </p>
+        <.band_card_footer post={@post} group_slug={@group_slug} date_counts={@date_counts} post_url={@post_url} />
+      </div>
+    </article>
+    """
+  end
+
+  attr :band, :atom, required: true, values: [:featured, :newest]
+
+  defp band_badge(assigns) do
+    ~H"""
+    <span :if={@band == :featured} class="badge badge-primary badge-sm w-fit gap-1">
+      ★ {gettext("Featured")}
+    </span>
+    <span :if={@band == :newest} class="badge badge-secondary badge-sm w-fit gap-1">
+      ✦ {gettext("Latest")}
+    </span>
+    """
+  end
+
+  # Date + Read More row shared by the theme-surface band styles (cover has
+  # its own light-text variant inline).
+  attr :post, :map, required: true
+  attr :group_slug, :string, required: true
+  attr :date_counts, :map, required: true
+  attr :post_url, :string, required: true
+
+  defp band_card_footer(assigns) do
+    ~H"""
+    <div class="mt-2 flex items-center justify-between gap-4">
+      <%= if has_publication_date?(@post) do %>
+        <time class="text-xs text-base-content/60" datetime={@post.metadata.published_at || ""}>
+          {format_post_date(@post, @group_slug, @date_counts)}
+        </time>
+      <% else %>
+        <span class="text-xs text-base-content/60"></span>
+      <% end %>
+      <.link navigate={@post_url} class="btn btn-sm btn-primary">
+        {gettext("Read More →")}
+      </.link>
+    </div>
+    """
+  end
 
   # An explicit description wins; otherwise derive an excerpt from the content.
   defp post_card_excerpt(post) do

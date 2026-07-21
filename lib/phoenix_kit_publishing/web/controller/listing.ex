@@ -187,8 +187,10 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller.Listing do
        posts: posts,
        featured_posts: featured,
        featured_layout: Map.get(ctx.group, "featured_layout", "hero"),
+       featured_style: Map.get(ctx.group, "featured_style", "classic"),
        newest_posts: newest,
        newest_layout: Map.get(ctx.group, "newest_layout", "hero"),
+       newest_style: Map.get(ctx.group, "newest_style", "classic"),
        # Group-wide, not page-visible: URL disambiguation (date-only vs
        # date+time) must count same-day posts across every page AND the pinned
        # featured/newest bands — a page-2 render otherwise undercounts a date

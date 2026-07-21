@@ -104,6 +104,8 @@ defmodule PhoenixKit.Modules.Publishing.SchemaTest do
       assert PublishingGroup.featured_layout(group) == "hero"
       assert PublishingGroup.newest_enabled?(group) == false
       assert PublishingGroup.newest_layout(group) == "hero"
+      assert PublishingGroup.featured_style(group) == "classic"
+      assert PublishingGroup.newest_style(group) == "classic"
       assert PublishingGroup.scrollbar_style(group) == "default"
       assert PublishingGroup.scroll_progress_enabled?(group) == false
       assert PublishingGroup.scroll_headings_enabled?(group) == false
@@ -128,6 +130,8 @@ defmodule PhoenixKit.Modules.Publishing.SchemaTest do
           "featured_layout" => "card",
           "newest_enabled" => true,
           "newest_layout" => "card",
+          "featured_style" => "cover",
+          "newest_style" => "minimal",
           "scrollbar_style" => "branded",
           "scroll_progress_enabled" => true,
           "scroll_headings_enabled" => true,
@@ -150,6 +154,8 @@ defmodule PhoenixKit.Modules.Publishing.SchemaTest do
       assert PublishingGroup.featured_layout(group) == "card"
       assert PublishingGroup.newest_enabled?(group) == true
       assert PublishingGroup.newest_layout(group) == "card"
+      assert PublishingGroup.featured_style(group) == "cover"
+      assert PublishingGroup.newest_style(group) == "minimal"
       assert PublishingGroup.scrollbar_style(group) == "branded"
       assert PublishingGroup.scroll_progress_enabled?(group) == true
       assert PublishingGroup.scroll_headings_enabled?(group) == true

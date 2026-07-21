@@ -27,6 +27,8 @@ defmodule PhoenixKit.Modules.Publishing.Groups do
   @featured_layouts Constants.featured_layouts()
   @default_newest_layout Constants.default_newest_layout()
   @newest_layouts Constants.newest_layouts()
+  @default_band_style Constants.default_band_style()
+  @band_styles Constants.band_styles()
   @default_scrollbar_style Constants.default_scrollbar_style()
   @scrollbar_styles Constants.scrollbar_styles()
   @default_listing_sort Constants.default_listing_sort()
@@ -295,7 +297,9 @@ defmodule PhoenixKit.Modules.Publishing.Groups do
                         show_top_back_link listing_image_links)
   @enum_settings [
     {"featured_layout", @featured_layouts},
+    {"featured_style", @band_styles},
     {"newest_layout", @newest_layouts},
+    {"newest_style", @band_styles},
     {"scrollbar_style", @scrollbar_styles},
     {"scroll_timeline_granularity", @timeline_granularities},
     {"listing_sort", @listing_sorts},
@@ -673,8 +677,10 @@ defmodule PhoenixKit.Modules.Publishing.Groups do
       "item_plural" => Map.get(data, "item_plural", @default_item_plural),
       "featured_enabled" => Map.get(data, "featured_enabled", true),
       "featured_layout" => Map.get(data, "featured_layout", @default_featured_layout),
+      "featured_style" => Map.get(data, "featured_style", @default_band_style),
       "newest_enabled" => Map.get(data, "newest_enabled", false),
       "newest_layout" => Map.get(data, "newest_layout", @default_newest_layout),
+      "newest_style" => Map.get(data, "newest_style", @default_band_style),
       "scrollbar_style" => Map.get(data, "scrollbar_style", @default_scrollbar_style),
       "scroll_progress_enabled" => Map.get(data, "scroll_progress_enabled", false),
       "scroll_headings_enabled" => Map.get(data, "scroll_headings_enabled", false),

@@ -46,6 +46,8 @@ defmodule PhoenixKit.Modules.Publishing.GroupSettingsTest do
       assert defaults["featured_layout"] == PublishingGroup.featured_layout(empty)
       assert defaults["newest_enabled"] == PublishingGroup.newest_enabled?(empty)
       assert defaults["newest_layout"] == PublishingGroup.newest_layout(empty)
+      assert defaults["featured_style"] == PublishingGroup.featured_style(empty)
+      assert defaults["newest_style"] == PublishingGroup.newest_style(empty)
       assert defaults["scrollbar_style"] == PublishingGroup.scrollbar_style(empty)
 
       assert defaults["scroll_progress_enabled"] ==
