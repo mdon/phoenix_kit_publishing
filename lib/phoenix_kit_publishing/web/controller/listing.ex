@@ -259,6 +259,8 @@ defmodule PhoenixKit.Modules.Publishing.Web.Controller.Listing do
 
   defp split_newest(posts, true) do
     newest = Enum.max_by(posts, &listing_sort_key/1)
+    # List.delete removes by structural equality — safe because post maps
+    # carry distinct uuids, so two entries can never be structurally equal.
     {[newest], List.delete(posts, newest)}
   end
 

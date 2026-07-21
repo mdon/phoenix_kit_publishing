@@ -28,13 +28,13 @@ defmodule PhoenixKitPublishing.GroupAITranslatableTest do
     assert {:ok, _} = Ecto.UUID.cast(group["uuid"])
   end
 
-  test "fetch/2 resolves by uuid; unknown uuid errors" do
+  test "fetch/2 resolves by uuid; unknown uuid errors with the behaviour's atom" do
     group = create_group!()
 
     assert {:ok, fetched} = GroupAITranslatable.fetch("publishing_group", group["uuid"])
     assert fetched.slug == group["slug"]
 
-    assert {:error, :not_found} =
+    assert {:error, :resource_not_found} =
              GroupAITranslatable.fetch("publishing_group", Ecto.UUID.generate())
   end
 
@@ -82,6 +82,34 @@ defmodule PhoenixKitPublishing.GroupAITranslatableTest do
 
     assert {:error, :no_translated_name} =
              GroupAITranslatable.put_translation(fetched, "de-DE", %{}, [])
+  end
+
+  test "put_translation/4 logs a publishing.group.updated audit row with the actor" do
+    group = create_group!()
+    {:ok, fetched} = GroupAITranslatable.fetch("publishing_group", group["uuid"])
+    actor = Ecto.UUID.generate()
+
+    assert {:ok, _} =
+             GroupAITranslatable.put_translation(fetched, "et", %{"name" => "Eesti"},
+               actor_uuid: actor
+             )
+
+    %{entries: activities} = PhoenixKit.Activity.list(resource_uuid: group["uuid"], preload: [])
+
+    assert Enum.any?(activities, fn a ->
+             a.action == "publishing.group.updated" and a.mode == "auto" and
+               a.actor_uuid == actor and a.metadata["source"] == "ai_translation" and
+               a.metadata["target_lang"] == "et"
+           end)
+  end
+
+  test "put_translation/4 rolls back when the group vanished between fetch and merge" do
+    group = create_group!()
+    {:ok, fetched} = GroupAITranslatable.fetch("publishing_group", group["uuid"])
+    {:ok, _} = Groups.remove_group(group["slug"], force: true)
+
+    assert {:error, :resource_not_found} =
+             GroupAITranslatable.put_translation(fetched, "de-DE", %{"name" => "Name"}, [])
   end
 
   test "ai_translatables/0 registers both publishing adapters" do

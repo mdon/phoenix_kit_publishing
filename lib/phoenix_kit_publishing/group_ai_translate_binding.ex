@@ -10,6 +10,7 @@ defmodule PhoenixKitPublishing.GroupAITranslateBinding do
   behaviour declaration keeps dialyzer from flagging the contract mismatch.
   """
 
+  alias PhoenixKit.Modules.Publishing.Constants
   alias PhoenixKit.Modules.Publishing.Shared
 
   @doc "Languages whose name override is already non-blank in the live form."
@@ -35,7 +36,10 @@ defmodule PhoenixKitPublishing.GroupAITranslateBinding do
             _ -> %{}
           end
 
-        Map.put(params, "name_i18n", Map.put(name_i18n, lang, name))
+        # Same cap the persist paths apply — the in-form preview must not
+        # momentarily show a longer name than what will be saved.
+        capped = String.slice(name, 0, Constants.max_group_name_length())
+        Map.put(params, "name_i18n", Map.put(name_i18n, lang, capped))
 
       _ ->
         params

@@ -10,12 +10,15 @@ defmodule PhoenixKit.Modules.Publishing.Web.Edit do
 
   import PhoenixKitAI.Components.AITranslate,
     only: [
-      ai_multilang_tabs: 1,
-      ai_translate_modal: 1
+      ai_translate_button: 1,
+      ai_translate_hint: 1,
+      ai_translate_modal: 1,
+      ai_translate_progress: 1
     ]
 
   import PhoenixKitWeb.Components.MultilangForm,
     only: [
+      multilang_tabs: 1,
       multilang_fields_wrapper: 1,
       mount_multilang: 1,
       handle_switch_language: 2
@@ -79,7 +82,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Edit do
     {:noreply, assign(socket, :form, Component.to_form(params, as: :group))}
   end
 
-  # Language tab switch from <.multilang_tabs>. handle_switch_language/2 debounces
+  # Language tab switch from the tabs component. handle_switch_language/2 debounces
   # and, via the hook mount_multilang/1 attached, flips :current_lang — which
   # re-renders the name inputs so the active language's field is shown.
   def handle_event("switch_language", %{"lang" => lang_code}, socket) do
@@ -179,6 +182,59 @@ defmodule PhoenixKit.Modules.Publishing.Web.Edit do
   def handle_info(msg, socket) do
     Logger.debug("[Publishing.Web.Edit] unhandled message: #{inspect(msg)}")
     {:noreply, socket}
+  end
+
+  # Forward-compat dodge (the document_creator/projects `function_exported?`
+  # pattern): `ai_multilang_tabs/1` ships in the NEXT phoenix_kit_ai release —
+  # the published 0.16.0 this module's `~> 0.4` pin can resolve does not have
+  # it, and importing a missing function is a hard compile error for Hex
+  # consumers. Until the floor includes the release, dispatch at runtime and
+  # fall back to the identical hand-placed layout built from components that
+  # DO exist in 0.16.0.
+  #
+  # Cleanup at floor-bump (tracked in AGENTS.md): when mix.exs raises the
+  # phoenix_kit_ai floor past the release that ships ai_multilang_tabs, delete
+  # ai_tabs/1 + ai_tabs_fallback/1 and call <.ai_multilang_tabs> directly
+  # (import it in `only:`). The dynamic-module call keeps the compiler from
+  # warning about the function's absence in the published 0.16.0.
+  defp ai_tabs(assigns) do
+    mod = PhoenixKitAI.Components.AITranslate
+
+    if Code.ensure_loaded?(mod) and function_exported?(mod, :ai_multilang_tabs, 1) do
+      # apply/3, not a direct call — the compiler would warn (and
+      # warnings-as-errors fail) on the function's absence in the published
+      # phoenix_kit_ai 0.16.0. Same shape as the document_creator/projects
+      # forward-compat dodges.
+      # credo:disable-for-next-line Credo.Check.Refactor.Apply
+      apply(mod, :ai_multilang_tabs, [assigns])
+    else
+      ai_tabs_fallback(assigns)
+    end
+  end
+
+  # Mirrors ai_multilang_tabs' anatomy 1:1 (tabs + button/progress/hint row
+  # gated on the tabs' own visibility condition) so both dispatch paths render
+  # identically.
+  defp ai_tabs_fallback(assigns) do
+    ~H"""
+    <.multilang_tabs
+      multilang_enabled={@multilang_enabled}
+      language_tabs={@language_tabs}
+      current_lang={@current_lang}
+      class={@class}
+    />
+    <div
+      :if={
+        @ai_translate[:enabled] == true and @multilang_enabled and
+          match?([_, _ | _], @language_tabs)
+      }
+      class={@ai_row_class}
+    >
+      <.ai_translate_button ai_translate={@ai_translate} />
+      <.ai_translate_progress ai_translate={@ai_translate} />
+      <.ai_translate_hint ai_translate={@ai_translate} />
+    </div>
+    """
   end
 
   defp find_group(slug) do
@@ -343,8 +399,9 @@ defmodule PhoenixKit.Modules.Publishing.Web.Edit do
                 @show_multilang_tabs && "rounded-lg border border-base-200 bg-base-200/40 p-4"
               }>
                 <%!-- Bundled tabs + AI-translate row (canonical placement:
-                  a compact row tucked under the tabs). --%>
-                <.ai_multilang_tabs
+                  a compact row tucked under the tabs). Rendered through a
+                  forward-compat dodge — see ai_tabs/1. --%>
+                <.ai_tabs
                   :if={@show_multilang_tabs}
                   multilang_enabled={@multilang_enabled}
                   language_tabs={@language_tabs}

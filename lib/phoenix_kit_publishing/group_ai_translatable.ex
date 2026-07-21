@@ -24,16 +24,21 @@ defmodule PhoenixKitPublishing.GroupAITranslatable do
   (the projects/catalogue adapters' pattern): concurrent per-language jobs
   serialize on the row lock and each merges against the latest committed map,
   never dropping a sibling language.
+
+  ## Audit + events
+
+  Each merged language logs `publishing.group.updated` (mode `"auto"`, actor
+  from the pipeline opts, locale-agnostic metadata). No `:group_updated`
+  PubSub broadcast is emitted per merge — see `log_translated/3` for why.
   """
 
   @behaviour PhoenixKitAI.Translatable
 
   import Ecto.Query, only: [where: 3, lock: 2]
 
+  alias PhoenixKit.Modules.Publishing.ActivityLog
   alias PhoenixKit.Modules.Publishing.Constants
-  alias PhoenixKit.Modules.Publishing.Groups
   alias PhoenixKit.Modules.Publishing.PublishingGroup
-  alias PhoenixKit.Modules.Publishing.PubSub, as: PublishingPubSub
   alias PhoenixKit.RepoHelper
 
   @resource_type "publishing_group"
@@ -44,12 +49,12 @@ defmodule PhoenixKitPublishing.GroupAITranslatable do
   @impl true
   def fetch(@resource_type, group_uuid) when is_binary(group_uuid) do
     case RepoHelper.repo().get(PublishingGroup, group_uuid) do
-      nil -> {:error, :not_found}
+      nil -> {:error, :resource_not_found}
       %PublishingGroup{} = group -> {:ok, group}
     end
   end
 
-  def fetch(_resource_type, _uuid), do: {:error, :not_found}
+  def fetch(_resource_type, _uuid), do: {:error, :resource_not_found}
 
   @impl true
   def source_fields(%PublishingGroup{name: name}, _source_lang) do
@@ -57,16 +62,21 @@ defmodule PhoenixKitPublishing.GroupAITranslatable do
   end
 
   @impl true
-  def put_translation(%PublishingGroup{uuid: uuid}, target_lang, fields, _opts)
+  def put_translation(%PublishingGroup{uuid: uuid}, target_lang, fields, opts)
       when is_binary(target_lang) do
     case translated_name(fields) do
       nil ->
         {:error, :no_translated_name}
 
       name ->
-        uuid
-        |> merge_name_translation(target_lang, name)
-        |> broadcast_updated()
+        case merge_name_translation(uuid, target_lang, name) do
+          {:ok, updated} = ok ->
+            log_translated(updated, target_lang, opts)
+            ok
+
+          error ->
+            error
+        end
     end
   end
 
@@ -108,21 +118,30 @@ defmodule PhoenixKitPublishing.GroupAITranslatable do
     end
   end
 
-  # Post-commit: let open admin/public views refresh the group map. The DB
-  # write happened inside the FOR UPDATE transaction, so the broadcast waits
-  # until after commit (a pre-commit event would race the read-back).
-  # Consumers receive the same public map shape Groups.update_group emits.
-  defp broadcast_updated({:ok, %PublishingGroup{} = group} = ok) do
-    case Groups.get_group(group.slug) do
-      {:ok, map} -> PublishingPubSub.broadcast_group_updated(map)
-      _ -> :ok
-    end
-
-    ok
-  rescue
-    # A PubSub hiccup must not fail the translation job — the write committed.
-    _ -> ok
+  # Post-commit audit row — the same publishing.group.updated action a manual
+  # edit logs, mode "auto" (background job), actor threaded from the pipeline
+  # opts. Metadata stays locale-agnostic (slug + target language), matching
+  # the audit convention.
+  #
+  # Deliberately NO :group_updated PubSub broadcast: the sibling adapters
+  # (posts here, projects, catalogue) suppress per-merge broadcasts too —
+  # translation completion is signalled by core's :translation_completed
+  # (which the Edit LV folds into the form via FormGlue), and a non-primary
+  # name_i18n entry doesn't change what primary-language admin views render,
+  # so a per-language broadcast would only fan N full listing reloads out per
+  # translation run.
+  defp log_translated(%PublishingGroup{} = group, target_lang, opts) do
+    ActivityLog.log(%{
+      action: "publishing.group.updated",
+      mode: "auto",
+      actor_uuid: ActivityLog.actor_uuid(opts),
+      resource_type: "publishing_group",
+      resource_uuid: group.uuid,
+      metadata: %{
+        "slug" => group.slug,
+        "target_lang" => target_lang,
+        "source" => "ai_translation"
+      }
+    })
   end
-
-  defp broadcast_updated(error), do: error
 end

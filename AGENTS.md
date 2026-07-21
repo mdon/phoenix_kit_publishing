@@ -412,7 +412,7 @@ Add new error atoms by extending `@type error_atom`, the doctest example, and ad
 
 ### Per-group display settings (group `data` JSONB)
 
-Distinct from the site-wide keys above: each group carries ~21 display settings
+Distinct from the site-wide keys above: each group carries ~22 display settings
 in its `data` JSONB (scrollbar style, featured posts, the latest-post band,
 scroll rails, post width, reading time, tags, post count, top back link,
 clickable card images, etc.), edited on
@@ -431,7 +431,9 @@ off per group). `newest_enabled` (+ `newest_layout`, hero/card) is default-off:
 when on, the chronologically newest post is pulled out of the grid into its own
 "Latest" band under any featured posts (a featured newest post stays in the
 Featured band — Latest takes the next-newest; `split_newest/2` in
-`controller/listing.ex`). Both bands also carry a **style** key
+`controller/listing.ex`). `listing_animations` (default on) owns every card
+hover effect (the 4px motion-safe lift + shadow/image transitions) — off
+renders fully static cards. Both bands also carry a **style** key
 (`featured_style` / `newest_style`: `classic | cover | cover_panel | minimal |
 top`, default `classic`) orthogonal to the layout — layout is size/placement
 (hero band vs card in the 2-col grid), style is paint. `cover` = the featured
@@ -445,6 +447,33 @@ a11y-safe cover); `minimal` = text-only accent-border editorial band; `top` =
 `listing_post_card` variants, so pre-styles groups render unchanged. Scrim
 strength, band height, and text placement are deliberately hardcoded (5-AI
 panel consensus: good defaults over option bloat).
+
+**Admin post-status classification** (2026-07-21): the admin group page
+classifies each post by its LIVE state — `list_posts_with_metadata` passes an
+`:effective_status` override ("published" iff the post's ACTIVE version exists
+and is published, the same rule the public `list_posts_for_listing` applies) —
+while still mapping the LATEST version for editing context. Deliberate split:
+`metadata.status` is the post-level truth (tabs/counts/status select), the
+per-language/per-version maps stay version-accurate. Versions are an ARCHIVAL
+tool here (retain old legal text, branch a rewrite) — do not surface
+"unpublished edits" style pending-work flags in listings (boss call).
+
+**Group-name AI translation**: a second `PhoenixKitAI.Translatable` adapter,
+`PhoenixKitPublishing.GroupAITranslatable` (`resource_type "publishing_group"`,
+uuid-keyed — the public group map exposes `"uuid"` for this). One field
+(`{{name}}`), merged into `data["name_i18n"]` under a `FOR UPDATE` row lock
+(all languages share one JSONB — sibling-safe), audit row
+`publishing.group.updated` (mode `"auto"`, `source: "ai_translation"`), NO
+per-merge `:group_updated` broadcast (see `log_translated/3`). The Edit Group
+LV wires it via `AITranslate.Embed` + `FormGlue` with a params-map
+`GroupAITranslateBinding` (deliberately not `@behaviour` — the callbacks type
+an Ecto changeset). ⚠️ The tabs render through a **forward-compat dodge**
+(`ai_tabs/1` in `web/edit.ex`): phoenix_kit_ai's `ai_multilang_tabs/1` is
+unreleased — the dodge dispatches to it when exported and otherwise renders
+the identical hand-placed layout from components that exist in the published
+0.16.0, so the Hex pin keeps compiling. **TODO(floor-bump): when the
+phoenix_kit_ai floor includes the release shipping `ai_multilang_tabs`, delete
+the dodge and import the component directly.**
 
 Two write-path behaviors to know: `update_group/3` is **lenient** (an
 out-of-whitelist enum value is ignored, a non-truthy bool becomes `false` — the

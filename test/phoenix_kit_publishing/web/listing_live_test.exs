@@ -72,6 +72,20 @@ defmodule PhoenixKit.Modules.Publishing.Web.ListingLiveTest do
     refute html =~ "Unpublished edits"
   end
 
+  test "a never-published post with stacked drafts stays Draft (no live version)", %{
+    conn: _conn,
+    group: group,
+    post: post
+  } do
+    # The effective-status override must NOT fire without a live (active,
+    # published) version — an unpublished post with several draft revisions
+    # keeps classifying by its newest revision.
+    {:ok, _} = Versions.create_version_from(group["slug"], post.uuid, 1, %{})
+
+    listed = Enum.find(Posts.list_posts(group["slug"]), &(&1.uuid == post.uuid))
+    assert listed.metadata.status == "draft"
+  end
+
   test "header actions link to the group's settings page", %{conn: conn, group: group} do
     {:ok, _view, html} =
       conn

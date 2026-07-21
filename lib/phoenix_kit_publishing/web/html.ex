@@ -1024,6 +1024,53 @@ defmodule PhoenixKit.Modules.Publishing.Web.HTML do
     """
   end
 
+  # The full-bleed decorative image layer, the (optional) contrast scrim, and
+  # the stretched click-through link shared by band_cover and
+  # band_cover_panel. Rendered as ONE block so the stacking order can't drift:
+  # img UNDER scrim UNDER link (positioned siblings stack by DOM order — the
+  # link must sit above the scrim to receive background clicks, and the z-10
+  # text strip above them all still wins on its own links).
+  # aria-hidden/tabindex=-1 on the link: the title link is the accessible route.
+  attr :img, :string, default: nil
+  attr :post_url, :string, required: true
+  attr :image_links, :boolean, required: true
+  attr :scrim, :boolean, required: true
+
+  defp band_cover_media(assigns) do
+    ~H"""
+    <img
+      :if={@img}
+      src={@img}
+      alt=""
+      aria-hidden="true"
+      loading="lazy"
+      class="absolute inset-0 h-full w-full object-cover"
+    />
+    <div
+      :if={@scrim}
+      aria-hidden="true"
+      class="absolute inset-0 bg-gradient-to-t from-black/80 via-black/40 to-black/10"
+    >
+    </div>
+    <.link
+      :if={@image_links}
+      navigate={@post_url}
+      class="pk-band-cover-link absolute inset-0"
+      tabindex="-1"
+      aria-hidden="true"
+    >
+    </.link>
+    """
+  end
+
+  # Per-band accent ring + per-layout band height — shared by the image-backed
+  # band styles so the stanzas can't drift apart.
+  defp band_ring_class(:featured), do: "ring-primary/20"
+  defp band_ring_class(:newest), do: "ring-secondary/20"
+
+  defp band_minh_class("card"), do: "min-h-64"
+  defp band_minh_class(_hero), do: "min-h-80 lg:min-h-96"
+
   # Cover — the featured image fills the card; text overlaid in the dark zone
   # of a hardcoded bottom-heavy scrim (the accessibility guarantee — never an
   # option). No image degrades to a branded gradient banner, scrim on top, so
@@ -1035,20 +1082,11 @@ defmodule PhoenixKit.Modules.Publishing.Web.HTML do
       class={[
         "relative flex items-end overflow-hidden rounded-2xl shadow-lg ring-1",
         @animations && "transition hover:shadow-xl motion-safe:hover:-translate-y-1",
-        (@band == :featured && "ring-primary/20") || "ring-secondary/20",
-        (@layout == "card" && "min-h-64") || "min-h-80 lg:min-h-96"
+        band_ring_class(@band),
+        band_minh_class(@layout)
       ]}
       data-post-date={effective_post_date(@post)}
     >
-      <%!-- Decorative — the title link below is the accessible route. --%>
-      <img
-        :if={@img}
-        src={@img}
-        alt=""
-        aria-hidden="true"
-        loading="lazy"
-        class="absolute inset-0 h-full w-full object-cover"
-      />
       <div
         :if={!@img}
         aria-hidden="true"
@@ -1059,23 +1097,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.HTML do
         ]}
       >
       </div>
-      <div
-        aria-hidden="true"
-        class="absolute inset-0 bg-gradient-to-t from-black/80 via-black/40 to-black/10"
-      >
-      </div>
-      <%!-- Stretched link — the whole background clicks through to the post
-        (same listing_image_links gate as card images). Sits after the scrim
-        and before the z-10 content, so the title/Read More links still win
-        in the text strip. Decorative for a11y: the title link is the route. --%>
-      <.link
-        :if={@image_links}
-        navigate={@post_url}
-        class="pk-band-cover-link absolute inset-0"
-        tabindex="-1"
-        aria-hidden="true"
-      >
-      </.link>
+      <.band_cover_media img={@img} post_url={@post_url} image_links={@image_links} scrim={true} />
       <%!-- pointer-events-none + auto on the links: empty space in the text
         strip falls through to the stretched link, so the WHOLE band is
         clickable, while the title/Read More links still win on their own
@@ -1122,29 +1144,13 @@ defmodule PhoenixKit.Modules.Publishing.Web.HTML do
       class={[
         "relative flex items-end overflow-hidden rounded-2xl bg-base-200 shadow-lg ring-1",
         @animations && "transition hover:shadow-xl motion-safe:hover:-translate-y-1",
-        (@band == :featured && "ring-primary/20") || "ring-secondary/20",
-        (@layout == "card" && "min-h-64") || "min-h-80 lg:min-h-96"
+        band_ring_class(@band),
+        band_minh_class(@layout)
       ]}
       data-post-date={effective_post_date(@post)}
     >
-      <img
-        :if={@img}
-        src={@img}
-        alt=""
-        aria-hidden="true"
-        loading="lazy"
-        class="absolute inset-0 h-full w-full object-cover"
-      />
-      <%!-- Same stretched-link treatment as band_cover — the image area
-        outside the text panel clicks through to the post. --%>
-      <.link
-        :if={@image_links}
-        navigate={@post_url}
-        class="pk-band-cover-link absolute inset-0"
-        tabindex="-1"
-        aria-hidden="true"
-      >
-      </.link>
+      <%!-- No scrim — this style's contrast comes from the opaque panel. --%>
+      <.band_cover_media img={@img} post_url={@post_url} image_links={@image_links} scrim={false} />
       <%!-- Wrapper falls through to the stretched link; the opaque panel
         itself keeps normal pointer behavior. --%>
       <div class={["relative z-10 w-full p-5 lg:p-8", @image_links && "pointer-events-none"]}>
@@ -1199,7 +1205,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.HTML do
       class={[
         "card overflow-hidden bg-base-200 shadow-lg ring-1",
         @animations && "transition hover:shadow-xl motion-safe:hover:-translate-y-1",
-        (@band == :featured && "ring-primary/20") || "ring-secondary/20"
+        band_ring_class(@band)
       ]}
       data-post-date={effective_post_date(@post)}
     >
