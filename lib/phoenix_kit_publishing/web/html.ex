@@ -1327,13 +1327,15 @@ defmodule PhoenixKit.Modules.Publishing.Web.HTML do
           default on) — a compact muted twin of the footer link, hugging the
           title so it doesn't cost the page a band of empty space. --%>
         <nav :if={assigns[:show_top_back_link] != false} class="mb-1">
+          <%!-- Visible text is just the group name (boss call) — the arrow
+            carries the "back" meaning visually; aria-label keeps it explicit
+            for screen readers. --%>
           <.link
             navigate={group_listing_path(@current_language, @group_slug)}
             class="inline-flex items-center gap-1 text-xs text-base-content/50 hover:text-primary transition-colors"
+            aria-label={gettext("Back to %{group}", group: @group_name)}
           >
-            <.icon name="hero-arrow-left" class="w-3 h-3" /> {gettext("Back to %{group}",
-              group: @group_name
-            )}
+            <.icon name="hero-arrow-left" class="w-3 h-3" /> {@group_name}
           </.link>
         </nav>
         <%!-- Breadcrumb Navigation (gated on the group's show_breadcrumbs setting) --%>
@@ -1473,10 +1475,9 @@ defmodule PhoenixKit.Modules.Publishing.Web.HTML do
           <.link
             navigate={group_listing_path(@current_language, @group_slug)}
             class="inline-flex items-center gap-1 text-xs text-base-content/50 hover:text-primary transition-colors"
+            aria-label={gettext("Back to %{group}", group: @group_name)}
           >
-            <.icon name="hero-arrow-left" class="w-3 h-3" /> {gettext("Back to %{group}",
-              group: @group_name
-            )}
+            <.icon name="hero-arrow-left" class="w-3 h-3" /> {@group_name}
           </.link>
         </footer>
       </article>
