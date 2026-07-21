@@ -10,15 +10,12 @@ defmodule PhoenixKit.Modules.Publishing.Web.Edit do
 
   import PhoenixKitAI.Components.AITranslate,
     only: [
-      ai_translate_button: 1,
-      ai_translate_modal: 1,
-      ai_translate_progress: 1,
-      ai_translate_hint: 1
+      ai_multilang_tabs: 1,
+      ai_translate_modal: 1
     ]
 
   import PhoenixKitWeb.Components.MultilangForm,
     only: [
-      multilang_tabs: 1,
       multilang_fields_wrapper: 1,
       mount_multilang: 1,
       handle_switch_language: 2
@@ -345,19 +342,16 @@ defmodule PhoenixKit.Modules.Publishing.Web.Edit do
               <div class={
                 @show_multilang_tabs && "rounded-lg border border-base-200 bg-base-200/40 p-4"
               }>
-                <div :if={@show_multilang_tabs} class="flex flex-wrap items-center gap-2">
-                  <.multilang_tabs
-                    multilang_enabled={@multilang_enabled}
-                    language_tabs={@language_tabs}
-                    current_lang={@current_lang}
-                    class="pb-3 grow"
-                  />
-                  <.ai_translate_button ai_translate={FormGlue.ai_translate_config(assigns)} />
-                </div>
-                <div :if={@show_multilang_tabs}>
-                  <.ai_translate_progress ai_translate={FormGlue.ai_translate_config(assigns)} />
-                  <.ai_translate_hint ai_translate={FormGlue.ai_translate_config(assigns)} />
-                </div>
+                <%!-- Bundled tabs + AI-translate row (canonical placement:
+                  a compact row tucked under the tabs). --%>
+                <.ai_multilang_tabs
+                  :if={@show_multilang_tabs}
+                  multilang_enabled={@multilang_enabled}
+                  language_tabs={@language_tabs}
+                  current_lang={@current_lang}
+                  class=""
+                  ai_translate={FormGlue.ai_translate_config(assigns)}
+                />
 
                 <.multilang_fields_wrapper
                   multilang_enabled={@multilang_enabled}
