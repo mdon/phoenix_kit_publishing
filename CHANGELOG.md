@@ -1,5 +1,39 @@
 # Changelog
 
+## 0.4.2 - 2026-07-21
+
+PR #34 — public-side listing polish: a "Latest" post band, a top back-link
+on post pages, and clickable post-card images, plus a group-wide date-count
+fix and card-image a11y guard from the post-merge quorum-review follow-up.
+Reviewed post-merge with no further fixes needed — see
+`dev_docs/pull_requests/2026/34-newest-band-back-link-image-links/` for the
+review.
+
+### Added
+- **Latest post band** — new `newest_enabled`/`newest_layout` group settings
+  pull the chronologically newest post out of the grid into its own "Latest"
+  band under any featured posts (`hero` or `card` layout, same vocabulary as
+  `featured_layout`). A post that is both featured and newest stays in the
+  Featured band; Latest takes the next-newest.
+- **Top back link** — new `show_top_back_link` group setting (default on)
+  renders a subtle "Back to <group>" link at the top of post pages, mirroring
+  the existing footer button, for readers who land mid-archive.
+- **Clickable card images** — new `listing_image_links` group setting
+  (default on) makes a post card's image click through to the post, same as
+  the title; the image link is `aria-hidden`/`tabindex="-1"` since the title
+  link is the accessible route to the same destination.
+
+### Fixed
+- Group listing `date_counts` (used to decide whether a post's URL needs a
+  time segment to disambiguate same-day posts) are now computed over the
+  full group, not just the visible page — a page-2 render could previously
+  undercount a date shared with a post pinned into the Featured/Latest band
+  or sitting on a different page, producing an ambiguous URL.
+- `assign_group_display_config/2` no longer flips a stored `false` back to
+  a default-`true` setting (was using `||`, which can't represent an
+  explicit `false`); affects `show_top_back_link` and any future
+  default-on post-display setting.
+
 ## 0.4.1 - 2026-07-20
 
 PR #33 — guard the `phoenix_kit_og` refine seam against crashes and document
