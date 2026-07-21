@@ -30,8 +30,12 @@ defmodule PhoenixKit.Modules.Publishing.DBStorage.Mapper do
       ) do
     available_languages = Enum.map(all_contents, & &1.language) |> Enum.sort()
 
-    # Derive status from active_version_uuid
+    # Derive status from active_version_uuid. `:effective_status` (when the
+    # caller mapped a NEWER revision of a post whose active version is live)
+    # overrides only the post-level metadata.status below — never the
+    # per-language/per-version maps, which stay version-accurate.
     status = derive_status(post, version)
+    effective_status = Keyword.get(opts, :effective_status) || status
 
     # All languages share the version's status (status is version-level, not per-language)
     language_statuses =
@@ -70,7 +74,7 @@ defmodule PhoenixKit.Modules.Publishing.DBStorage.Mapper do
       version_dates: version_dates,
       content: content.content,
       content_updated_at: content.updated_at,
-      metadata: build_metadata(post, version, content, status)
+      metadata: build_metadata(post, version, content, effective_status)
     }
   end
 
@@ -84,6 +88,8 @@ defmodule PhoenixKit.Modules.Publishing.DBStorage.Mapper do
     group_slug = get_group_slug(post)
     current_version = if version, do: version.version_number, else: 1
     status = if version, do: derive_status(post, version), else: "draft"
+    # See to_post_map/6 — post-level status override, per-language maps untouched.
+    effective_status = Keyword.get(opts, :effective_status) || status
 
     # All languages share the version's status (status is version-level, not per-language)
     language_statuses =
@@ -123,7 +129,7 @@ defmodule PhoenixKit.Modules.Publishing.DBStorage.Mapper do
       version_statuses: version_statuses,
       version_dates: version_dates,
       content: primary_content && extract_excerpt(primary_content),
-      metadata: build_listing_metadata(post, version, primary_content, status),
+      metadata: build_listing_metadata(post, version, primary_content, effective_status),
       # Per-language data for listing pages (so language switching shows correct titles)
       language_titles: Map.new(all_contents, fn c -> {c.language, c.title} end),
       language_excerpts: Map.new(all_contents, fn c -> {c.language, extract_excerpt(c)} end)

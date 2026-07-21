@@ -18,6 +18,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.ListingLiveTest do
   alias PhoenixKit.Modules.Publishing.ListingCache
   alias PhoenixKit.Modules.Publishing.Posts
   alias PhoenixKit.Modules.Publishing.PubSub, as: PublishingPubSub
+  alias PhoenixKit.Modules.Publishing.Versions
   alias PhoenixKit.Settings
 
   setup do
@@ -41,6 +42,34 @@ defmodule PhoenixKit.Modules.Publishing.Web.ListingLiveTest do
     assert html =~ group["name"]
     # The post's title renders as its link in the listing.
     assert html =~ "Sample post for listing"
+  end
+
+  test "a live post with newer draft revisions stays on the Published tab", %{
+    conn: conn,
+    group: group,
+    post: post
+  } do
+    :ok = Versions.publish_version(group["slug"], post.uuid, 1)
+    {:ok, _} = Versions.create_version_from(group["slug"], post.uuid, 1, %{})
+
+    # The loader classifies by the LIVE (active) version — the same rule the
+    # public listing applies — not by the newest revision's own status.
+    listed = Enum.find(Posts.list_posts(group["slug"]), &(&1.uuid == post.uuid))
+    assert listed.metadata.status == "published"
+    # The newest revision itself stays an honest draft in the version map.
+    assert listed.version_statuses[listed.metadata.version] == "draft"
+
+    {:ok, _view, html} =
+      conn
+      |> put_test_scope(fake_scope())
+      |> live("/admin/publishing/#{group["slug"]}")
+
+    # Default view is the Published tab — the post is there. No revision
+    # badge: versions are an archival tool (keep the old legal text, branch a
+    # rewrite), not a pending-work state the listing should flag (boss call,
+    # 2026-07-21).
+    assert html =~ "Sample post for listing"
+    refute html =~ "Unpublished edits"
   end
 
   test "header actions link to the group's settings page", %{conn: conn, group: group} do
