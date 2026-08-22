@@ -41,7 +41,9 @@ defmodule PhoenixKit.Modules.Publishing.Renderer do
   #     component fallback, and its stylesheet is appended per document.
   # v8: <Gallery> renders as a helix instead of falling through to the unknown-
   #     component fallback, and its stylesheet is appended per document.
-  @cache_version "v8"
+  # v9: <SplatGaussian> renders as an interactive-demo container instead of
+  #     falling through to the unknown-component fallback.
+  @cache_version "v9"
 
   # Matches the internal signed-file route — `<prefix>/file/<uuid>/<variant>/<token>`
   # — embedded as an `<img src>`. The prefix is bounded to plain path segments
@@ -56,7 +58,7 @@ defmodule PhoenixKit.Modules.Publishing.Renderer do
   @global_cache_key "publishing_render_cache_enabled"
   @per_group_cache_prefix "publishing_render_cache_enabled_"
 
-  @component_regex ~r/<(Image|CTA|Headline|Subheadline|Video|Audio|EntityForm)\s+([^>]*?)\/>/s
+  @component_regex ~r/<(Image|CTA|Headline|Subheadline|Video|Audio|EntityForm|SplatGaussian)\s+([^>]*?)\/>/s
   @component_block_regex ~r/<(CTA|Headline|Subheadline|Video|Audio|EntityForm|Showcase|Gallery)\s*([^>]*)>(.*?)<\/\1>/s
 
   # Every tag this module knows how to render. The editor hands this list to
@@ -68,7 +70,7 @@ defmodule PhoenixKit.Modules.Publishing.Renderer do
   # containing `<Showcase>`, touch anything, and the autosave writes back a
   # body with the bands flattened to loose paragraphs. It is silent, it looks
   # like nothing happened, and the only copy of the original is gone.
-  @component_tags ~w(Image CTA Headline Subheadline Video Audio EntityForm Showcase Gallery Note)
+  @component_tags ~w(Image CTA Headline Subheadline Video Audio EntityForm Showcase Gallery Note SplatGaussian)
 
   @doc """
   The PHK component tags the renderer understands, for editors that must keep
@@ -744,7 +746,8 @@ defmodule PhoenixKit.Modules.Publishing.Renderer do
       String.contains?(content, "<Audio") ||
       String.contains?(content, "<Showcase") ||
       String.contains?(content, "<Gallery") ||
-      String.contains?(content, "<EntityForm")
+      String.contains?(content, "<EntityForm") ||
+      String.contains?(content, "<SplatGaussian")
   end
 
   # Render markdown using MDEx (comrak), then inject Tailwind/daisyUI classes
@@ -1088,10 +1091,67 @@ defmodule PhoenixKit.Modules.Publishing.Renderer do
       "<div class='error'>Error rendering entity form</div>"
   end
 
+  # An interactive teaching demo: one 3D gaussian with sliders, drawn by the
+  # bundle in `priv/static/assets/phoenix_kit_publishing.js`.
+  #
+  # The emitted container carries `data-pk-splat-gaussian`, which the bundle
+  # scans for on DOMContentLoaded — public post pages are dead views, so a
+  # phx-hook alone would never mount here. The hook attribute is still
+  # emitted for live contexts (the editor preview), where the two boot paths
+  # deduplicate on the element.
+  #
+  # Degrades to its own caption: with JavaScript off the reader gets a
+  # sentence saying what would have been here, not an empty box.
+  defp render_inline_component("SplatGaussian", attrs) do
+    attr_map = parse_xml_attributes(attrs)
+    id = "pk-splatg-#{:erlang.unique_integer([:positive])}"
+
+    data =
+      [{"sx", "1"}, {"sy", "0.45"}, {"sz", "0.7"}, {"hue", "24"}]
+      |> Enum.map(fn {key, default} ->
+        value = attr_map |> Map.get(key, default) |> numeric_or(default)
+        ~s( data-#{key}="#{value}")
+      end)
+      |> Enum.join()
+
+    html = """
+    <div id="#{id}" class="pk-splatg" data-pk-splat-gaussian phx-hook="PubSplatGaussian" phx-update="ignore"#{data}>
+    <p class="pk-splatg__caption">This is an interactive demo — one gaussian with sliders for its
+    scale, rotation, opacity and colour. It needs JavaScript, which appears to be off.</p>
+    </div>
+    """
+
+    html
+    |> Phoenix.HTML.raw()
+    |> PageBuilder.Renderer.wrap_stretch(attr_map)
+    |> Safe.to_iodata()
+    |> IO.iodata_to_binary()
+  rescue
+    error ->
+      Logger.warning("Error rendering SplatGaussian component: #{inspect(error)}")
+      "<div class='error'>Error rendering demo</div>"
+  end
+
   defp render_inline_component(tag, _attrs) do
     # Fallback for other components
     Logger.warning("Inline component not supported yet: #{tag}")
     ""
+  end
+
+  # Attribute values land in the demo's data attributes, so they must be
+  # numbers and nothing else — an attribute is author-supplied markup, and
+  # "author" includes anyone with editor access.
+  defp numeric_or(value, default) do
+    case Float.parse(to_string(value)) do
+      {number, ""} ->
+        to_string(number)
+
+      _not_a_number ->
+        # Normalized through the same parse as accepted values, so a rejected
+        # "1&quot;…" payload and a plain default both emit data-sx="1.0".
+        {number, ""} = Float.parse(default)
+        to_string(number)
+    end
   end
 
   defp render_block_component(fragment) do

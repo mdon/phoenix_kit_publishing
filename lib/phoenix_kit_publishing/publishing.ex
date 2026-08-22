@@ -661,6 +661,22 @@ defmodule PhoenixKit.Modules.Publishing do
   @impl PhoenixKit.Module
   def css_sources, do: [:phoenix_kit_publishing]
 
+  # The bundle boots interactive article blocks (currently `<SplatGaussian>`)
+  # on DEAD public post pages via a DOM scan, and exports the same boots as
+  # hooks for live contexts. Dead pages are the reason this exists at all:
+  # a phx-hook alone would never mount there, and the block would render as
+  # inert controls.
+  @impl PhoenixKit.Module
+  def js_sources do
+    [
+      %{
+        app: :phoenix_kit_publishing,
+        file: "static/assets/phoenix_kit_publishing.js",
+        global: "PhoenixKitPublishingHooks"
+      }
+    ]
+  end
+
   # ============================================================================
   # Shared Helpers (used across submodules)
   # ============================================================================
