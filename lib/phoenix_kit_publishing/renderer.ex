@@ -44,7 +44,8 @@ defmodule PhoenixKit.Modules.Publishing.Renderer do
   # v9: <SplatGaussian> renders as an interactive-demo container instead of
   #     falling through to the unknown-component fallback.
   # v10: <SplatTrainer> — same, for the red-dot trainer demo.
-  @cache_version "v10"
+  # v11: body links open in a new tab (except #fragment/mailto/tel).
+  @cache_version "v11"
 
   # Matches the internal signed-file route — `<prefix>/file/<uuid>/<variant>/<token>`
   # — embedded as an `<img src>`. The prefix is bounded to plain path segments
@@ -517,7 +518,9 @@ defmodule PhoenixKit.Modules.Publishing.Renderer do
       end
 
     healed = heal_signed_file_urls(result)
-    healed <> notes_html <> showcase_styles(healed) <> helix_styles(healed)
+
+    linked = open_links_in_new_tab(healed <> notes_html)
+    linked <> showcase_styles(healed) <> helix_styles(healed)
   end
 
   def render_markdown(_, _opts), do: ""
@@ -726,6 +729,23 @@ defmodule PhoenixKit.Modules.Publishing.Renderer do
   # content already carrying the current prefix/token. `<Image file_uuid>`
   # components (the current format) resolve correctly on their own; this only
   # matters for the legacy frozen-URL markdown.
+  # Body links open in a new tab — the reader keeps their place in the
+  # article; a link in prose is a reference, not navigation. Three kinds
+  # must stay put: in-page #fragment refs (the notes system's footnote
+  # links navigate within the page), mailto: and tel: (a blank tab flashing
+  # open next to the mail client helps nobody). A tag where the author
+  # already wrote a target OR a rel is left exactly as authored — writing
+  # target="_self" is the opt-out; injecting a second rel would be invalid
+  # HTML. Escaped links inside code blocks are `&lt;a`, so the scan cannot
+  # touch them.
+  @new_tab_link_regex ~r/<a\s+(?![^>]*\btarget=)(?![^>]*\brel=)([^>]*\bhref="(?!#|mailto:|tel:)[^"]*"[^>]*)>/i
+
+  defp open_links_in_new_tab(html) do
+    Regex.replace(@new_tab_link_regex, html, fn _full, attrs ->
+      ~s(<a #{attrs} target="_blank" rel="noopener noreferrer">)
+    end)
+  end
+
   defp heal_signed_file_urls(html) when is_binary(html) do
     Regex.replace(@signed_file_url_regex, html, fn _full, file_uuid, variant ->
       ~s(src="#{URLSigner.signed_url(file_uuid, variant)}")
