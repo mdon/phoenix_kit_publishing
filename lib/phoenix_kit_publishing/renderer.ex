@@ -43,7 +43,8 @@ defmodule PhoenixKit.Modules.Publishing.Renderer do
   #     component fallback, and its stylesheet is appended per document.
   # v9: <SplatGaussian> renders as an interactive-demo container instead of
   #     falling through to the unknown-component fallback.
-  @cache_version "v9"
+  # v10: <SplatTrainer> — same, for the red-dot trainer demo.
+  @cache_version "v10"
 
   # Matches the internal signed-file route — `<prefix>/file/<uuid>/<variant>/<token>`
   # — embedded as an `<img src>`. The prefix is bounded to plain path segments
@@ -58,7 +59,7 @@ defmodule PhoenixKit.Modules.Publishing.Renderer do
   @global_cache_key "publishing_render_cache_enabled"
   @per_group_cache_prefix "publishing_render_cache_enabled_"
 
-  @component_regex ~r/<(Image|CTA|Headline|Subheadline|Video|Audio|EntityForm|SplatGaussian)\s+([^>]*?)\/>/s
+  @component_regex ~r/<(Image|CTA|Headline|Subheadline|Video|Audio|EntityForm|SplatGaussian|SplatTrainer)\s+([^>]*?)\/>/s
   @component_block_regex ~r/<(CTA|Headline|Subheadline|Video|Audio|EntityForm|Showcase|Gallery)\s*([^>]*)>(.*?)<\/\1>/s
 
   # Every tag this module knows how to render. The editor hands this list to
@@ -70,7 +71,7 @@ defmodule PhoenixKit.Modules.Publishing.Renderer do
   # containing `<Showcase>`, touch anything, and the autosave writes back a
   # body with the bands flattened to loose paragraphs. It is silent, it looks
   # like nothing happened, and the only copy of the original is gone.
-  @component_tags ~w(Image CTA Headline Subheadline Video Audio EntityForm Showcase Gallery Note SplatGaussian)
+  @component_tags ~w(Image CTA Headline Subheadline Video Audio EntityForm Showcase Gallery Note SplatGaussian SplatTrainer)
 
   @doc """
   The PHK component tags the renderer understands, for editors that must keep
@@ -747,7 +748,8 @@ defmodule PhoenixKit.Modules.Publishing.Renderer do
       String.contains?(content, "<Showcase") ||
       String.contains?(content, "<Gallery") ||
       String.contains?(content, "<EntityForm") ||
-      String.contains?(content, "<SplatGaussian")
+      String.contains?(content, "<SplatGaussian") ||
+      String.contains?(content, "<SplatTrainer")
   end
 
   # Render markdown using MDEx (comrak), then inject Tailwind/daisyUI classes
@@ -1132,6 +1134,38 @@ defmodule PhoenixKit.Modules.Publishing.Renderer do
       "<div class='error'>Error rendering demo</div>"
   end
 
+  # <SplatTrainer /> — the red-dot trainer: a real gradient-descent fit of
+  # one gaussian, run in the reader's browser by the module's JS bundle.
+  # Same dead-view boot contract as SplatGaussian.
+  #
+  # `cameras` (1|2|3) picks the starting camera count; `mode` picks the UI:
+  # "count" offers the 1/2/3-camera buttons, "rig" offers the one-height vs
+  # three-heights comparison (always three cameras). Both are validated
+  # against allowlists — the values land in data attributes.
+  defp render_inline_component("SplatTrainer", attrs) do
+    attr_map = parse_xml_attributes(attrs)
+    id = "pk-splatt-#{:erlang.unique_integer([:positive])}"
+    cameras = attr_map |> Map.get("cameras", "1") |> enum_or(~w(1 2 3), "1")
+    mode = attr_map |> Map.get("mode", "count") |> enum_or(~w(count rig), "count")
+
+    html = """
+    <div id="#{id}" class="pk-splatt" data-pk-splat-trainer phx-hook="PubSplatTrainer" phx-update="ignore" data-cameras="#{cameras}" data-mode="#{mode}">
+    <p class="pk-splatt__caption">This is an interactive demo — gradient descent fitting a gaussian
+    to a red dot under one, two or three cameras. It needs JavaScript, which appears to be off.</p>
+    </div>
+    """
+
+    html
+    |> Phoenix.HTML.raw()
+    |> PageBuilder.Renderer.wrap_stretch(attr_map)
+    |> Safe.to_iodata()
+    |> IO.iodata_to_binary()
+  rescue
+    error ->
+      Logger.warning("Error rendering SplatTrainer component: #{inspect(error)}")
+      "<div class='error'>Error rendering demo</div>"
+  end
+
   defp render_inline_component(tag, _attrs) do
     # Fallback for other components
     Logger.warning("Inline component not supported yet: #{tag}")
@@ -1152,6 +1186,13 @@ defmodule PhoenixKit.Modules.Publishing.Renderer do
         {number, ""} = Float.parse(default)
         to_string(number)
     end
+  end
+
+  # Enum-valued attributes take exactly a listed value or the default —
+  # same trust boundary as numeric_or/2.
+  defp enum_or(value, allowed, default) do
+    value = to_string(value)
+    if value in allowed, do: value, else: default
   end
 
   defp render_block_component(fragment) do
