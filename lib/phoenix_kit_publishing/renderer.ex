@@ -734,22 +734,21 @@ defmodule PhoenixKit.Modules.Publishing.Renderer do
 
   defp heal_signed_file_urls(other), do: other
 
+  # One `<Tag` marker per component that routes through the mixed pipeline.
+  # NOT derived from @component_tags: Note is deliberately absent (notes are
+  # extracted before this runs), and Image needs its own regex below — each
+  # remaining tag keeps its own entry for greppability.
+  @embedded_component_markers ~w(<CTA <Headline <Subheadline <Video <Audio
+                                 <Showcase <Gallery <EntityForm <SplatGaussian
+                                 <SplatTrainer)
+
   # Detect if markdown content has embedded XML components
   defp has_embedded_components?(content) do
     # `<Image` may be followed by a space OR a newline (the format spec's own
     # examples put the attributes on the next line); match either so multi-line
     # tags route through the component path instead of being smartypants-mangled.
-    Regex.match?(~r/<Image[\s>]/, content) ||
-      String.contains?(content, "<CTA") ||
-      String.contains?(content, "<Headline") ||
-      String.contains?(content, "<Subheadline") ||
-      String.contains?(content, "<Video") ||
-      String.contains?(content, "<Audio") ||
-      String.contains?(content, "<Showcase") ||
-      String.contains?(content, "<Gallery") ||
-      String.contains?(content, "<EntityForm") ||
-      String.contains?(content, "<SplatGaussian") ||
-      String.contains?(content, "<SplatTrainer")
+    Regex.match?(~r/<Image[\s>]/, content) or
+      String.contains?(content, @embedded_component_markers)
   end
 
   # Render markdown using MDEx (comrak), then inject Tailwind/daisyUI classes
@@ -1109,12 +1108,11 @@ defmodule PhoenixKit.Modules.Publishing.Renderer do
     id = "pk-splatg-#{:erlang.unique_integer([:positive])}"
 
     data =
-      [{"sx", "1"}, {"sy", "0.45"}, {"sz", "0.7"}, {"hue", "24"}]
-      |> Enum.map(fn {key, default} ->
-        value = attr_map |> Map.get(key, default) |> numeric_or(default)
-        ~s( data-#{key}="#{value}")
+      Enum.map_join([{"sx", "1"}, {"sy", "0.45"}, {"sz", "0.7"}, {"hue", "24"}], fn
+        {key, default} ->
+          value = attr_map |> Map.get(key, default) |> numeric_or(default)
+          ~s( data-#{key}="#{value}")
       end)
-      |> Enum.join()
 
     html = """
     <div id="#{id}" class="pk-splatg" data-pk-splat-gaussian phx-hook="PubSplatGaussian" phx-update="ignore"#{data}>
