@@ -344,6 +344,90 @@ defmodule PhoenixKit.Modules.Publishing.DBStorage.MapperTest do
       assert result.content == "First paragraph here."
     end
 
+    # The regression that mattered: the editor's excerpt field writes to
+    # version.data, the card read only content.data — the one excerpt
+    # anything actually wrote was read by nothing.
+    test "a version-level excerpt reaches the card" do
+      group = build_group()
+      post = build_post(group)
+      version = build_version(post, %{data: %{"excerpt" => "The version's excerpt"}})
+      content = build_content(version, %{content: "First paragraph."})
+
+      result = Mapper.to_listing_map(post, version, [content], [version])
+
+      assert result.content == "The version's excerpt"
+    end
+
+    test "a content-level excerpt outranks the version's" do
+      group = build_group()
+      post = build_post(group)
+      version = build_version(post, %{data: %{"excerpt" => "Version default"}})
+
+      content =
+        build_content(version, %{
+          content: "First paragraph.",
+          data: %{"excerpt" => "This language's own excerpt"}
+        })
+
+      result = Mapper.to_listing_map(post, version, [content], [version])
+
+      assert result.content == "This language's own excerpt"
+    end
+
+    # The article that found this opened with a splat-viewer <div> followed
+    # by an italic caption — the listing card showed 300 chars of escaped
+    # tag soup; the first fix then showed the caption. The preview is the
+    # post's opening PROSE.
+    test "a leading raw-HTML block and its caption are not the first paragraph" do
+      group = build_group()
+      post = build_post(group)
+      version = build_version(post)
+
+      content =
+        build_content(version, %{
+          content:
+            ~s(<div id="d1" data-splat-viewer data-src="/scans/x.sog">\n) <>
+              ~s(<div data-splat-status>Loading…</div>\n</div>\n\n) <>
+              "*A caption under the embed.*\n\nProse begins here."
+        })
+
+      result = Mapper.to_listing_map(post, version, [content], [version])
+
+      assert result.content == "Prose begins here."
+    end
+
+    test "inline markdown is stripped from the card preview" do
+      group = build_group()
+      post = build_post(group)
+      version = build_version(post)
+
+      content =
+        build_content(version, %{
+          content:
+            "The technique is called **3D Gaussian Splatting** — see " <>
+              "[the paper](https://example.org) and `this code`."
+        })
+
+      result = Mapper.to_listing_map(post, version, [content], [version])
+
+      assert result.content ==
+               "The technique is called 3D Gaussian Splatting — see the paper and this code."
+    end
+
+    test "truncation backs up to a whole word and says so" do
+      group = build_group()
+      post = build_post(group)
+      version = build_version(post)
+      words = String.duplicate("indivisible ", 40) <> "final"
+      content = build_content(version, %{content: words})
+
+      result = Mapper.to_listing_map(post, version, [content], [version])
+
+      assert String.ends_with?(result.content, "indivisible…")
+      refute result.content =~ ~r/indivisib…/
+      assert String.length(result.content) <= 301
+    end
+
     test "uses custom excerpt from data when available" do
       group = build_group()
       post = build_post(group)

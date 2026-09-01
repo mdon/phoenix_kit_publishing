@@ -134,7 +134,7 @@ defmodule PhoenixKit.Modules.Publishing.DBStorage.Mapper do
       available_versions: available_versions,
       version_statuses: version_statuses,
       version_dates: version_dates,
-      content: primary_content && extract_excerpt(primary_content),
+      content: primary_content && extract_excerpt(primary_content, version),
       metadata:
         build_listing_metadata(
           post,
@@ -145,7 +145,8 @@ defmodule PhoenixKit.Modules.Publishing.DBStorage.Mapper do
         ),
       # Per-language data for listing pages (so language switching shows correct titles)
       language_titles: Map.new(all_contents, fn c -> {c.language, c.title} end),
-      language_excerpts: Map.new(all_contents, fn c -> {c.language, extract_excerpt(c)} end)
+      language_excerpts:
+        Map.new(all_contents, fn c -> {c.language, extract_excerpt(c, version)} end)
     }
     |> maybe_override_title(opts)
   end
@@ -312,20 +313,29 @@ defmodule PhoenixKit.Modules.Publishing.DBStorage.Mapper do
 
   defp legacy_content_fallback(_content, _key), do: nil
 
-  defp extract_excerpt(%PublishingContent{} = content) do
-    case PublishingContent.get_excerpt(content) do
-      excerpt when is_binary(excerpt) and excerpt != "" ->
-        excerpt
+  # The excerpt chain spans BOTH data stores: the editor's excerpt field is
+  # written to version.data (posts.ex update_version_defaults) while a
+  # per-language excerpt lives on content.data — before the version
+  # fallback existed here, the only excerpt anything actually wrote was
+  # read by nothing, and every card silently fell through to the first
+  # paragraph.
+  #
+  # The VERSION's description is deliberately absent: it is the SEO field,
+  # language-less, and listing_description_language_test exists precisely
+  # because an English SEO description once leaked into every language's
+  # cards. An explicit excerpt wins across languages (the author chose it
+  # for this surface — a per-language one on content.data outranks it);
+  # descriptions never do.
+  defp extract_excerpt(%PublishingContent{} = content, version) do
+    first_present([
+      PublishingContent.get_excerpt(content),
+      version && PublishingVersion.get_excerpt(version),
+      PublishingContent.get_description(content)
+    ]) || extract_first_paragraph(content.content)
+  end
 
-      _ ->
-        case PublishingContent.get_description(content) do
-          desc when is_binary(desc) and desc != "" ->
-            desc
-
-          _ ->
-            extract_first_paragraph(content.content)
-        end
-    end
+  defp first_present(values) do
+    Enum.find(values, fn value -> is_binary(value) and value != "" end)
   end
 
   defp extract_first_paragraph(nil), do: nil
@@ -333,17 +343,57 @@ defmodule PhoenixKit.Modules.Publishing.DBStorage.Mapper do
   defp extract_first_paragraph(content) when is_binary(content) do
     content
     # Components first: a body opening with <Gallery>/<Showcase> would
-    # otherwise become the "first paragraph", and the 300-char slice below
+    # otherwise become the "first paragraph", and the truncation below
     # could cut MID-TAG — the broken tag then survives downstream
     # tag-stripping as escaped junk in the card preview.
     |> Shared.strip_components()
     |> String.split(~r/\n\n+/)
     |> Enum.map(&String.trim/1)
-    |> Enum.reject(&(&1 == "" or String.starts_with?(&1, "#")))
+    |> Enum.reject(&skip_for_excerpt?/1)
     |> List.first()
     |> case do
       nil -> ""
-      text -> String.slice(text, 0, 300)
+      text -> text |> strip_inline_markdown() |> truncate_at_word(300)
+    end
+  end
+
+  # Headings and raw HTML blocks are markup, not prose. A paragraph that is
+  # one whole emphasis span is a caption under an embed — the disclaimer
+  # line beneath a viewer or image — and a card previewing the caption
+  # instead of the post's opening prose sells nothing.
+  defp skip_for_excerpt?(paragraph) do
+    paragraph == "" or
+      String.starts_with?(paragraph, "#") or
+      String.starts_with?(paragraph, "<") or
+      caption?(paragraph)
+  end
+
+  defp caption?(paragraph) do
+    (String.starts_with?(paragraph, "*") and String.ends_with?(paragraph, "*") and
+       not String.starts_with?(paragraph, "**")) or
+      (String.starts_with?(paragraph, "_") and String.ends_with?(paragraph, "_"))
+  end
+
+  # The card renders plain text; markdown control characters surviving into
+  # it read as typos ("**3D Gaussian Splatting**").
+  defp strip_inline_markdown(text) do
+    text
+    |> String.replace(~r/!\[[^\]]*\]\([^)]*\)/, "")
+    |> String.replace(~r/\[([^\]]*)\]\([^)]*\)/, "\\1")
+    |> String.replace(~r/(\*\*|__)([^*_]+)\1/, "\\2")
+    |> String.replace(~r/(\*|_)([^*_]+)\1/, "\\2")
+    |> String.replace("`", "")
+    |> String.replace("&nbsp;", " ")
+  end
+
+  # Cutting mid-word ("in a browser — sh") reads as a glitch, not a
+  # truncation; back up to the last whole word and say so with an ellipsis.
+  defp truncate_at_word(text, limit) do
+    if String.length(text) <= limit do
+      text
+    else
+      truncated = String.slice(text, 0, limit)
+      Regex.replace(~r/\s+\S*$/, truncated, "") <> "…"
     end
   end
 

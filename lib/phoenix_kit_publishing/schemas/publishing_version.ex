@@ -139,6 +139,9 @@ defmodule PhoenixKit.Modules.Publishing.PublishingVersion do
   @doc "Returns the SEO description."
   def get_description(%__MODULE__{data: data}), do: Map.get(data, "description")
 
+  @doc "Returns the version-level excerpt (the post's default, any language)."
+  def get_excerpt(%__MODULE__{data: data}), do: Map.get(data, "excerpt")
+
   @doc "Returns whether older versions are publicly accessible."
   def get_allow_version_access(%__MODULE__{data: data}),
     do: Map.get(data, "allow_version_access", false)
