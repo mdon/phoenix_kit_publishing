@@ -655,7 +655,16 @@ window.PhoenixKitPublishingHooks = (function () {
       training: false,
       raf: null,
       losses: [],
-      stepsPerFrame: 3
+      stepsPerFrame: 3,
+      // The loop runs only while the demo is on screen — training and the
+      // orbit both stop when the reader scrolls away, and resume on return.
+      // Starts false only when an IntersectionObserver exists to flip it.
+      visible: typeof IntersectionObserver === "undefined",
+      // The auto-pause budget is per exam, not per lifetime: changing the
+      // cameras or the dot re-arms it, or a trainer that hit 6000 steps
+      // would do three steps and re-pause after every configuration change.
+      budgetStart: 0,
+      dead: false
     };
 
     function activeCams() {
@@ -902,9 +911,7 @@ window.PhoenixKitPublishingHooks = (function () {
       [1, 2, 3].forEach(function (n) {
         var b = button(n + (n === 1 ? " camera" : " cameras"), function () {
           camCount = n;
-          trainer.setCameras(activeCams());
-          rebuildShots();
-          refreshGroup();
+          examChanged();
         });
         groupBtns.push({ btn: b, test: function () { return camCount === n; } });
       });
@@ -913,9 +920,7 @@ window.PhoenixKitPublishingHooks = (function () {
       [["flat", "one height"], ["spread", "three heights"]].forEach(function (pair) {
         var b = button(pair[1], function () {
           rig = pair[0];
-          trainer.setCameras(activeCams());
-          rebuildShots();
-          refreshGroup();
+          examChanged();
         });
         groupBtns.push({ btn: b, test: function () { return rig === pair[0]; } });
       });
@@ -928,13 +933,30 @@ window.PhoenixKitPublishingHooks = (function () {
     button("reset", function () {
       trainer.reset();
       state.losses = [];
+      state.budgetStart = 0;
       drawAll();
+      wake();
     });
 
     slider(controls, "dot height", 0.15, 1.5, 0.05, state.dot[1], function (v) {
       state.dot[1] = v;
       trainer.setDot(state.dot);
+      state.budgetStart = trainer.steps();
+      drawAll();
+      wake();
     });
+
+    // Camera-set changes keep the learned parameters (watching the wrong
+    // answer get corrected IS the demo) but re-arm the step budget, redraw
+    // even when the loop is idle, and restart it if it had idled out.
+    function examChanged() {
+      trainer.setCameras(activeCams());
+      state.budgetStart = trainer.steps();
+      rebuildShots();
+      refreshGroup();
+      drawAll();
+      wake();
+    }
 
     refreshGroup();
 
@@ -951,9 +973,12 @@ window.PhoenixKitPublishingHooks = (function () {
       var B = viewBasis();
       var dp = project(B, trainer.dot(), cx, cy, u);
       var grabbing = Math.hypot(mx - dp[0], my - dp[1]) < 20 * scale;
+      // One drag at a time, keyed by pointer id — a second touch must not
+      // steal or cancel the first.
+      if (drag) return;
       drag = grabbing
-        ? { kind: "dot" }
-        : { kind: "orbit", x: ev.clientX, view: state.view };
+        ? { kind: "dot", id: ev.pointerId }
+        : { kind: "orbit", id: ev.pointerId, x: ev.clientX, view: state.view };
       if (grabbing) moveDot(ev);
       state.orbiting = false;
       truth.setPointerCapture(ev.pointerId);
@@ -984,10 +1009,13 @@ window.PhoenixKitPublishingHooks = (function () {
       state.dot[0] = px;
       state.dot[2] = pz;
       trainer.setDot(state.dot);
+      // Dragging the dot is an exam change like any other — without this,
+      // a trainer near its step budget pauses the moment the dot moves.
+      state.budgetStart = trainer.steps();
     }
 
     truth.addEventListener("pointermove", function (ev) {
-      if (!drag) return;
+      if (!drag || ev.pointerId !== drag.id) return;
       if (drag.kind === "dot") {
         moveDot(ev);
       } else {
@@ -996,8 +1024,12 @@ window.PhoenixKitPublishingHooks = (function () {
       if (!state.raf) drawAll();
     });
 
-    truth.addEventListener("pointerup", function () { drag = null; });
-    truth.addEventListener("pointercancel", function () { drag = null; });
+    truth.addEventListener("pointerup", function (ev) {
+      if (drag && ev.pointerId === drag.id) drag = null;
+    });
+    truth.addEventListener("pointercancel", function (ev) {
+      if (drag && ev.pointerId === drag.id) drag = null;
+    });
 
     // ── sizing / loop ──
     function resize() {
@@ -1022,16 +1054,20 @@ window.PhoenixKitPublishingHooks = (function () {
 
     function frame() {
       state.raf = null;
+      if (state.dead || !state.visible) return;
       var busy = false;
 
       if (state.training) {
         var loss = 0;
         for (var s = 0; s < state.stepsPerFrame; s++) loss = trainer.step();
+        // The curve deliberately spans camera/dot changes: the spike when a
+        // camera is added and the descent that follows are the demo's plot,
+        // the way a curriculum-trained loss curve keeps its phase changes.
         state.losses.push(loss);
         if (state.losses.length > 260) state.losses.shift();
         busy = true;
         // A converged fit burning battery forever helps nobody.
-        if (trainer.steps() > 6000) setTraining(false);
+        if (trainer.steps() - state.budgetStart > 6000) setTraining(false);
       }
 
       if (state.orbiting) {
@@ -1044,6 +1080,7 @@ window.PhoenixKitPublishingHooks = (function () {
     }
 
     function wake() {
+      if (state.dead || !state.visible) return;
       if (!state.raf && (state.training || state.orbiting)) {
         state.raf = requestAnimationFrame(frame);
       }
@@ -1051,15 +1088,23 @@ window.PhoenixKitPublishingHooks = (function () {
 
     // Watching the fit happen is the content, so training starts itself
     // when the demo scrolls into view — except under reduced motion, where
-    // nothing moves until asked.
-    if (typeof IntersectionObserver !== "undefined" && !reducedMotion) {
+    // nothing moves until asked. The observer also gates the whole loop:
+    // off screen, neither training nor the orbit spends a frame.
+    if (typeof IntersectionObserver !== "undefined") {
       var io = new IntersectionObserver(function (entries) {
+        if (state.dead) return;
         for (var i = 0; i < entries.length; i++) {
-          if (entries[i].isIntersecting && trainer.steps() === 0 && !state.training) {
+          state.visible = entries[i].isIntersecting;
+          if (
+            entries[i].isIntersecting &&
+            !reducedMotion &&
+            trainer.steps() === 0 &&
+            !state.training
+          ) {
             setTraining(true);
-            wake();
           }
         }
+        wake();
       }, { threshold: 0.35 });
       io.observe(root);
       root.__pkIntersection = io;
@@ -1083,6 +1128,9 @@ window.PhoenixKitPublishingHooks = (function () {
     }
 
     root.__pkTeardown = function () {
+      // The dead flag outlives disconnect(): an already-queued observer
+      // callback still fires after disconnect and must find nothing to do.
+      state.dead = true;
       if (state.raf) cancelAnimationFrame(state.raf);
       state.training = false;
       state.orbiting = false;
