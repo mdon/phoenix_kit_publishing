@@ -168,9 +168,12 @@ window.PhoenixKitPublishingHooks = (function () {
     var canvas = el("canvas", "pk-splatg__canvas", root);
     var panel = el("div", "pk-splatg__panel", root);
     var caption = el("div", "pk-splatg__caption", root);
+    // No formula here: this demo sits in the article's second section,
+    // right after the intro mocks explanations that open with matrix
+    // algebra. The math gets its moment further down, where it is earned.
     caption.textContent =
-      "One gaussian. Its screen shape is C = R S² Rᵀ projected to " +
-      "2D — no mesh, no edges, just a recipe for a smear.";
+      "One gaussian. Stretch it, spin it, fade it — " +
+      "no mesh, no edges, just a recipe for a smear.";
 
     slider(panel, "scale x", 0.05, 2, 0.05, state.sx, function (v) { state.sx = v; draw(); });
     slider(panel, "scale y", 0.05, 2, 0.05, state.sy, function (v) { state.sy = v; draw(); });
