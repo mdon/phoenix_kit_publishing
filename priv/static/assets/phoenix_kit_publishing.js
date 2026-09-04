@@ -691,7 +691,7 @@ window.PhoenixKitPublishingHooks = (function () {
         ? "Same optimizer, same one-sided shoot — the only change is " +
           "whether the three cameras share a height. Watch the error bars."
         : "Left: the room, the red dot, and the blob being fitted. Right: " +
-          "what the optimizer actually sees — its renders vs. the photos, " +
+          "what the fitting loop actually sees — its renders vs. the photos, " +
           "and the loss. Drag the dot; drag empty space to orbit.";
 
     var barEls = {};
