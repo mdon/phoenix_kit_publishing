@@ -81,6 +81,18 @@ window.PhoenixKitPublishingHooks = (function () {
     return input;
   }
 
+  function checkbox(panel, label, checked, onchange) {
+    var row = el("label", "pk-splatg__row", panel);
+    var input = el("input", "pk-splatg__check", row);
+    input.type = "checkbox";
+    input.checked = checked;
+    el("span", "pk-splatg__label pk-splatg__label--wide", row).textContent = label;
+    input.addEventListener("change", function () {
+      onchange(input.checked);
+    });
+    return input;
+  }
+
   var STYLE_ID = "pk-splatg-style";
 
   function ensureStyle() {
@@ -93,6 +105,8 @@ window.PhoenixKitPublishingHooks = (function () {
       ".pk-splatg__panel{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:.25rem .9rem;padding:.8rem 1rem;font-size:.85rem}" +
       ".pk-splatg__row{display:flex;align-items:center;gap:.5rem}" +
       ".pk-splatg__label{width:5.5em;opacity:.75}" +
+      ".pk-splatg__label--wide{width:auto}" +
+      ".pk-splatg__check{accent-color:#e58f5a}" +
       ".pk-splatg__slider{flex:1;accent-color:#e58f5a}" +
       ".pk-splatg__value{width:3em;text-align:right;font-variant-numeric:tabular-nums;opacity:.75}" +
       ".pk-splatg__caption{padding:0 1rem .8rem;font-size:.8rem;opacity:.6}" +
@@ -161,9 +175,38 @@ window.PhoenixKitPublishingHooks = (function () {
       opacity: 0.9,
       hue: parseFloat(root.dataset.hue || "24"),
       view: 0.6,
+      neighbours: false,
       orbiting: !window.matchMedia("(prefers-reduced-motion: reduce)").matches,
       raf: null
     };
+
+    // "Show neighbours": a patch of similar blobs around the reader's own,
+    // whose sizes follow the same scale sliders — so the sliders become a
+    // resolution dial. Big: the patch melts into a wall. Small: a heap of
+    // outlined pebbles with gaps. That is the article's softness claim,
+    // made draggable. Layout is a jittered grid, seeded so it never
+    // changes between visits; the reader's blob is the one in the middle.
+    var NEIGHBOURS = (function () {
+      var seed = 7;
+      function rand() {
+        seed = (seed * 1664525 + 1013904223) % 4294967296;
+        return seed / 4294967296;
+      }
+      var list = [];
+      for (var gx = -3; gx <= 3; gx++) {
+        for (var gy = -1; gy <= 1; gy++) {
+          if (gx === 0 && gy === 0) continue;
+          list.push({
+            pos: [gx * 0.8 + (rand() - 0.5) * 0.35, gy * 0.9 + (rand() - 0.5) * 0.35, (rand() - 0.5) * 0.4],
+            k: 0.75 + rand() * 0.5,
+            dyaw: (rand() - 0.5) * 1.0,
+            dpitch: (rand() - 0.5) * 0.6,
+            dhue: (rand() - 0.5) * 24
+          });
+        }
+      }
+      return list;
+    })();
 
     var canvas = el("canvas", "pk-splatg__canvas", root);
     var panel = el("div", "pk-splatg__panel", root);
@@ -173,7 +216,8 @@ window.PhoenixKitPublishingHooks = (function () {
     // algebra. The math gets its moment further down, where it is earned.
     caption.textContent =
       "One gaussian. Stretch it, spin it, fade it — " +
-      "no mesh, no edges, just a recipe for a smear.";
+      "no mesh, no edges, just a recipe for a smear. " +
+      "Show its neighbours and shrink the scales: the patch goes from wall to pebbles.";
 
     slider(panel, "scale x", 0.05, 2, 0.05, state.sx, function (v) { state.sx = v; draw(); });
     slider(panel, "scale y", 0.05, 2, 0.05, state.sy, function (v) { state.sy = v; draw(); });
@@ -184,6 +228,10 @@ window.PhoenixKitPublishingHooks = (function () {
     slider(panel, "view", 0, 360, 1, Math.round((state.view / TAU) * 360), function (v) {
       state.orbiting = false;
       state.view = (v / 360) * TAU;
+      draw();
+    });
+    checkbox(panel, "show neighbours", false, function (on) {
+      state.neighbours = on;
       draw();
     });
 
@@ -235,22 +283,47 @@ window.PhoenixKitPublishingHooks = (function () {
 
       drawGround(ctx, cx, cy, unit);
 
-      var C = covariance(state.sx, state.sy, state.sz, state.yaw, state.pitch);
-      var e = projectedEllipse(C, state.view, 0.3);
+      var blobs = [{ pos: [0, 0, 0], sx: state.sx, sy: state.sy, sz: state.sz,
+        yaw: state.yaw, pitch: state.pitch, hue: state.hue }];
+      if (state.neighbours) {
+        for (var i = 0; i < NEIGHBOURS.length; i++) {
+          var n = NEIGHBOURS[i];
+          blobs.push({ pos: n.pos, sx: state.sx * n.k, sy: state.sy * n.k, sz: state.sz * n.k,
+            yaw: state.yaw + n.dyaw, pitch: state.pitch + n.dpitch, hue: state.hue + n.dhue });
+        }
+      }
 
-      ctx.save();
-      ctx.translate(cx, cy);
-      ctx.rotate(e.angle);
-      ctx.scale(e.r1 * unit, e.r2 * unit);
-      var g = ctx.createRadialGradient(0, 0, 0, 0, 0, 1);
-      g.addColorStop(0, "hsla(" + state.hue + ",85%,62%," + state.opacity + ")");
-      g.addColorStop(0.45, "hsla(" + state.hue + ",80%,55%," + state.opacity * 0.55 + ")");
-      g.addColorStop(1, "hsla(" + state.hue + ",75%,50%,0)");
-      ctx.fillStyle = g;
-      ctx.beginPath();
-      ctx.arc(0, 0, 1, 0, TAU);
-      ctx.fill();
-      ctx.restore();
+      // Same view rotation the ellipse projection uses; the dropped z is
+      // the depth, and the blobs are painted far-to-near so overlaps blend
+      // the way the real renderer's sorted alpha-blending does.
+      var V = mul(rotX(0.3), rotY(state.view));
+      for (var b = 0; b < blobs.length; b++) {
+        var p = blobs[b].pos;
+        blobs[b].sx_ = V[0] * p[0] + V[1] * p[1] + V[2] * p[2];
+        blobs[b].sy_ = V[3] * p[0] + V[4] * p[1] + V[5] * p[2];
+        blobs[b].depth = V[6] * p[0] + V[7] * p[1] + V[8] * p[2];
+      }
+      blobs.sort(function (a, b) { return a.depth - b.depth; });
+
+      for (b = 0; b < blobs.length; b++) {
+        var blob = blobs[b];
+        var C = covariance(blob.sx, blob.sy, blob.sz, blob.yaw, blob.pitch);
+        var e = projectedEllipse(C, state.view, 0.3);
+
+        ctx.save();
+        ctx.translate(cx + blob.sx_ * unit, cy - blob.sy_ * unit);
+        ctx.rotate(e.angle);
+        ctx.scale(e.r1 * unit, e.r2 * unit);
+        var g = ctx.createRadialGradient(0, 0, 0, 0, 0, 1);
+        g.addColorStop(0, "hsla(" + blob.hue + ",85%,62%," + state.opacity + ")");
+        g.addColorStop(0.45, "hsla(" + blob.hue + ",80%,55%," + state.opacity * 0.55 + ")");
+        g.addColorStop(1, "hsla(" + blob.hue + ",75%,50%,0)");
+        ctx.fillStyle = g;
+        ctx.beginPath();
+        ctx.arc(0, 0, 1, 0, TAU);
+        ctx.fill();
+        ctx.restore();
+      }
     }
 
     function tick() {
