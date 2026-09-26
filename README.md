@@ -95,7 +95,7 @@ Post  (1) ──→ (many) PostView (one row per day)
 | mode | string | `"timestamp"` or `"slug"` — locked at creation |
 | status | string | `"active"` or `"trashed"` |
 | position | integer | Display ordering |
-| data | JSONB | type, item_singular/plural, icon, comments/likes/views_enabled |
+| data | JSONB | type, item_singular/plural, icon, comments/likes/views_enabled, `media_folder_uuid` (see [Media folders](#media-folders)) |
 | title_i18n | JSONB | Translatable group title (keyed by language code) |
 | description_i18n | JSONB | Translatable group description (keyed by language code) |
 
@@ -130,7 +130,7 @@ Each post has one or more versions. The version holds all metadata that applies 
 | status | string | `"draft"` / `"published"` / `"archived"` |
 | published_at | utc_datetime | When this version was first published |
 | created_by_uuid | UUIDv7 | FK → users (audit) |
-| data | JSONB | featured_image_uuid, tags, seo, description, allow_version_access, notes, created_from |
+| data | JSONB | featured_image_uuid, tags, seo, description, allow_version_access, notes, created_from, `media_folder_uuid` (the post's folder, on every version — see [Media folders](#media-folders)) |
 
 #### `phoenix_kit_publishing_contents` — Per-language title + body
 
@@ -189,6 +189,9 @@ lib/phoenix_kit_publishing/
   renderer.ex                # Markdown + component rendering
   page_builder.ex            # PHK XML component system
   stale_fixer.ex             # Data consistency repair
+  media_folders.ex           # Group media folders + ready-made host hooks
+  media_adoption.ex          # One-time filing of existing post media
+  media_reorganizer.ex       # Plan source for core's media reorganizer
   presence.ex                # Collaborative editing presence
   pubsub.ex                  # Real-time broadcasting
   routes.ex                  # Admin route definitions
@@ -208,6 +211,9 @@ lib/phoenix_kit_publishing/
 | `Publishing.PageBuilder` | XML parser (Saxy) for `<Image>`, `<Hero>`, etc. components |
 | `Publishing.StaleFixer` | Reconciles DB/cache state, auto-cleans empty posts |
 | `Publishing.Presence` | Phoenix.Presence for collaborative editor locking |
+| `Publishing.MediaFolders` | One media folder per group; files picked in the editor go there |
+| `Publishing.MediaAdoption` | Files the media posts already use into their group's folder |
+| `Publishing.MediaReorganizer` | Group folders for `mix phoenix_kit.media.reorganize` |
 
 ## IEx / CLI Usage
 
@@ -373,6 +379,75 @@ Supported components: `Image`, `Hero`, `CTA`, `Headline`, `Subheadline`, `Video`
 | `publishing_memory_cache_enabled` | `true` | Listing cache toggle |
 | `publishing_render_cache_enabled` | `true` | Render cache global toggle |
 | `publishing_render_cache_enabled_<slug>` | `true` | Per-group render cache |
+| `publishing_media_folder_uuid` | — | The module's media folder, written by the ready-made media hook (see below) |
+
+## Media folders
+
+Off by default: a host that configures nothing keeps today's behaviour and no
+folder is created. To keep each group's media in its own folder —
+`Publishing/News`, `Publishing/Legal` — add the ready-made hooks:
+
+```elixir
+config :phoenix_kit_publishing,
+  attachments_parent_folder: {PhoenixKit.Modules.Publishing.MediaFolders, :module_folder},
+  attachments_folder_name: {PhoenixKit.Modules.Publishing.MediaFolders, :folder_name}
+```
+
+For a folder per post inside its group's — `Publishing/News/spring-fair`, a
+timestamp post's named by its date and time — add:
+
+```elixir
+config :phoenix_kit_publishing, :post_media_folders, true
+```
+
+Or point either hook key at your own function (core's `Storage.ResourceFolders`
+convention): `parent_for(:group, actor_uuid, group)` answers
+`{:ok, folder_uuid}` or `nil` for the media root; `name_for(subject, actor_uuid)`
+— a group, or a post with post folders on — answers `{:ok, name}` or `nil` for
+`publishing-group-<uuid>` / `publishing-post-<uuid>`. A group or post keeps its
+folder when it is renamed later.
+
+Then, once:
+
+```bash
+mix phoenix_kit_publishing.media.adopt           # dry run: what would be filed
+mix phoenix_kit_publishing.media.adopt --apply   # file it
+```
+
+(In a release: `PhoenixKit.Modules.Publishing.MediaAdoption.run(actor_uuid, apply?: true)`.)
+
+This files every file a group's posts use — featured, OG and audio slots,
+`<Image>`/`<Audio>`/`<Showcase>` components, baked `/file/<uuid>/…` URLs — into
+the group's folder, or each post's. A file with no folder is moved in; a file
+that already lives in another folder stays there and is linked in (with post
+folders, one in the group's own folder moves down into the post's). A file
+several posts use lives in the first post's folder and is linked into the
+others'. File URLs do not change.
+
+From then on every file picked in the post editor lands in the post's (or
+group's) folder by itself, and `mix phoenix_kit.media.reorganize` moves the group folders when
+you change the hooks later — post folders travel with their group's (it also
+reports a group or post whose files are outside its folder, the folder of a
+trashed group or post, and a name hook that can't be called).
+With the ready-made hooks, even its dry run may create the `Publishing` folder
+if it is missing: the parent hook creates it on first use.
+
+Folders are only ever looked up and created in the site's media library
+(Media), never in a person's own library. If a configured hook cannot be
+called, the adoption step refuses to plan; if one fails while applying, that
+group is left unfiled rather than filed at the media root.
+
+> #### Trashing a group's folder trashes the posts' pictures {: .warning}
+>
+> After adoption, a file that used to have no folder lives in its group's (or
+> post's) folder. Moving `Publishing/<group>`, a post's folder, or `Publishing`
+> itself to the trash in
+> the media browser trashes every file whose home is inside it — including one
+> that is also shown somewhere else by URL (a page, another module) — and those
+> pictures stop showing until the folder is restored from the trash. A file
+> that is only *linked* into the folder keeps its own home and is not affected.
+> Rename or move these folders freely; trash them only together with their
+> group or post.
 
 ## Removing this module
 

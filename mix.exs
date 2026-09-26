@@ -20,7 +20,7 @@ defmodule PhoenixKitPublishing.MixProject do
       package: package(),
 
       # Dialyzer
-      dialyzer: [plt_add_apps: [:phoenix_kit], ignore_warnings: ".dialyzer_ignore.exs"],
+      dialyzer: [plt_add_apps: [:phoenix_kit, :mix], ignore_warnings: ".dialyzer_ignore.exs"],
 
       # Test coverage — filter test-support modules out of `mix test --cover`
       # so the percentage reflects production code only.
@@ -85,7 +85,13 @@ defmodule PhoenixKitPublishing.MixProject do
   defp deps do
     [
       # PhoenixKit provides the Module behaviour, Settings API, and core infrastructure.
-      # 2.14 is a hard floor, not a preference, for two independent reasons:
+      # 2.38 is a hard floor, not a preference. It is where the group media
+      # folders' toolkit shipped: `Storage.ResourceFolders` (MediaFolders,
+      # MediaAdoption) and the reorganizer's `ResourceSource`
+      # (MediaReorganizer). An older core has neither module, and every media
+      # pick in the editor asks `MediaFolders.enabled?/0`, which calls into
+      # `ResourceFolders` — so on any host, opted in or not, choosing a file
+      # would crash the editor. The earlier floors, both still covered:
       #
       #   * `PublishingGroup.changeset/2` calls `PhoenixKit.Utils.Slug.put_slug/3`,
       #     which core added in 2.4.0. Under the older `~> 2.0` a host resolving

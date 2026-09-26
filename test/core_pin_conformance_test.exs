@@ -29,6 +29,10 @@ defmodule PhoenixKitPublishing.CorePinConformanceTest do
       offset `0`, so every timestamp post is stamped, released and syndicated
       on UTC with no error anywhere. A present-but-wrong function is why this
       floor is about behaviour, not just arity.
+    * The group media folders (`MediaFolders`, `MediaAdoption`,
+      `MediaReorganizer`) are built on `Storage.ResourceFolders` and the
+      reorganizer's `ResourceSource`, both first shipped in core 2.38.0 — the
+      current floor.
 
   The floor is 2.38.0 now: the category parent pickers are core's
   `TreePicker`, the actor and activity log come from `PhoenixKitWeb.Actor` and

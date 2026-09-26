@@ -54,8 +54,29 @@ defmodule PhoenixKit.Modules.Publishing.StaleFixer do
   @spec fix_stale_group(PublishingGroup.t()) :: PublishingGroup.t()
   def fix_stale_group(%PublishingGroup{} = group) do
     attrs = build_group_fixes(group)
-    apply_stale_fix(group, attrs, &DBStorage.update_group/2)
+    apply_stale_fix(group, attrs, &update_group_fixes/2)
   end
+
+  # The fixes were computed from a struct that may be older than the row (a
+  # listing loaded before an edit). Writing them — a whole `data` map among
+  # them — from that struct wiped every key written since, the group's
+  # `media_folder_uuid` pointer included. So the row is locked, the fixes
+  # are recomputed from it, and only those are written.
+  defp update_group_fixes(group, _stale_attrs) do
+    repo = RepoHelper.repo()
+
+    repo.transaction(fn ->
+      fresh = DBStorage.lock_group_row!(repo, group.uuid) || group
+
+      case write_group_fixes(fresh, build_group_fixes(fresh)) do
+        {:ok, updated} -> updated
+        {:error, reason} -> repo.rollback(reason)
+      end
+    end)
+  end
+
+  defp write_group_fixes(fresh, attrs) when attrs == %{}, do: {:ok, fresh}
+  defp write_group_fixes(fresh, attrs), do: DBStorage.update_group(fresh, attrs)
 
   defp build_group_fixes(group) do
     data = group.data || %{}
