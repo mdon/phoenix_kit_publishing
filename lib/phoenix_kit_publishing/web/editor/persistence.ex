@@ -17,6 +17,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor.Persistence do
   alias PhoenixKit.Modules.Publishing.Renderer
   alias PhoenixKit.Modules.Publishing.Shared
   alias PhoenixKit.Modules.Publishing.SlugHelpers
+  alias PhoenixKit.Modules.Publishing.Web.Editor
   alias PhoenixKit.Modules.Publishing.Web.Editor.Collaborative
   alias PhoenixKit.Modules.Publishing.Web.Editor.Forms
   alias PhoenixKit.Modules.Publishing.Web.Editor.Helpers
@@ -740,6 +741,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor.Persistence do
     socket =
       socket
       |> Phoenix.Component.assign(:post, refreshed_post)
+      |> Editor.assign_page_trail(refreshed_post)
       |> Phoenix.Component.assign(:db_post_slug, refreshed_post[:slug])
       |> Forms.assign_form_with_tracking(form)
       |> Phoenix.Component.assign(:content, refreshed_post.content)
@@ -824,6 +826,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor.Persistence do
         socket =
           socket
           |> Phoenix.Component.assign(:post, updated_post)
+          |> Editor.assign_page_trail(updated_post)
           |> Phoenix.Component.assign(:db_post_slug, updated_post[:slug])
           |> Phoenix.Component.assign(:public_url, public_url)
           |> Forms.assign_form_with_tracking(form)
@@ -1103,6 +1106,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor.Persistence do
 
         socket
         |> Phoenix.Component.assign(:post, %{updated_post | group: group_slug})
+        |> Editor.assign_page_trail(updated_post)
         |> Forms.assign_form_with_tracking(form)
         |> Phoenix.Component.assign(:content, updated_post.content)
         |> Phoenix.Component.assign(:available_languages, updated_post.available_languages)

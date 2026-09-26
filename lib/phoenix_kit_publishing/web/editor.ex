@@ -259,12 +259,15 @@ defmodule PhoenixKit.Modules.Publishing.Web.Editor do
   # The header trail: `Publishing / <group> / New post` for a draft that is
   # not saved yet, `Publishing / <group> / <post> / Edit` once it has a page
   # of its own. The post crumb reads the SAVED title — a new translation
-  # blanks the virtual post's title, so callers pass the source post.
-  defp assign_page_trail(socket, post) do
+  # blanks the virtual post's title, so callers pass the source post. A save
+  # re-derives it (`Persistence`): a rename saved on the same URL skips
+  # `handle_params`, and the crumb would keep the old title.
+  @doc false
+  def assign_page_trail(socket, post) do
     group_slug = socket.assigns.group_slug
 
     group_crumb = %{
-      label: socket.assigns.group_name || group_slug,
+      label: socket.assigns[:group_name] || group_slug,
       path: Routes.path("/admin/publishing/#{group_slug}")
     }
 

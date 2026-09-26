@@ -132,6 +132,20 @@ defmodule PhoenixKitPublishing.Test.MediaFixtures do
     })
   end
 
+  @doc """
+  Moves a group's or post's `inserted_at` an hour back. `inserted_at` has
+  second precision and the uuid tie-break is not monotonic within a
+  millisecond, so two rows made in one test are only "older first" when
+  one is made older.
+  """
+  def backdate!(%schema{uuid: uuid} = row) do
+    import Ecto.Query
+
+    at = DateTime.add(DateTime.utc_now(:second), -3600)
+    {1, _} = Repo.update_all(from(r in schema, where: r.uuid == ^uuid), set: [inserted_at: at])
+    %{row | inserted_at: at}
+  end
+
   def reload(%StorageFile{uuid: uuid}), do: Repo.get!(StorageFile, uuid)
   def reload(%Folder{uuid: uuid}), do: Repo.get!(Folder, uuid)
   def reload(%PhoenixKit.Modules.Publishing.PublishingGroup{} = group), do: Repo.reload!(group)

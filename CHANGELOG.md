@@ -1,5 +1,59 @@
 # Changelog
 
+## 0.12.0 - 2026-09-26
+
+### Added
+
+- Group media folders (`MediaFolders`), opt-in per host. With
+  `config :phoenix_kit_publishing, attachments_parent_folder: …` set, each
+  group gets a folder in the site's Media library (ready-made hooks:
+  `Publishing/<group name>`). The group keeps the folder's uuid in
+  `data["media_folder_uuid"]`, so renaming or moving the folder later keeps
+  it attached. With `:post_media_folders` also set, each post gets its own
+  folder inside its group's (`Publishing/<group>/<post slug or date>`), with
+  the pointer stored on every version. No migration. Nothing happens on a
+  host that has not opted in.
+- The editor files every media pick (slot, `<Image>`, `<Audio>`, each image
+  of a gallery) into the post's or group's folder, in a supervised task. A
+  failure is logged and never interrupts the edit.
+- `MediaAdoption` and `mix phoenix_kit_publishing.media.adopt [--apply]`
+  file the media that posts already use into their folders. It is a dry run
+  by default, safe to repeat, and never changes a file URL.
+- `MediaReorganizer`, registered through `media_reorganizer/0`, lets core's
+  `mix phoenix_kit.media.reorganize` move group folders when the host's hooks
+  change. It also reports orphan folders of trashed groups and posts, and
+  groups whose files are still outside their folder.
+
+### Changed
+
+- The category form's parent and the "Move to…" dialog use core's
+  `TreePicker` instead of indented flat selects. Both trees are built from
+  the category list the page already holds, so opening a dialog no longer
+  queries the database.
+- Every admin page follows core's header trail
+  (`Publishing / <group> / <post> / <page>`). The editor's post crumb follows
+  the saved title.
+- The actor is read through `PhoenixKitWeb.Actor`, and activity-log errors
+  are handled by core's `Activity.log/1`.
+- Edit Group opens on the language being viewed.
+- The `phoenix_kit` floor is now 2.38.0, written as `>= 2.38.0 and < 3.0.0`.
+  It is required for `Storage.ResourceFolders`, `TreePicker`,
+  `PhoenixKitWeb.Actor` and `mount_multilang(open_on:)`. Dependencies are
+  refreshed (`phoenix_kit` 2.40.1, `phoenix_kit_ai` 0.24.1, `mdex` 0.14.0,
+  `phoenix` 1.8.15).
+
+### Fixed
+
+- A category move to a non-uuid parent, or a crafted category id, returns
+  `:not_found` or `:parent_not_found` instead of raising a cast error.
+- Two category moves under one parent at the same moment could take the
+  same position. The position is now resolved under the group lock.
+- A category rename submitted on a stale form no longer moves the category
+  back to its old parent.
+- The translation editor crashed on a signed-out scope.
+- `StaleFixer.fix_stale_group/1` overwrote group `data` keys written after
+  the group was loaded, including the media folder pointer.
+
 ## 0.11.0 - 2026-09-17
 
 ### Added

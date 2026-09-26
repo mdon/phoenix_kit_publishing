@@ -224,6 +224,7 @@ defmodule PhoenixKit.Modules.Publishing.MediaPostFoldersTest do
           version_data: %{"featured_image_uuid" => own.uuid, "audio_uuid" => in_group.uuid},
           contents: [{"en", image.(shared), %{}}]
         )
+        |> backdate!()
 
       second = post!(group, slug: "second", contents: [{"en", image.(shared), %{}}])
 

@@ -13,6 +13,7 @@ defmodule PhoenixKit.Modules.Publishing.Web.HeaderTrailTest do
   alias PhoenixKit.Modules.Publishing.Posts
   alias PhoenixKit.Settings
   alias PhoenixKit.Utils.Routes
+  alias PhoenixKitPublishing.Test.MediaFixtures
 
   setup do
     {:ok, _} = Settings.update_boolean_setting("languages_enabled", true)
@@ -125,6 +126,28 @@ defmodule PhoenixKit.Modules.Publishing.Web.HeaderTrailTest do
              ],
              title: "Edit"
            } = trail(conn, "/admin/publishing/#{slug}/#{post[:uuid]}/edit")
+  end
+
+  test "edit post: a rename saved on the same URL re-titles the post crumb",
+       %{conn: conn, group: group, post: post} do
+    # A save stamps `updated_by_uuid`, a foreign key: the actor must be a real user.
+    user = MediaFixtures.user!()
+
+    {:ok, view, _html} =
+      conn
+      |> put_test_scope(fake_scope(user_uuid: user.uuid))
+      |> live("/admin/publishing/#{group["slug"]}/#{post[:uuid]}/edit")
+
+    _ =
+      render_change(view, "update_meta", %{"title" => "Renamed Subject", "_target" => ["title"]})
+
+    send(view.pid, {:leaf_changed, %{editor_id: "content-editor", markdown: "Body", html: ""}})
+    _ = render_click(view, "save", %{})
+
+    post_path = pub("/#{group["slug"]}/#{post[:uuid]}")
+    crumbs = :sys.get_state(view.pid).socket.assigns.page_crumbs
+
+    assert {"Renamed Subject", post_path} == crumbs |> List.last() |> then(&{&1.label, &1.path})
   end
 
   test "preview: Publishing / <group> / <post> / Preview", %{conn: conn, group: group, post: post} do

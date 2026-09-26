@@ -1,7 +1,7 @@
 defmodule PhoenixKitPublishing.MixProject do
   use Mix.Project
 
-  @version "0.11.0"
+  @version "0.12.0"
   @source_url "https://github.com/BeamLabEU/phoenix_kit_publishing"
 
   def project do
@@ -91,7 +91,7 @@ defmodule PhoenixKitPublishing.MixProject do
       # (MediaReorganizer). An older core has neither module, and every media
       # pick in the editor asks `MediaFolders.enabled?/0`, which calls into
       # `ResourceFolders` — so on any host, opted in or not, choosing a file
-      # would crash the editor. The earlier floors, both still covered:
+      # would crash the editor. The other reasons for the floor, all still covered:
       #
       #   * `PublishingGroup.changeset/2` calls `PhoenixKit.Utils.Slug.put_slug/3`,
       #     which core added in 2.4.0. Under the older `~> 2.0` a host resolving

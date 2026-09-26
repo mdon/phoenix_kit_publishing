@@ -133,7 +133,7 @@ defmodule PhoenixKit.Modules.Publishing.MediaReorganizerTest do
   test "a folder two trashed groups point at is reported once" do
     configure_default_hooks()
     shared = folder!("Shared")
-    point(group!("Older", %{status: "trashed"}), shared)
+    point(backdate!(group!("Older", %{status: "trashed"})), shared)
     point(group!("Newer", %{status: "trashed"}), shared)
 
     assert [%{kind: :orphan, folder: %{uuid: uuid}, reason: reason}] = run()
