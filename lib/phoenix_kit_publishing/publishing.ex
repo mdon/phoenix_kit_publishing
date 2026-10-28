@@ -751,12 +751,17 @@ defmodule PhoenixKit.Modules.Publishing do
   def migration_module, do: PhoenixKitPublishing.Migrations
 
   @doc """
+  The manifest of this module's tables, for `mix phoenix_kit.repair` and
+  `mix phoenix_kit.doctor`; see `PhoenixKit.Modules.Publishing.ExpectedSchema`.
+  """
+  @impl PhoenixKit.Module
+  def expected_schema, do: PhoenixKit.Modules.Publishing.ExpectedSchema
+
+  @doc """
   The places in this module's tables that point at a stored file; see
   `PhoenixKit.Modules.Publishing.FileReferences`.
   """
-  # No `@impl`: the callback exists from the first core release after 2.64.1.
-  # Without it this module still compiles against an older core, where core's
-  # own list for these tables stays in force.
+  @impl PhoenixKit.Module
   def file_references, do: __MODULE__.FileReferences.pairs()
 
   # The group media folders' plan source for `mix phoenix_kit.media.reorganize`

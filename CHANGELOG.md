@@ -1,9 +1,14 @@
 # Changelog
 
-## Unreleased
+## 0.15.0 - 2026-10-27
+
+### Changed
+
+- **Core pin widened to `>= 2.65.0 and < 4.0.0`:** works with core 3.x (core 3.0 stops creating the module tables; this module's own chain builds its tables). The floor is the first core with the `file_references/0` and `expected_schema/0` callbacks, which now carry `@impl PhoenixKit.Module`.
 
 ### Added
 
+- **The module supplies the manifest of its 7 tables** (`expected_schema/0`, `PhoenixKit.Modules.Publishing.ExpectedSchema`), so `mix phoenix_kit.repair` and `mix phoenix_kit.doctor` check and repair them again, now from the module's own chain instead of core's manifest. Generated from `PhoenixKitPublishing.Migrations` by core's `dev_docs/squash/generate_module_manifest.exs`, never edited by hand. Core uses it from the first release after 2.64.1; before that nothing reads it. Repair is additive (it creates what is missing and reports the rest) and checks the tables only while the database is at the chain's current version. No migration.
 - **The module now tells core's orphan-file check which of its rows point at a stored file** (`file_references/0`, in `FileReferences`): `phoenix_kit_publishing_contents`, `phoenix_kit_publishing_versions`. The SQL moved here verbatim from core's `PhoenixKit.Modules.Storage`; a test compares it with core's own copy. Core reads the callback from the first release after 2.64.1; before that, core's own list stays in force. No migration, no change in what counts as an orphan.
 
 ## 0.14.0 - 2026-10-24
